@@ -1,0 +1,22 @@
+{
+  "name": "@devrandom/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "devrandom": "dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/main.ts",
+    "smoke": "node dist/main.js --help",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@devrandom/domain": "workspace:*",
+    "@devrandom/identity": "workspace:*",
+    "@devrandom/protocol": "workspace:*",
+    "commander": "15.0.0",
+    "typebox": "catalog:"
+  }
+}

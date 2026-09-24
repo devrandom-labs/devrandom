@@ -1,0 +1,9 @@
+*.md
+.direnv
+**/.next
+**/out
+apps/site/next-env.d.ts
+coverage
+dist
+node_modules
+pnpm-lock.yaml

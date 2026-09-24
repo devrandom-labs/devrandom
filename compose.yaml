@@ -1,0 +1,148 @@
+name: ${DEVRANDOM_COMPOSE_PROJECT:-devrandom}
+
+x-healthcheck: &healthcheck
+  interval: 2s
+  timeout: 3s
+  retries: 30
+  start_period: 5s
+
+services:
+  mongodb:
+    image: mongo:8.3.11-noble@sha256:02eb14a1130c6d060847c4169eccd4d79d9f172a584da7aea8f160c492537b02
+    command: ['mongod', '--bind_ip_all']
+    ports:
+      - '127.0.0.1:${DEVRANDOM_MONGODB_PORT:-27017}:27017'
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ['CMD-SHELL', "mongosh --quiet --eval 'quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)'"]
+      <<: *healthcheck
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+
+  witnesses:
+    image: weboftrust/keri:1.2.14@sha256:0d48184e58792ed4bdba8ece7e3eebdc4aad079dd25a77bd6d80e06664072990
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /keripy/scripts/keri/cf/main
+        cp /keripy/config-source/*.json /keripy/scripts/keri/cf/main/
+        exec /keripy/venv/bin/kli "$$@"
+      - --
+    command: ['witness', 'demo']
+    environment:
+      PYTHONIOENCODING: UTF-8
+      PYTHONUNBUFFERED: '1'
+    ports:
+      - '127.0.0.1:${DEVRANDOM_WITNESS_WAN_PORT:-5642}:5642'
+      - '127.0.0.1:${DEVRANDOM_WITNESS_WIL_PORT:-5643}:5643'
+      - '127.0.0.1:${DEVRANDOM_WITNESS_WES_PORT:-5644}:5644'
+    volumes:
+      - witness-data:/usr/local/var/keri
+      - ./integration/witnesses:/keripy/config-source:ro
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', 'http://127.0.0.1:5642/oobi']
+      <<: *healthcheck
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+
+  keria:
+    image: weboftrust/keria:0.4.0@sha256:05c3e09444e7e0b8847ba07dab153d1c7d88086bf4f889c122fef96c959b9ed5
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /keria/config/keri/cf
+        cp /keria/config-source/keria.json /keria/config/keri/cf/keria.json
+        exec /keria/.venv/bin/keria "$$@"
+      - --
+    command: ['start', '--config-dir', '/keria/config', '--config-file', 'keria', '--name', 'keria']
+    environment:
+      KERI_AGENT_CORS: '1'
+      PYTHONIOENCODING: UTF-8
+      PYTHONUNBUFFERED: '1'
+    depends_on:
+      witnesses:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${DEVRANDOM_KERIA_ADMIN_PORT:-3901}:3901'
+      - '127.0.0.1:${DEVRANDOM_KERIA_HTTP_PORT:-3902}:3902'
+      - '127.0.0.1:${DEVRANDOM_KERIA_BOOT_PORT:-3903}:3903'
+    volumes:
+      - keria-data:/usr/local/var/keri
+      - ./integration/keria.json:/keria/config-source/keria.json:ro
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', 'http://127.0.0.1:3902/spec.yaml']
+      <<: *healthcheck
+    restart: unless-stopped
+    mem_limit: 1024m
+    cpus: 2.0
+    pids_limit: 512
+
+  issuer:
+    build:
+      context: .
+      dockerfile: services/issuer/Dockerfile
+    command: ['serve']
+    environment:
+      DEVRANDOM_ISSUER_BRAN: ${DEVRANDOM_ISSUER_BRAN:-}
+      DEVRANDOM_ISSUER_PROFILE_PATH: /var/lib/devrandom/issuer-profile.json
+      DEVRANDOM_ISSUER_REGISTRY_POLICY: backerless
+      DEVRANDOM_ISSUER_WITNESS_POLICY: unwitnessed
+      DEVRANDOM_KERIA_ADMIN_URL: http://keria:3901
+      DEVRANDOM_KERIA_BOOT_URL: http://keria:3903
+      DEVRANDOM_MONGODB_URI: mongodb://mongodb:27017/devrandom
+      DEVRANDOM_REGISTRATION_SITE_URL: http://127.0.0.1:${DEVRANDOM_SITE_PORT:-3210}
+      DEVRANDOM_CREDENTIAL_SCHEMA_OOBI_URL: http://issuer:3211/oobi/EOb-FtVoyOOKTAf9GVdIlmfiSL53StlAY8vobkPRdmt4
+      DEVRANDOM_SIGNIFY_TIER: low
+      HOST: 0.0.0.0
+      PORT: '3211'
+    depends_on:
+      keria:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${DEVRANDOM_ISSUER_PORT:-3211}:3211'
+    volumes:
+      - ${DEVRANDOM_STATE_DIR:-./.devrandom}:/var/lib/devrandom
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3211/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      <<: *healthcheck
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+
+  site:
+    build:
+      context: .
+      dockerfile: apps/site/Dockerfile
+    depends_on:
+      issuer:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${DEVRANDOM_SITE_PORT:-3210}:3210'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', 'http://127.0.0.1:3210/']
+      <<: *healthcheck
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+
+volumes:
+  keria-data:
+  mongodb-data:
+  witness-data:

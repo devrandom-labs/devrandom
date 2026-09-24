@@ -1,0 +1,34 @@
+{
+  "name": "@devrandom/site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api:generate": "tsx api-generation.ts",
+    "build": "next build && tsx csp-generation.ts",
+    "dev": "next dev",
+    "e2e": "playwright test",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@devrandom/protocol": "workspace:*",
+    "@emotion/cache": "11.14.0",
+    "@emotion/react": "11.14.0",
+    "@emotion/styled": "11.14.1",
+    "@mui/material": "9.4.0",
+    "@mui/material-nextjs": "9.4.0",
+    "@reduxjs/toolkit": "2.12.0",
+    "next": "16.3.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-redux": "9.3.0",
+    "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "@oazapfts/runtime": "catalog:",
+    "@playwright/test": "catalog:",
+    "@rtk-query/codegen-openapi": "catalog:",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
+}

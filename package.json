@@ -1,0 +1,31 @@
+{
+  "name": "@devrandom/workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": "24.20.0",
+    "pnpm": "12.3.4"
+  },
+  "scripts": {
+    "_boundaries": "tsx tooling/check-workspace.ts",
+    "_format": "prettier --write .",
+    "_format:check": "prettier --check .",
+    "_lint": "eslint .",
+    "_test": "pnpm --filter @devrandom/domain run build && pnpm --filter @devrandom/protocol run build && pnpm --filter @devrandom/identity run build && vitest run",
+    "_typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@devrandom/cli": "workspace:*",
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.6",
+    "eslint": "10.11.0",
+    "prettier": "3.9.9",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1",
+    "vite": "8.3.0",
+    "vitest": "5.0.1"
+  }
+}

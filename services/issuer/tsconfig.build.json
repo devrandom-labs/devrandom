@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "declaration": true,
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "exclude": [
+    "src/**/*.spec.ts",
+    "src/credential-schema-artifact.ts",
+    "src/openapi.ts",
+    "src/smoke.ts"
+  ],
+  "include": ["src/**/*.ts"]
+}

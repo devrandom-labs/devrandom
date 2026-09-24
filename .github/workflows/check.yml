@@ -1,0 +1,25 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v20
+      - name: Restore Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v13
+      - name: Install JavaScript dependencies
+        run: nix develop --command just bootstrap
+      - name: Run repository gates
+        run: nix develop --command just check
+      - name: Run bounded external integration
+        run: nix develop --command just test-integration
