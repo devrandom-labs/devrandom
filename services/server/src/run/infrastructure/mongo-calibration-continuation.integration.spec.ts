@@ -6,9 +6,16 @@ import { harnessRevisionsCollectionName } from '../../harness/infrastructure/mon
 import { MongoActivationCommits } from '../../activation/infrastructure/mongo-activation-commits.js';
 import { MongoRunSuccessorSegments } from './mongo-run-successor-segments.js';
 import { randomUUID } from 'node:crypto';
+import Fastify from 'fastify';
+import Value from 'typebox/value';
+import { runRoutes } from '../route/run-routes.js';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  projectRun,
+  decodeRunProjection,
+  decodeRunSuccessorSegment,
+  runContinuationReceiptSchema,
   authorizedTaskCommandFingerprint,
   harnessCommandFingerprint,
   type TaskProjection,
@@ -35,7 +42,7 @@ import {
 import { evidenceCollectionNames } from '../../evidence/infrastructure/evidence-storage-contract.js';
 import { runFixture, runCommandFingerprint } from '../test/run-fixture.js';
 import { sealedRunPredecessorFixture } from '../test/sealed-run-predecessor-fixture.js';
-import { encodeRunDocument, type RunDocument } from './run-document.js';
+import { decodeRunDocument, encodeRunDocument, type RunDocument } from './run-document.js';
 import { runsCollectionName } from './mongo-runs.js';
 import {
   MongoRunContinuations,
@@ -82,8 +89,8 @@ integration('same calibration Run Mongo continuation', () => {
           budget: task.revision.budgets,
         },
       },
-      leaseAt: new Date(now - 60_000).toISOString(),
-      at: new Date(now - 59_000).toISOString(),
+      leaseAt: new Date(now - 100_000).toISOString(),
+      at: new Date(now - 99_000).toISOString(),
       completionConditionIds: task.revision.completionConditions.map((condition) => condition.id),
     });
     const { run, stream, events, checkpoint } = prior;
@@ -172,7 +179,7 @@ integration('same calibration Run Mongo continuation', () => {
       run,
       command,
       activation,
-      observedAt: new Date(now).toISOString(),
+      observedAt: new Date(now - 42_000).toISOString(),
     };
     expect(
       await writer.admit({
@@ -279,5 +286,152 @@ integration('same calibration Run Mongo continuation', () => {
     expect(
       await db.collection<EvidenceEventDocument>(evidenceCollectionNames.events).countDocuments(),
     ).toBe(events.length);
+    if (admitted.run.lease.kind !== 'Held') throw new Error('held successor');
+    const successorLeaseExpiresAt = admitted.run.lease.expiresAt;
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, Date.parse(successorLeaseExpiresAt) - Date.now() + 30)),
+    );
+    const recovery = {
+      ...input,
+      run: admitted.run,
+      observedAt: new Date().toISOString(),
+      command: {
+        ...command,
+        unstartedSuccessor: {
+          segmentSaid: admitted.segment.d,
+          expectedRunVersion: admitted.run.version,
+        },
+      },
+    };
+    for (const collection of [
+      evidenceCollectionNames.events,
+      evidenceCollectionNames.artifacts,
+      evidenceCollectionNames.checkpoints,
+      evidenceCollectionNames.batches,
+    ]) {
+      const records = db.collection<{ _id: string; evidenceStreamId: string }>(collection);
+      await records.insertOne({
+        _id: 'unstarted-negative-proof',
+        evidenceStreamId: command.successorStreamId,
+      });
+      expect(await writer.admit(recovery)).toEqual({ kind: 'Rejected' });
+      await records.deleteOne({ _id: 'unstarted-negative-proof' });
+    }
+    for (const unstartedSuccessor of [
+      { ...recovery.command.unstartedSuccessor, segmentSaid: `E${'z'.repeat(43)}` },
+      { ...recovery.command.unstartedSuccessor, expectedRunVersion: admitted.run.version + 1 },
+    ])
+      expect(
+        await writer.admit({ ...recovery, command: { ...recovery.command, unstartedSuccessor } }),
+      ).toEqual({ kind: 'Rejected' });
+    await pointers.insertOne({ ...pointer, pendingCommandId: randomUUID() });
+    expect(await writer.admit(recovery)).toEqual({ kind: 'Rejected' });
+    await pointers.deleteMany({});
+    await db
+      .collection<TaskDocument>(tasksCollectionName)
+      .updateOne({ _id: task.taskId }, { $set: { 'lifecycle.kind': 'Closed' } });
+    expect((await writer.admit(recovery)).kind).not.toBe('Equivalent');
+    await db
+      .collection<TaskDocument>(tasksCollectionName)
+      .updateOne({ _id: task.taskId }, { $set: { 'lifecycle.kind': 'Open' } });
+    const changedBudgetRun = {
+      ...admitted.run,
+      consumedBudget: {
+        ...admitted.run.consumedBudget,
+        providerRequests: admitted.run.consumedBudget.providerRequests + 1,
+      },
+    };
+    await db
+      .collection<RunDocument>(runsCollectionName)
+      .replaceOne(
+        { _id: run.binding.runId },
+        encodeRunDocument(changedBudgetRun, runCommandFingerprint),
+      );
+    expect(await writer.admit({ ...recovery, run: changedBudgetRun })).toEqual({
+      kind: 'Rejected',
+    });
+    await db
+      .collection<RunDocument>(runsCollectionName)
+      .replaceOne(
+        { _id: run.binding.runId },
+        encodeRunDocument(admitted.run, runCommandFingerprint),
+      );
+    const http = Fastify();
+    await http.register(
+      runRoutes({
+        access: {
+          authorize: () =>
+            Promise.resolve({
+              kind: 'RunAccessAuthorized',
+              owner: { ownerAid: run.binding.ownerAid, credentialSaid: `E${'w'.repeat(43)}` },
+            }),
+        },
+        conversation: {
+          admit: () => Promise.reject(new Error('unused')),
+          inspect: () => Promise.reject(new Error('unused')),
+          acquireLease: () => Promise.reject(new Error('unused')),
+          renewLease: () => Promise.reject(new Error('unused')),
+        },
+        continuation: {
+          admit: async ({ command: requestCommand }) => {
+            const current = await db
+              .collection<RunDocument>(runsCollectionName)
+              .findOne({ _id: run.binding.runId });
+            if (current === null) return { kind: 'RunNotFound' };
+            const committed = await writer.admit({
+              ...recovery,
+              run: decodeRunDocument(current).run,
+              command: requestCommand,
+            });
+            if (committed.kind !== 'Admitted' && committed.kind !== 'Equivalent') return committed;
+            return {
+              kind: committed.kind,
+              serverTime: recovery.observedAt,
+              receipt: {
+                version: 1,
+                disposition: committed.kind,
+                run: projectRun(committed.run),
+                segment: committed.segment,
+              },
+            };
+          },
+        },
+        now: () => recovery.observedAt,
+        newCorrelationId: randomUUID,
+      }),
+    );
+    const address = await http.listen({ host: '127.0.0.1', port: 0 });
+    let recovered;
+    try {
+      const response = await fetch(`${address}/api/runs/${run.binding.runId}/continuations`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${'s'.repeat(43)}`, 'content-type': 'application/json' },
+        body: JSON.stringify(recovery.command),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('devrandom-continuation-server-time')).toBe(recovery.observedAt);
+      const receipt: unknown = await response.json();
+      if (!Value.Check(runContinuationReceiptSchema, receipt)) throw new Error('invalid receipt');
+      const receivedRun = decodeRunProjection(receipt.run);
+      const receivedSegment = decodeRunSuccessorSegment(receipt.segment);
+      if (receivedRun.kind !== 'Accepted' || receivedSegment.kind !== 'Accepted')
+        throw new Error('invalid signed response');
+      recovered = {
+        kind: 'Equivalent' as const,
+        run: receivedRun.run,
+        segment: receivedSegment.segment,
+      };
+    } finally {
+      await http.close();
+    }
+
+    expect(recovered.kind).toBe('Equivalent');
+    expect(recovered.run.version).toBe(admitted.run.version + 1);
+    expect(recovered.segment).toEqual(admitted.segment);
+    expect(recovered.run.currentExecution).toEqual(admitted.run.currentExecution);
+    expect(recovered.run.consumedBudget).toEqual(admitted.run.consumedBudget);
+    expect(await db.collection(runSuccessorSegmentsCollectionName).countDocuments()).toBe(1);
+    expect(await db.collection(evidenceCollectionNames.streams).countDocuments()).toBe(2);
+    expect(await writer.admit({ ...recovery, run: recovered.run })).toEqual(recovered);
   });
 });

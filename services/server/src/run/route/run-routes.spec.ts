@@ -134,7 +134,14 @@ describe('Run HTTP routes', () => {
       const instance = await server(
         configuration({
           successors: { read: () => Promise.resolve({ kind: 'Found', segment: deliveredSegment }) },
-          continuation: { admit: () => Promise.resolve({ kind: disposition, receipt }) },
+          continuation: {
+            admit: () =>
+              Promise.resolve({
+                kind: disposition,
+                receipt,
+                serverTime: '2026-09-24T20:01:02.000Z',
+              }),
+          },
         }),
       );
       try {
@@ -159,6 +166,9 @@ describe('Run HTTP routes', () => {
           }),
         });
         expect(response.status).toBe(disposition === 'Admitted' ? 201 : 200);
+        expect(response.headers.get('devrandom-continuation-server-time')).toBe(
+          '2026-09-24T20:01:02.000Z',
+        );
         const body: unknown = await response.json();
         expect(body).toEqual(receipt);
         const received = body as typeof receipt;

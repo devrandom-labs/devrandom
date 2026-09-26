@@ -2,6 +2,8 @@ import { taskBudgetCeilings } from '@devrandom/domain';
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import {
   decodeRunProjection,
+  runContinuationServerTimeHeader,
+  decodeRunContinuationServerTime,
   decodeRunSuccessorSegment,
   runAdmissionCommandSchema,
   runAdmissionForbiddenProblemSchema,
@@ -89,7 +91,11 @@ export interface RunRoutesConfiguration {
       readonly runId: string;
       readonly command: RunContinuationRequest;
     }): Promise<
-      | { readonly kind: 'Admitted' | 'Equivalent'; readonly receipt: RunContinuationReceipt }
+      | {
+          readonly kind: 'Admitted' | 'Equivalent';
+          readonly receipt: RunContinuationReceipt;
+          readonly serverTime: string;
+        }
       | { readonly kind: 'RunNotFound' | 'Rejected' | 'Unavailable' }
     >;
   };
@@ -738,12 +744,14 @@ export function runRoutes(configuration: RunRoutesConfiguration): FastifyPluginC
         const correlationId = configuration.newCorrelationId();
         if (
           (outcome?.kind === 'Admitted' || outcome?.kind === 'Equivalent') &&
+          decodeRunContinuationServerTime(outcome.serverTime) !== undefined &&
           Check(runContinuationReceiptSchema, outcome.receipt) &&
           decodeRunProjection(outcome.receipt.run).kind === 'Accepted' &&
           decodeRunSuccessorSegment(outcome.receipt.segment).kind === 'Accepted'
         ) {
           await reply
             .code(outcome.kind === 'Admitted' ? 201 : 200)
+            .header(runContinuationServerTimeHeader, outcome.serverTime)
             .serializer(JSON.stringify)
             .send(outcome.receipt);
         } else if (outcome?.kind === 'RunNotFound') {

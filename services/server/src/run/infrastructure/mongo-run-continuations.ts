@@ -1,6 +1,12 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import { createEvidenceStream, continueRun, continueCalibrationRun } from '@devrandom/domain';
+import {
+  createEvidenceStream,
+  continueRun,
+  continueCalibrationRun,
+  recoverUnstartedRunContinuation,
+  type Run,
+} from '@devrandom/domain';
 import {
   decodeRunSuccessorSegment,
   evidenceArtifactReferences,
@@ -90,6 +96,7 @@ export class MongoRunContinuations implements RunContinuationCommitments {
   readonly #pointers: Collection<ActivationPointerDocument>;
   readonly #harnesses: Collection<HarnessDocument>;
   readonly #transitions: Collection<{ ownerAid: string; taskId: string }>;
+  readonly #batches: Collection<{ evidenceStreamId: string }>;
 
   constructor(client: MongoClient, database: Db) {
     this.#client = client;
@@ -103,6 +110,7 @@ export class MongoRunContinuations implements RunContinuationCommitments {
     this.#pointers = database.collection(activationCollectionNames.pointers);
     this.#harnesses = database.collection(harnessRevisionsCollectionName);
     this.#transitions = database.collection(activationCollectionNames.transitions);
+    this.#batches = database.collection(evidenceCollectionNames.batches);
   }
 
   async admit(
@@ -141,7 +149,8 @@ export class MongoRunContinuations implements RunContinuationCommitments {
     );
     if (existing !== null) {
       const decoded = decodeRunSuccessorSegment(existing.segment);
-      return decoded.kind === 'Accepted' &&
+      const exact =
+        decoded.kind === 'Accepted' &&
         existing._id === decoded.segment.d &&
         decoded.segment.fromRunVersion === input.command.expectedRunVersion &&
         run.currentExecution?.segmentSaid === existing._id &&
@@ -159,10 +168,16 @@ export class MongoRunContinuations implements RunContinuationCommitments {
             decoded.segment.activation.pointerVersion ===
               input.command.expectedActivePointerVersion &&
             decoded.segment.activation.decisionReceiptSaid ===
-              input.command.expectedActivationReceiptSaid)
-        ? { kind: 'Equivalent', run, segment: decoded.segment }
-        : rejected();
+              input.command.expectedActivationReceiptSaid);
+      if (!exact) return rejected();
+      if (input.command.version === 2 && input.command.unstartedSuccessor !== undefined) {
+        return this.#recoverUnstarted(input, document, run, decoded.segment, session);
+      }
+      return { kind: 'Equivalent', run, segment: decoded.segment };
     }
+    if (input.command.version === 2 && input.command.unstartedSuccessor !== undefined)
+      return rejected();
+
     if (
       run.version !== input.run.version ||
       run.version !== input.command.expectedRunVersion ||
@@ -178,48 +193,7 @@ export class MongoRunContinuations implements RunContinuationCommitments {
       { session },
     );
     if (input.command.version === 2) {
-      if (
-        input.activation.kind !== 'Initial' ||
-        input.activation.taskId !== run.binding.taskId ||
-        input.activation.taskRevisionSaid !== run.binding.taskRevisionSaid ||
-        input.activation.harnessLineageId !== run.binding.harnessLineageId ||
-        input.activation.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
-        input.command.expectedHarnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
-        (pointer !== null &&
-          (pointer.version !== 1 ||
-            pointer.pendingCommandId !== undefined ||
-            pointer.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
-            pointer.taskRevisionSaid !== run.binding.taskRevisionSaid ||
-            pointer.harnessLineageId !== run.binding.harnessLineageId)) ||
-        (await this.#transitions.findOne(
-          { ownerAid: input.ownerAid, taskId: run.binding.taskId },
-          { session },
-        )) !== null
-      )
-        return rejected();
-      // Initial activation belongs to the accepted H1 record. A pointer is only
-      // materialized by promotion; absence does not invalidate that activation.
-      const initialHarnesses = await this.#harnesses
-        .find(
-          {
-            ownerAid: input.ownerAid,
-            taskId: run.binding.taskId,
-            'activation.kind': 'InitialSpecializationAccepted',
-          },
-          { session },
-        )
-        .limit(2)
-        .toArray();
-      const initial = initialHarnesses[0];
-      if (initialHarnesses.length !== 1 || initial === undefined) return rejected();
-      const accepted = decodeHarnessDocument(initial);
-      if (
-        initial._id !== run.binding.initialHarnessRevisionSaid ||
-        initial.taskRevisionSaid !== run.binding.taskRevisionSaid ||
-        initial.harnessLineageId !== run.binding.harnessLineageId ||
-        !isDeepStrictEqual(accepted.activation, run.binding.initialSpecialization)
-      )
-        return rejected();
+      if (!(await this.#initialActivationMatches(input, run, pointer, session))) return rejected();
     } else if (
       pointer === null ||
       pointer.version !== input.activation.pointerVersion ||
@@ -428,6 +402,164 @@ export class MongoRunContinuations implements RunContinuationCommitments {
     );
     if (replaced.modifiedCount !== 1) throw new ContinuationAborted();
     return { kind: 'Admitted', run: continued.run, segment: prepared.segment };
+  }
+
+  async #initialActivationMatches(
+    input: Parameters<RunContinuationCommitments['admit']>[0],
+    run: Run,
+    pointer: ActivationPointerDocument | null,
+    session: ClientSession,
+  ): Promise<boolean> {
+    if (input.command.version !== 2) return false;
+    if (
+      input.activation.kind !== 'Initial' ||
+      input.activation.taskId !== run.binding.taskId ||
+      input.activation.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+      input.activation.harnessLineageId !== run.binding.harnessLineageId ||
+      input.activation.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+      input.command.expectedHarnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+      (pointer !== null &&
+        (pointer.version !== 1 ||
+          pointer.pendingCommandId !== undefined ||
+          pointer.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+          pointer.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+          pointer.harnessLineageId !== run.binding.harnessLineageId)) ||
+      (await this.#transitions.findOne(
+        { ownerAid: input.ownerAid, taskId: run.binding.taskId },
+        { session },
+      )) !== null
+    )
+      return false;
+    // Initial activation belongs to the accepted H1 record. A pointer is only
+    // materialized by promotion; absence does not invalidate that activation.
+    const initialHarnesses = await this.#harnesses
+      .find(
+        {
+          ownerAid: input.ownerAid,
+          taskId: run.binding.taskId,
+          'activation.kind': 'InitialSpecializationAccepted',
+        },
+        { session },
+      )
+      .limit(2)
+      .toArray();
+    const initial = initialHarnesses[0];
+    if (initialHarnesses.length !== 1 || initial === undefined) return false;
+    const accepted = decodeHarnessDocument(initial);
+    if (
+      initial._id !== run.binding.initialHarnessRevisionSaid ||
+      initial.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+      initial.harnessLineageId !== run.binding.harnessLineageId ||
+      !isDeepStrictEqual(accepted.activation, run.binding.initialSpecialization)
+    )
+      return false;
+    return true;
+  }
+
+  async #recoverUnstarted(
+    input: Parameters<RunContinuationCommitments['admit']>[0],
+    document: RunDocument,
+    run: Run,
+    segment: RunSuccessorSegment,
+    session: ClientSession,
+  ): ReturnType<RunContinuationCommitments['admit']> {
+    if (
+      input.command.version !== 2 ||
+      input.command.unstartedSuccessor === undefined ||
+      segment.version !== 2 ||
+      input.command.unstartedSuccessor.segmentSaid !== segment.d ||
+      run.version !== input.run.version ||
+      !isDeepStrictEqual(run.binding, input.run.binding) ||
+      run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
+      segment.runId !== run.binding.runId ||
+      segment.ownerAid !== input.ownerAid ||
+      segment.taskId !== run.binding.taskId ||
+      segment.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+      segment.personalAgentAid !== run.binding.personalAgentAid ||
+      segment.taskMandateSaid !== run.binding.taskMandateSaid ||
+      run.currentExecution?.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+      run.currentExecution.evidenceStreamId !== segment.successor.evidenceStreamId
+    )
+      return rejected();
+    const pointer = await this.#pointers.findOne(
+      { _id: run.binding.taskId, ownerAid: input.ownerAid },
+      { session },
+    );
+    if (!(await this.#initialActivationMatches(input, run, pointer, session))) return rejected();
+    const taskDocument = await this.#tasks.findOne(
+      { _id: run.binding.taskId, ownerAid: input.ownerAid },
+      { session },
+    );
+    if (taskDocument === null) return rejected();
+    const task = decodeTaskDocument(taskDocument).task;
+    if (
+      task.lifecycle.kind !== 'Open' ||
+      task.revisionSaid !== run.binding.taskRevisionSaid ||
+      task.harnessLineageId !== run.binding.harnessLineageId ||
+      Date.parse(task.revision.expiresAt) <= Date.parse(input.observedAt)
+    )
+      return rejected();
+    const streamDocument = await this.#streams.findOne(
+      { _id: segment.successor.evidenceStreamId },
+      { session },
+    );
+    if (streamDocument === null) return rejected();
+    const stream = decodeEvidenceStreamDocument(streamDocument);
+    if (
+      stream.version !== 0 ||
+      stream.cursor.kind !== 'Genesis' ||
+      stream.provisional.kind !== 'None' ||
+      stream.seal.kind !== 'Open' ||
+      stream.acceptedEvidenceBytes !== 0 ||
+      stream.acceptedArtifactBytes !== 0 ||
+      stream.binding.ownerAid !== input.ownerAid ||
+      stream.binding.runId !== run.binding.runId ||
+      stream.binding.incarnationId !== segment.successor.incarnationId ||
+      stream.binding.taskId !== run.binding.taskId ||
+      stream.binding.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+      stream.binding.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+      stream.binding.personalAgentAid !== run.binding.personalAgentAid ||
+      stream.binding.taskMandateSaid !== run.binding.taskMandateSaid
+    )
+      return rejected();
+    const scope = { evidenceStreamId: segment.successor.evidenceStreamId };
+    if (
+      (await this.#events.findOne(scope, { session })) !== null ||
+      (await this.#artifacts.findOne(scope, { session })) !== null ||
+      (await this.#checkpoints.findOne(scope, { session })) !== null ||
+      (await this.#batches.findOne(scope, { session })) !== null
+    )
+      return rejected();
+    const recovered = recoverUnstartedRunContinuation(run, {
+      ...input.command.unstartedSuccessor,
+      incarnationId: segment.successor.incarnationId,
+      evidenceStreamId: segment.successor.evidenceStreamId,
+      consumedBudget: segment.consumedBudget,
+      serverTime: input.observedAt,
+      execution: 'NeverStarted',
+    });
+    if (recovered.kind === 'Rejected' || recovered.run.lease.kind !== 'Held') return rejected();
+    if (recovered.kind === 'Equivalent') return { kind: 'Equivalent', run: recovered.run, segment };
+    const replaced = await this.#runs.replaceOne(
+      {
+        _id: run.binding.runId,
+        ownerAid: input.ownerAid,
+        runVersion: run.version,
+        'lease.kind': 'Held',
+        'lease.incarnationId': segment.successor.incarnationId,
+        'currentExecution.segmentSaid': segment.d,
+        $expr: {
+          $and: [
+            { $lte: [{ $toDate: '$lease.expiresAt' }, '$$NOW'] },
+            { $gt: [new Date(recovered.run.lease.expiresAt), '$$NOW'] },
+          ],
+        },
+      },
+      encodeRunDocument(recovered.run, document.commandFingerprint),
+      { session },
+    );
+    if (replaced.modifiedCount !== 1) throw new ContinuationAborted();
+    return { kind: 'Equivalent', run: recovered.run, segment };
   }
 
   async #rawReferencesExist(

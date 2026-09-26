@@ -53,7 +53,11 @@ export async function admitRunContinuation(
     now(): string;
   },
 ): Promise<
-  | { readonly kind: 'Admitted' | 'Equivalent'; readonly receipt: RunContinuationReceipt }
+  | {
+      readonly kind: 'Admitted' | 'Equivalent';
+      readonly receipt: RunContinuationReceipt;
+      readonly serverTime: string;
+    }
   | { readonly kind: 'RunNotFound' | 'Rejected' | 'Unavailable' }
 > {
   const credential = await dependencies.credentials.verify(input.owner);
@@ -122,6 +126,7 @@ export async function admitRunContinuation(
     return { kind: committed.kind };
   return {
     kind: committed.kind,
+    serverTime: observedAt,
     receipt: {
       version: 1,
       disposition: committed.kind,
