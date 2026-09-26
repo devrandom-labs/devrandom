@@ -53,23 +53,31 @@ describe('credential delivery reconciliation', () => {
       sad: { ...credential('EWork').sad, s: 'EWorkSchema', a: { i: 'EAgent' } },
     };
     const list = vi
-      .spyOn(credentials, 'list')
-      .mockResolvedValueOnce(Array.from({ length: 1_000 }, () => unrelated))
-      .mockResolvedValueOnce([credential('EExpected')]);
+      .spyOn(client, 'fetch')
+      .mockResolvedValueOnce(Response.json(Array.from({ length: 1_000 }, () => unrelated)))
+      .mockResolvedValueOnce(Response.json([credential('EExpected')]));
     vi.spyOn(operations, 'list').mockResolvedValue([]);
-    const delivery = signifyDevrandomUserCredentialDelivery(
-      client,
-      Type.Object({}, { $id: 'ESchema' }),
-    );
+    const delivery = signifyDevrandomUserCredentialDelivery(client, {
+      ...Type.Object({}),
+      $id: 'ESchema',
+    });
     await expect(delivery.reconcileCredential(issuance)).resolves.toEqual({
       kind: 'credential-submitted',
       credentialSaid: 'EExpected',
       operationName: 'credential-reconciled/EExpected',
     });
-    expect(list).toHaveBeenNthCalledWith(2, { skip: 1_000, limit: 1_000 });
-    list.mockResolvedValueOnce([
-      { ...credential('EBroken'), sad: { ...credential('EBroken').sad, a: { i: 'EUser' } } },
-    ]);
+    expect(list).toHaveBeenNthCalledWith(
+      2,
+      '/credentials/query',
+      'POST',
+      expect.objectContaining({ skip: 1_000, limit: 1_000 }),
+      undefined,
+    );
+    list.mockResolvedValueOnce(
+      Response.json([
+        { ...credential('EBroken'), sad: { ...credential('EBroken').sad, a: { i: 'EUser' } } },
+      ]),
+    );
     await expect(delivery.reconcileCredential(issuance)).rejects.toThrow(IdentityFailure);
   });
 
