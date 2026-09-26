@@ -14,15 +14,28 @@ import {
 } from '@devrandom/domain';
 import {
   decodeEvaluationClosure,
+  evidenceArtifactReferences,
   evaluationAdmissionCommandSchema,
   prepareEvidenceArtifact,
 } from '@devrandom/protocol';
 
 import {
+  decodeEvidenceArtifactDocument,
+  type EvidenceArtifactDocument,
+} from '../../evidence/infrastructure/evidence-artifact-document.js';
+import {
   decodeEvidenceCheckpointDocument,
   type EvidenceCheckpointDocument,
 } from '../../evidence/infrastructure/evidence-checkpoint-document.js';
 import { evidenceCollectionNames } from '../../evidence/infrastructure/evidence-storage-contract.js';
+import {
+  decodeEvidenceEventDocument,
+  type EvidenceEventDocument,
+} from '../../evidence/infrastructure/evidence-event-document.js';
+import {
+  evidenceEventBelongsToRun,
+  privacyCheckpointMarkersMatch,
+} from '../../evidence/domain/run-binding.js';
 import {
   decodeEvidenceStreamDocument,
   type EvidenceStreamDocument,
@@ -101,6 +114,8 @@ export class MongoTaskResidualAllowance {
   readonly #runs: Collection<RunDocument>;
   readonly #streams: Collection<EvidenceStreamDocument>;
   readonly #checkpoints: Collection<EvidenceCheckpointDocument>;
+  readonly #events: Collection<EvidenceEventDocument>;
+  readonly #artifacts: Collection<EvidenceArtifactDocument>;
   readonly #evaluations: Collection<EvaluationSpendDocument>;
 
   constructor(database: Db) {
@@ -108,6 +123,8 @@ export class MongoTaskResidualAllowance {
     this.#runs = database.collection(runsCollectionName);
     this.#streams = database.collection(evidenceCollectionNames.streams);
     this.#checkpoints = database.collection(evidenceCollectionNames.checkpoints);
+    this.#events = database.collection(evidenceCollectionNames.events);
+    this.#artifacts = database.collection(evidenceCollectionNames.artifacts);
     this.#evaluations = database.collection(evaluationCollectionNames.evaluations);
   }
 
@@ -221,11 +238,91 @@ export class MongoTaskResidualAllowance {
                 checkpoint.budget.remaining[name] !==
                 Math.max(0, run.binding.budget[name] - run.consumedBudget[name]),
             ) ||
-            stream.cursor.kind !== 'Continued' ||
-            stream.cursor.acceptedThrough !== checkpoint.evidence.finalSequence ||
-            stream.cursor.chainHeadSaid !== checkpoint.evidence.chainHeadSaid
+            stream.cursor.kind !== 'Continued'
           )
             return { kind: 'Blocked', reason: 'RunProofInvalid' };
+          const eventDocuments = await this.#events
+            .find(
+              {
+                ownerAid: input.ownerAid,
+                runId: run.binding.runId,
+                evidenceStreamId: run.binding.evidenceStreamId,
+                sequence: { $lte: stream.cursor.acceptedThrough },
+              },
+              options,
+            )
+            .sort({ sequence: 1 })
+            .toArray();
+          if (eventDocuments.length !== stream.cursor.acceptedThrough + 1)
+            return { kind: 'Blocked', reason: 'RunProofInvalid' };
+          const events = eventDocuments.map((document) => {
+            const accepted = decodeEvidenceEventDocument(document);
+            if (
+              accepted.ownerAid !== input.ownerAid ||
+              accepted.evidenceStreamId !== run.binding.evidenceStreamId ||
+              !evidenceEventBelongsToRun(accepted.event, run)
+            )
+              throw new Error('Run event custody mismatch');
+            return accepted.event;
+          });
+          for (let sequence = 0; sequence < events.length; sequence++) {
+            const event = events[sequence];
+            if (
+              event === undefined ||
+              event.sequence !== sequence ||
+              (sequence === 0
+                ? event.predecessor.kind !== 'Genesis'
+                : event.predecessor.kind !== 'Previous' ||
+                  event.predecessor.eventSaid !== events[sequence - 1]?.d)
+            )
+              return { kind: 'Blocked', reason: 'RunProofInvalid' };
+          }
+          const checkpointEvent = events[checkpoint.evidence.finalSequence];
+          if (
+            checkpoint.evidence.eventCount !== checkpoint.evidence.finalSequence + 1 ||
+            checkpointEvent?.d !== checkpoint.evidence.chainHeadSaid ||
+            checkpointEvent.incarnationId !== checkpoint.incarnationId ||
+            events.at(-1)?.d !== stream.cursor.chainHeadSaid ||
+            !privacyCheckpointMarkersMatch(
+              checkpoint,
+              events.slice(0, checkpoint.evidence.finalSequence + 1),
+            )
+          )
+            return { kind: 'Blocked', reason: 'RunProofInvalid' };
+          const references = new Set<string>([
+            ...events.flatMap((event) => evidenceArtifactReferences(event.event)),
+            ...checkpoint.outputArtifactSaids,
+            ...checkpoint.verifierReceipts.flatMap((receipt) =>
+              receipt.outcome.kind === 'Accepted' || receipt.outcome.kind === 'Rejected'
+                ? receipt.outcome.outputArtifactSaids
+                : [],
+            ),
+          ]);
+          if (references.size > 0) {
+            const artifacts = await this.#artifacts
+              .find(
+                {
+                  ownerAid: input.ownerAid,
+                  runId: run.binding.runId,
+                  evidenceStreamId: run.binding.evidenceStreamId,
+                  'artifact.d': { $in: [...references] },
+                },
+                options,
+              )
+              .toArray();
+            if (artifacts.length !== references.size)
+              return { kind: 'Blocked', reason: 'RunProofMissing' };
+            for (const document of artifacts) {
+              const artifact = decodeEvidenceArtifactDocument(document);
+              if (
+                artifact.ownerAid !== input.ownerAid ||
+                artifact.runId !== run.binding.runId ||
+                artifact.evidenceStreamId !== run.binding.evidenceStreamId ||
+                !references.has(artifact.artifact.d)
+              )
+                return { kind: 'Blocked', reason: 'RunProofInvalid' };
+            }
+          }
         } catch {
           return { kind: 'Blocked', reason: 'RunProofInvalid' };
         }

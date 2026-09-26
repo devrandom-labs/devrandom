@@ -13,15 +13,30 @@ import {
 import {
   prepareEvaluationClosure,
   prepareEvidenceArtifact,
+  prepareEvidenceEvent,
   preparePublicVerifierReceipt,
   prepareVerifiedCheckpoint,
   taskCommandFingerprint,
 } from '@devrandom/protocol';
 
-import { encodeEvidenceCheckpointDocument } from '../../evidence/infrastructure/evidence-checkpoint-document.js';
+import {
+  encodeEvidenceCheckpointDocument,
+  type EvidenceCheckpointDocument,
+} from '../../evidence/infrastructure/evidence-checkpoint-document.js';
+import {
+  encodeEvidenceArtifactDocument,
+  type EvidenceArtifactDocument,
+} from '../../evidence/infrastructure/evidence-artifact-document.js';
+import {
+  encodeEvidenceEventDocument,
+  type EvidenceEventDocument,
+} from '../../evidence/infrastructure/evidence-event-document.js';
 import { evidenceCollectionNames } from '../../evidence/infrastructure/evidence-storage-contract.js';
-import { encodeEvidenceStreamDocument } from '../../evidence/infrastructure/evidence-stream-document.js';
-import { encodeRunDocument } from '../../run/infrastructure/run-document.js';
+import {
+  encodeEvidenceStreamDocument,
+  type EvidenceStreamDocument,
+} from '../../evidence/infrastructure/evidence-stream-document.js';
+import { encodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
 import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
 import { runCommandFingerprint, runFixture } from '../../run/test/run-fixture.js';
 import { encodeTaskDocument, type TaskDocument } from '../../task/infrastructure/task-document.js';
@@ -165,13 +180,43 @@ function closedEvaluation(consumed = amount(3)) {
 function sealedRunProof() {
   const original = runFixture();
   const consumedBudget = { ...original.consumedBudget, providerRequests: 4 };
+  const incarnationId = 'd9cb18e4-f4f8-4378-a852-353eef083d91';
   const run = {
     ...original,
-    binding: { ...original.binding, ownerAid: taskOwnerAid, taskRevisionSaid },
+    version: 1,
+    binding: { ...original.binding, ownerAid: taskOwnerAid, taskId, taskRevisionSaid },
+    lease: {
+      kind: 'Held' as const,
+      incarnationId,
+      acquiredAt: '2026-09-24T20:00:00.000Z',
+      expiresAt: '2026-09-24T20:05:00.000Z',
+      lastChange: { kind: 'Acquired' as const, fromRunVersion: 0 },
+    },
     consumedBudget,
   };
-  const incarnationId = 'd9cb18e4-f4f8-4378-a852-353eef083d91';
-  const chainHeadSaid = `E${'q'.repeat(43)}`;
+  const raw = new TextEncoder().encode('retained Run observation');
+  const artifact = prepareEvidenceArtifact(raw, 'text/plain; charset=utf-8');
+  if (artifact.kind !== 'Prepared') throw new Error('artifact rejected');
+  const eventDraft = {
+    version: 1 as const,
+    taskId,
+    taskRevisionSaid,
+    runId: run.binding.runId,
+    incarnationId,
+    harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+    personalAgentAid: run.binding.personalAgentAid,
+    taskMandateSaid: run.binding.taskMandateSaid,
+    occurredAt: '2026-09-24T20:00:00.000Z',
+    recordedAt: '2026-09-24T20:00:00.000Z',
+    producer: { kind: 'EvidenceRecorder' as const },
+  };
+  const first = prepareEvidenceEvent({
+    ...eventDraft,
+    sequence: 0,
+    predecessor: { kind: 'Genesis' },
+    event: { kind: 'Observation', source: 'Repository', artifactSaid: artifact.artifact.d },
+  });
+  if (first.kind !== 'Prepared') throw new Error('first event rejected');
   const receipt = preparePublicVerifierReceipt({
     version: 1,
     completionConditionId: 'public-check',
@@ -202,7 +247,7 @@ function sealedRunProof() {
       },
       outputArtifactSaids: [],
       verifierReceipts: [receipt.receipt],
-      evidence: { eventCount: 1, finalSequence: 0, chainHeadSaid },
+      evidence: { eventCount: 1, finalSequence: 0, chainHeadSaid: first.event.d },
       budget: {
         consumed: consumedBudget,
         remaining: {
@@ -220,6 +265,20 @@ function sealedRunProof() {
     ['public-check'],
   );
   if (checkpoint.kind !== 'Prepared') throw new Error('checkpoint rejected');
+  const verified = prepareEvidenceEvent({
+    ...eventDraft,
+    sequence: 1,
+    predecessor: { kind: 'Previous', eventSaid: first.event.d },
+    event: { kind: 'CheckpointVerified', checkpointSaid: checkpoint.checkpoint.d },
+  });
+  if (verified.kind !== 'Prepared') throw new Error('verified event rejected');
+  const acceptedEvent = prepareEvidenceEvent({
+    ...eventDraft,
+    sequence: 2,
+    predecessor: { kind: 'Previous', eventSaid: verified.event.d },
+    event: { kind: 'CheckpointAccepted', checkpointSaid: checkpoint.checkpoint.d },
+  });
+  if (acceptedEvent.kind !== 'Prepared') throw new Error('accepted event rejected');
   const blocked = {
     ...run,
     lifecycle: {
@@ -249,7 +308,7 @@ function sealedRunProof() {
     startingSequence: 0,
     endingSequence: 0,
     predecessor: { kind: 'Genesis' },
-    eventSaids: [chainHeadSaid],
+    eventSaids: [first.event.d],
     encodedBytes: 256,
     checkpoint: {
       kind: 'Present',
@@ -259,11 +318,21 @@ function sealedRunProof() {
     },
   });
   if (accepted.kind !== 'Accepted') throw new Error('stream batch rejected');
-  const sealed = sealEvidenceStream(accepted.stream, {
+  const continued = acceptEvidenceBatch(accepted.stream, {
+    batchSaid: `E${'k'.repeat(43)}`,
+    startingSequence: 1,
+    endingSequence: 2,
+    predecessor: { kind: 'Previous', eventSaid: first.event.d },
+    eventSaids: [verified.event.d, acceptedEvent.event.d],
+    encodedBytes: 256,
+    checkpoint: { kind: 'Absent' },
+  });
+  if (continued.kind !== 'Accepted') throw new Error('post-checkpoint batch rejected');
+  const sealed = sealEvidenceStream(continued.stream, {
     exchangeSaid: `E${'l'.repeat(43)}`,
-    eventCount: 1,
-    finalSequence: 0,
-    chainHeadSaid,
+    eventCount: 3,
+    finalSequence: 2,
+    chainHeadSaid: acceptedEvent.event.d,
     sealedAt: '2026-09-24T20:00:05.000Z',
   });
   if (sealed.kind !== 'Sealed') throw new Error('stream seal rejected');
@@ -280,6 +349,25 @@ function sealedRunProof() {
       },
       ['public-check'],
     ),
+    events: [first.event, verified.event, acceptedEvent.event].map((event, index) =>
+      encodeEvidenceEventDocument({
+        ownerAid: taskOwnerAid,
+        evidenceStreamId: run.binding.evidenceStreamId,
+        batchSaid: `E${(index === 0 ? 'j' : 'k').repeat(43)}`,
+        event,
+        receivedAt: '2026-09-24T20:00:05.000Z',
+      }),
+    ),
+    artifacts: [
+      encodeEvidenceArtifactDocument({
+        ownerAid: taskOwnerAid,
+        runId: run.binding.runId,
+        evidenceStreamId: run.binding.evidenceStreamId,
+        artifact: artifact.artifact,
+        bytes: raw,
+        acceptedAt: '2026-09-24T20:00:05.000Z',
+      }),
+    ],
   };
 }
 
@@ -289,6 +377,8 @@ function database(input: {
   evaluations?: unknown[];
   streams?: unknown[];
   checkpoints?: unknown[];
+  events?: unknown[];
+  artifacts?: unknown[];
 }): Db {
   const collections = new Map<string, unknown[]>([
     ['tasks', input.task === undefined ? [] : [input.task]],
@@ -296,12 +386,17 @@ function database(input: {
     [evaluationCollectionNames.evaluations, input.evaluations ?? []],
     [evidenceCollectionNames.streams, input.streams ?? []],
     [evidenceCollectionNames.checkpoints, input.checkpoints ?? []],
+    [evidenceCollectionNames.events, input.events ?? []],
+    [evidenceCollectionNames.artifacts, input.artifacts ?? []],
   ]);
   return {
     collection(name: string) {
       return {
         findOne: () => Promise.resolve((collections.get(name) ?? [])[0] ?? null),
-        find: () => ({ toArray: () => Promise.resolve(collections.get(name) ?? []) }),
+        find: () => ({
+          sort: () => ({ toArray: () => Promise.resolve(collections.get(name) ?? []) }),
+          toArray: () => Promise.resolve(collections.get(name) ?? []),
+        }),
       };
     },
   } as unknown as Db;
@@ -379,6 +474,8 @@ describe('current Task residual allowance', () => {
       runs: [proof.run],
       streams: [proof.stream],
       checkpoints: [proof.checkpoint],
+      events: proof.events,
+      artifacts: proof.artifacts,
     };
     expect(await new MongoTaskResidualAllowance(database(base)).inspect(request)).toMatchObject({
       kind: 'Available',
@@ -390,6 +487,14 @@ describe('current Task residual allowance', () => {
       kind: 'Blocked',
       reason: 'RunProofMissing',
     });
+    expect(
+      await new MongoTaskResidualAllowance(
+        database({ ...base, events: [proof.events[0], proof.events[2]] }),
+      ).inspect(request),
+    ).toEqual({ kind: 'Blocked', reason: 'RunProofInvalid' });
+    expect(
+      await new MongoTaskResidualAllowance(database({ ...base, artifacts: [] })).inspect(request),
+    ).toEqual({ kind: 'Blocked', reason: 'RunProofMissing' });
     expect(
       await new MongoTaskResidualAllowance(
         database({
@@ -504,5 +609,37 @@ withMongo('Mongo current Task residual allowance', () => {
       reason: 'EvaluationDebitProofMissing',
     });
     expect(await database.collection(runsCollectionName).countDocuments({})).toBe(0);
+  });
+
+  it('counts a retained Run whose checkpoint is an authenticated prefix of a later sealed chain', async () => {
+    const proof = sealedRunProof();
+    await database.dropDatabase();
+    await database.collection<TaskDocument>(tasksCollectionName).insertOne(taskDocument());
+    await database.collection<RunDocument>(runsCollectionName).insertOne(proof.run);
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .insertOne(proof.stream);
+    await database
+      .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+      .insertOne(proof.checkpoint);
+    await database
+      .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+      .insertMany(proof.events);
+    await database
+      .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
+      .insertMany(proof.artifacts);
+    expect(await new MongoTaskResidualAllowance(database).inspect(request)).toMatchObject({
+      kind: 'Available',
+      remaining: { providerRequests: 26 },
+    });
+    const middle = proof.events[1];
+    if (middle === undefined) throw new Error('fixture middle event missing');
+    await database
+      .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+      .deleteOne({ _id: middle.event.d });
+    expect(await new MongoTaskResidualAllowance(database).inspect(request)).toEqual({
+      kind: 'Blocked',
+      reason: 'RunProofInvalid',
+    });
   });
 });
