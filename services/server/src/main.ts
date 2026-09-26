@@ -101,10 +101,13 @@ import { workAccessMandateAuthorizer } from './mandate/infrastructure/work-acces
 import type { MandateRoutesConfiguration } from './mandate/route/mandate-routes.js';
 import { acquireRunLease } from './run/application/acquire-run-lease.js';
 import { admitRun } from './run/application/admit-run.js';
+import { admitRunContinuation } from './run/application/admit-run-continuation.js';
 import { inspectRun } from './run/application/inspect-run.js';
 import { renewHeldRunLease } from './run/application/renew-run-lease.js';
 import type { CurrentRunMandates } from './run/application/run-authority.js';
 import { MongoRunBootstrap } from './run/infrastructure/mongo-run-bootstrap.js';
+import { MongoRunContinuationBootstrap } from './run/infrastructure/mongo-run-continuation-bootstrap.js';
+import { MongoRunContinuations } from './run/infrastructure/mongo-run-continuations.js';
 import { MongoRuns } from './run/infrastructure/mongo-runs.js';
 import { workAccessRunAuthorizer } from './run/infrastructure/work-access-run-authorizer.js';
 import type { RunRoutesConfiguration } from './run/route/run-routes.js';
@@ -197,6 +200,8 @@ async function runBootstrap(environment: DevrandomServerEnvironment): Promise<nu
         await new MongoHarnessBootstrap(hostedWorkMongo.db()).bootstrap();
         storageStage = 'run';
         await new MongoRunBootstrap(hostedWorkMongo.db()).bootstrap();
+        storageStage = 'run-continuation';
+        await new MongoRunContinuationBootstrap(hostedWorkMongo.db()).bootstrap();
         storageStage = 'evidence';
         await new MongoEvidenceBootstrap(hostedWorkMongo.db()).bootstrap();
         storageStage = 'evaluation';
@@ -322,6 +327,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     const mandateBootstrap = new MongoMandateBootstrap(hostedDatabase);
     const harnessBootstrap = new MongoHarnessBootstrap(hostedDatabase);
     const runBootstrap = new MongoRunBootstrap(hostedDatabase);
+    const runContinuationBootstrap = new MongoRunContinuationBootstrap(hostedDatabase);
     const evidenceBootstrap = new MongoEvidenceBootstrap(hostedDatabase);
     const evaluationBootstrap = new MongoEvaluationBootstrap(hostedDatabase);
     await workAccessBootstrap.verify();
@@ -329,6 +335,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     await mandateBootstrap.verify();
     await harnessBootstrap.verify();
     await runBootstrap.verify();
+    await runContinuationBootstrap.verify();
     await evidenceBootstrap.verify();
     await evaluationBootstrap.verify();
     serverAtlas = await openServerAtlasExperience(
@@ -430,6 +437,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       newCorrelationId: randomUUID,
     };
     const runs = new MongoRuns(hostedWorkCandidate, hostedDatabase);
+    const runContinuations = new MongoRunContinuations(hostedWorkCandidate, hostedDatabase);
     const currentRunMandates: CurrentRunMandates = {
       async authorize(authorization) {
         const current = await authorizeCurrentPromotionMandate(authorization, {
@@ -454,6 +462,17 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     };
     const runRoutesConfiguration: RunRoutesConfiguration = {
       access: workAccessRunAuthorizer(attempts),
+      continuation: {
+        admit: (input) =>
+          admitRunContinuation(input, {
+            credentials: mandateUserCredential,
+            runs,
+            mandates: currentRunMandates,
+            activation: { read: (request) => hostedActivation.reading.readCurrent(request) },
+            commitments: runContinuations,
+            now: () => new Date().toISOString(),
+          }),
+      },
       conversation: {
         admit: (input) =>
           admitRun(input, {
@@ -585,6 +604,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await mandateBootstrap.verify();
         await harnessBootstrap.verify();
         await runBootstrap.verify();
+        await runContinuationBootstrap.verify();
         await evidenceBootstrap.verify();
         await evaluationBootstrap.verify();
         await serverAtlas?.verify();

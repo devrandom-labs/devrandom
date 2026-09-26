@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   prepareEvidenceEvent,
+  projectRun,
   type EvidenceEvent,
   type EvidenceStreamProjection,
   type AppendEvidenceBatchBody,
@@ -24,6 +25,11 @@ import {
 } from '@devrandom/domain';
 import { describe, expect, it, vi } from 'vitest';
 import { baselineHarnessCommandFixture } from '../../../test/baseline-harness-fixture.js';
+import {
+  TerminalCalibrationComposition,
+  type TerminalCalibrationCompositionInput,
+} from '../composition/terminal-calibration.js';
+import { issuerAid } from '@devrandom/identity';
 import { taskProjectionFixture } from '../../../test/task-source-fixture.js';
 import {
   reconcileTerminalCalibrationRun,
@@ -85,6 +91,52 @@ function calibrationRun(): Run {
 }
 
 describe('terminal calibration reconciliation', () => {
+  it('stops at the accepted snapshot head even when the open stream offers a polling cursor', async () => {
+    const run = calibrationRun();
+    const head = said('x');
+    const inspect = vi.fn().mockResolvedValue({
+      kind: 'Found',
+      page: {
+        stream: {
+          runId: run.binding.runId,
+          evidenceStreamId: run.binding.evidenceStreamId,
+          cursor: {
+            kind: 'Accepted',
+            eventCount: 1,
+            acceptedThroughSequence: 0,
+            chainHeadSaid: head,
+          },
+          checkpoint: { kind: 'Absent' },
+          seal: { kind: 'Unsealed' },
+        },
+        events: [{ event: { d: head, sequence: 0 } }],
+        nextCursor: 'poll-after-head',
+      },
+    });
+    const input = {
+      user: { principal: { aid: run.binding.ownerAid } },
+      runId: run.binding.runId,
+      task: taskProjectionFixture(),
+      harness: baselineHarnessCommandFixture().revision,
+      mandates: {
+        executionAuthority: { personalAgentAid: run.binding.personalAgentAid },
+        summary: {
+          taskMandate: { credentialSaid: run.binding.taskMandateSaid },
+          governor: { aid: run.binding.governorAid },
+          promotionMandate: { credentialSaid: run.binding.promotionMandateSaid },
+        },
+      },
+      runs: { inspect: () => Promise.resolve({ kind: 'Found', run: projectRun(run) }) },
+      evidence: { inspect },
+    } as unknown as TerminalCalibrationCompositionInput;
+    await new TerminalCalibrationComposition({
+      stateRoot: '/absent-calibration-fixture',
+      issuerAid: issuerAid(said('A')),
+      now: () => '2026-09-24T20:10:00.000Z',
+      wait: () => Promise.resolve(),
+    }).reconcile(input, new AbortController().signal);
+    expect(inspect).toHaveBeenCalledTimes(1);
+  });
   it.each(['Retained', 'LeaseCurrent', 'OwnerChanged'] as const)(
     'rejects %s before opening local custody or delivering evidence',
     async (mismatch) => {

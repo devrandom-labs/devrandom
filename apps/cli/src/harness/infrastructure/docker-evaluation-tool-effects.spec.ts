@@ -29,8 +29,7 @@ it('rejects a changed protected source before any tool effect and retains real e
     if (clean.kind !== 'Captured') throw new Error('source');
     const worker = {
       copyDirectoryOut: (_from: string, to: string) => cp(workerRoot, to, { recursive: true }),
-      copyInto: (from: string) =>
-        cp(from, workerRoot, { recursive: true, force: true }),
+      copyInto: (from: string) => cp(from, workerRoot, { recursive: true, force: true }),
     } as unknown as DockerEvaluationCompartment;
     const rules = { protectedPaths: ['tests'], completionCommands: [], toolCommands: [] };
     const resources = new ManagedWorktreeResources({ ...rules, worktree: workerRoot });
@@ -53,7 +52,7 @@ it('rejects a changed protected source before any tool effect and retains real e
       },
     };
     const tools = new DockerEvaluationToolEffects(
-      options as ConstructorParameters<typeof DockerEvaluationToolEffects>[0],
+      options as unknown as ConstructorParameters<typeof DockerEvaluationToolEffects>[0],
     );
     const effect: AuthorizedToolEffect = {
       proposal: {

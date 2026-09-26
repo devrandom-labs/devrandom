@@ -108,6 +108,41 @@ function recorder(observations: EvidenceObservation[]): EvidenceRecorder {
 }
 
 describe('public Task verification', () => {
+  it('verifies task tools when the task also authorizes governed experience retrieval', async () => {
+    const original = taskProjectionFixture();
+    const observations: EvidenceObservation[] = [];
+    const run = vi.fn<ExactChildCommands['run']>(() =>
+      Promise.resolve({ kind: 'DependencyUnavailable' }),
+    );
+    const verification = new PublicTaskVerification({
+      task: {
+        ...original,
+        revision: {
+          ...original.revision,
+          version: 2,
+          requestedCapabilities: [...original.revision.requestedCapabilities, 'ReadTaskMemory'],
+          constraints: {
+            ...original.revision.constraints,
+            dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+            experience: {
+              corpusSaid: said('c'),
+              repositoryResourceSaid: said('r'),
+              disclosure: 'AuthorizedAnalogy',
+            },
+          },
+        },
+      },
+      harness: baselineHarnessCommandFixture().revision,
+      evidence: recorder(observations),
+      commands: { run },
+      processOutput: { record: vi.fn() },
+      now: () => '2026-09-24T20:00:03.000Z',
+    });
+    await verification.verify({ artifactSaids: [] }, new AbortController().signal);
+    expect(run).toHaveBeenCalledOnce();
+    expect(observations[0]?.event.kind).toBe('ResultSubmitted');
+  });
+
   it('rejects an unavailable submitted artifact before recording submission or running a verifier', async () => {
     const observations: EvidenceObservation[] = [];
     const run = vi.fn<ExactChildCommands['run']>();

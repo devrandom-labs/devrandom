@@ -125,7 +125,10 @@ function exactBindingMatches(dependencies: PublicTaskVerificationDependencies): 
     harness.task.taskId === task.taskId &&
     harness.task.revisionSaid === task.revisionSaid &&
     harness.task.harnessLineageId === task.harnessLineageId &&
-    arraysEqual(harness.task.requestedCapabilities, task.revision.requestedCapabilities) &&
+    arraysEqual(
+      harness.task.requestedCapabilities,
+      task.revision.requestedCapabilities.filter((capability) => capability !== 'ReadTaskMemory'),
+    ) &&
     repositoryMatches(run, task, harness) &&
     completionCommandsMatch(task, harness)
   );

@@ -92,6 +92,13 @@ export class TerminalCalibrationComposition {
         stream = page.page.stream;
         events.push(...page.page.events.map(({ event }) => event));
         if (events.length > 100_000) return { kind: 'BindingRejected' };
+        // Open streams return a future polling cursor even at the accepted head.
+        if (
+          stream.cursor.kind === 'Accepted' &&
+          events.at(-1)?.sequence === stream.cursor.acceptedThroughSequence
+        )
+          break;
+        if (page.page.events.length === 0) return { kind: 'BindingRejected' };
         cursor = page.page.nextCursor ?? undefined;
         if (cursor !== undefined) {
           if (cursors.has(cursor)) return { kind: 'BindingRejected' };
