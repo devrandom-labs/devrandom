@@ -105,6 +105,9 @@ async function readCommand(path: string): Promise<Command> {
 export type ManifestCommandStaging =
   | { readonly kind: 'Staged'; readonly command: Command }
   | { readonly kind: 'Conflict' | 'Unavailable' };
+export type ManifestCommandInspection =
+  | { readonly kind: 'Staged'; readonly command: Command }
+  | { readonly kind: 'Missing' | 'Unavailable' };
 
 /** Local exact-command custody before a hosted protected M lock request. */
 export class EvaluationManifestCommandFile {
@@ -114,6 +117,30 @@ export class EvaluationManifestCommandFile {
   constructor(directory: string, newCommandId: () => string) {
     this.#directory = directory;
     this.#newCommandId = newCommandId;
+  }
+
+  async inspect(evaluationId: string): Promise<ManifestCommandInspection> {
+    if (!uuid.test(evaluationId)) return { kind: 'Unavailable' };
+    try {
+      const directory = await open(this.#directory, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const status = await directory.stat();
+        if (
+          !status.isDirectory() ||
+          (status.mode & 0o777) !== 0o700 ||
+          (process.getuid !== undefined && status.uid !== process.getuid())
+        )
+          return { kind: 'Unavailable' };
+      } finally {
+        await directory.close();
+      }
+      const command = await readCommand(join(this.#directory, `${evaluationId}.manifest.json`));
+      return command.manifest.evaluationId === evaluationId
+        ? { kind: 'Staged', command }
+        : { kind: 'Unavailable' };
+    } catch (cause) {
+      return { kind: absent(cause) ? 'Missing' : 'Unavailable' };
+    }
   }
 
   async stage(draft: Draft): Promise<ManifestCommandStaging> {

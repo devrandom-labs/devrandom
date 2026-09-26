@@ -126,6 +126,7 @@ it('durably replays one exact protected M command after process loss and rejects
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(first.command);
 
     const restarted = new EvaluationManifestCommandFile(directory, () => id('7'));
+    expect(await restarted.inspect(prepared.manifest.evaluationId)).toEqual(first);
     expect(await restarted.stage(prepared)).toEqual(first);
     expect(
       await restarted.stage({
@@ -134,7 +135,20 @@ it('durably replays one exact protected M command after process loss and rejects
       }),
     ).toEqual({ kind: 'Conflict' });
     await writeFile(path, 'corrupted', { mode: 0o600 });
+    expect(await restarted.inspect(prepared.manifest.evaluationId)).toEqual({
+      kind: 'Unavailable',
+    });
     expect(await restarted.stage(prepared)).toEqual({ kind: 'Unavailable' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('distinguishes a never-staged M from a lost admitted command', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'devrandom-manifest-absent-'));
+  try {
+    const commands = new EvaluationManifestCommandFile(join(root, 'custody'), () => id('6'));
+    expect(await commands.inspect(draft().manifest.evaluationId)).toEqual({ kind: 'Missing' });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
