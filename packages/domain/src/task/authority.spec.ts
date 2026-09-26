@@ -47,11 +47,11 @@ describe('Task authority vocabulary', () => {
   });
 });
 
-it('authorizes eight v2 Run slots without changing any other ceiling or v1 slot', () => {
+it('authorizes nine v2 Run slots without changing any other ceiling or v1 slot', () => {
   expect(taskBudgetCeilings.runsPerAdmittedUser).toBe(6);
   expect(taskEvaluationBudgetCeilings).toEqual({
     ...taskBudgetCeilings,
-    runsPerAdmittedUser: 8,
+    runsPerAdmittedUser: 9,
     artifactRequestBodyBytes: 1_048_576,
     evidencePlusArtifactsPerRunBytes: 134_217_728,
     runWallTimeSeconds: 14_400,

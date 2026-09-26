@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
   promotionEvidenceClasses,
   promotionRequiredChecks,
@@ -32,6 +33,12 @@ import {
   promotionMandateV5Schema,
   promotionMandateV5SchemaSaid,
   verifyMandateSchemaCatalog,
+  taskMandateV4Schema,
+  taskMandateV4SchemaSaid,
+  promotionMandateV6Schema,
+  promotionMandateV6SchemaSaid,
+  promotionMandateV7Schema,
+  promotionMandateV7SchemaSaid,
 } from './mandate-credential.js';
 
 const ownerAid = `E${'o'.repeat(43)}`;
@@ -113,8 +120,20 @@ function promotionCredential(): unknown {
 
 describe('Mandate credential schemas', () => {
   it.each([
+    ['task-mandate-v3', taskMandateV3Schema],
+    ['promotion-mandate-v4', promotionMandateV4Schema],
+    ['promotion-mandate-v5', promotionMandateV5Schema],
+  ] as const)('preserves historical eight-Run schema bytes: %s', (name, schema) => {
+    const stored: unknown = JSON.parse(
+      readFileSync(new URL(`../../../../schemas/devrandom-${name}.json`, import.meta.url), 'utf8'),
+    );
+    expect(JSON.stringify(schema)).toBe(JSON.stringify(stored));
+  });
+
+  it.each([
     [promotionMandateV3Schema, promotionMandateV3SchemaSaid, 6],
     [promotionMandateV5Schema, promotionMandateV5SchemaSaid, 8],
+    [promotionMandateV7Schema, promotionMandateV7SchemaSaid, 9],
   ] as const)(
     'accepts exact-M credentials with ordered E4 claims quota%s',
     (schema, schemaSaid, runs) => {
@@ -153,6 +172,23 @@ describe('Mandate credential schemas', () => {
             saidify({ ...(credential as object), d: '', s: promotionMandateV3SchemaSaid }),
           ).kind,
         ).toBe('Rejected');
+      if (runs === 9) {
+        expect(
+          decodePromotionMandateCredentialV3(
+            saidify({ ...(credential as object), d: '', s: promotionMandateV5SchemaSaid }),
+          ).kind,
+        ).toBe('Rejected');
+        const excessive = saidify({
+          ...(attributes as object),
+          d: '',
+          budgetCeiling: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 10 },
+        });
+        expect(
+          decodePromotionMandateCredentialV3(
+            saidify({ ...(credential as object), d: '', a: excessive }),
+          ).kind,
+        ).toBe('Rejected');
+      }
       expect(decodePromotionMandateCredentialV3(credential)).toEqual({
         kind: 'Accepted',
         credential,
@@ -163,6 +199,23 @@ describe('Mandate credential schemas', () => {
             saidify({ ...(credential as object), d: '', s: promotionMandateV2SchemaSaid }),
           ).kind,
         ).toBe('Rejected');
+      if (runs === 9) {
+        expect(
+          decodePromotionMandateCredentialV2(
+            saidify({ ...(credential as object), d: '', s: promotionMandateV4SchemaSaid }),
+          ).kind,
+        ).toBe('Rejected');
+        const excessive = saidify({
+          ...(attributes as object),
+          d: '',
+          budgetCeiling: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 10 },
+        });
+        expect(
+          decodePromotionMandateCredentialV2(
+            saidify({ ...(credential as object), d: '', a: excessive }),
+          ).kind,
+        ).toBe('Rejected');
+      }
       expect(decodePromotionMandateCredentialV2(credential).kind).toBe('Rejected');
       expect(schema.$id).toBe(schemaSaid);
       expect(new Saider({ qb64: schemaSaid }).verify(schema, true, false, undefined, '$id')).toBe(
@@ -180,6 +233,7 @@ describe('Mandate credential schemas', () => {
   it.each([
     [promotionMandateV2Schema, promotionMandateV2SchemaSaid, 6],
     [promotionMandateV4Schema, promotionMandateV4SchemaSaid, 8],
+    [promotionMandateV6Schema, promotionMandateV6SchemaSaid, 9],
   ] as const)(
     'accepts versioned Promotion Mandate experience and budget attributes quota%s',
     (schema, schemaSaid, runs) => {
@@ -216,6 +270,7 @@ describe('Mandate credential schemas', () => {
   it.each([
     [taskMandateV2Schema, taskMandateV2SchemaSaid, 6],
     [taskMandateV3Schema, taskMandateV3SchemaSaid, 8],
+    [taskMandateV4Schema, taskMandateV4SchemaSaid, 9],
   ] as const)(
     'pins a versioned mandate to the exact Task experience corpus and finite budget quota%s',
     (schema, schemaSaid, runs) => {
@@ -258,6 +313,22 @@ describe('Mandate credential schemas', () => {
             saidify({ ...(credential as object), d: '', s: taskMandateV2SchemaSaid }),
           ).kind,
         ).toBe('Rejected');
+      if (runs === 9) {
+        expect(
+          decodeTaskMandateCredentialV2(
+            saidify({ ...(credential as object), d: '', s: taskMandateV3SchemaSaid }),
+          ).kind,
+        ).toBe('Rejected');
+        const excessive = saidify({
+          ...(attributes as object),
+          d: '',
+          budgets: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 10 },
+        });
+        expect(
+          decodeTaskMandateCredentialV2(saidify({ ...(credential as object), d: '', a: excessive }))
+            .kind,
+        ).toBe('Rejected');
+      }
       expect(decodeTaskMandateCredentialV2(credential)).toEqual({ kind: 'Accepted', credential });
       expect(decodeTaskMandateCredential(credential)).toEqual({
         kind: 'Rejected',

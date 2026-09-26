@@ -120,14 +120,14 @@ describe('Task command schemas', () => {
     ).toBe('Rejected');
     expect(
       prepareTaskCommandV2(
-        { ...fresh, budgets: { ...fresh.budgets, runsPerAdmittedUser: 8 } },
+        { ...fresh, budgets: { ...fresh.budgets, runsPerAdmittedUser: 9 } },
         commandId,
         binding,
       ).kind,
     ).toBe('Prepared');
     expect(
       prepareTaskCommandV2(
-        { ...fresh, budgets: { ...fresh.budgets, runsPerAdmittedUser: 9 } },
+        { ...fresh, budgets: { ...fresh.budgets, runsPerAdmittedUser: 10 } },
         commandId,
         binding,
       ).kind,

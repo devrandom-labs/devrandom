@@ -153,7 +153,7 @@ export const taskBudgetCeilings: Readonly<TaskBudgets> = Object.freeze({
 /** A new PRD03 Task must opt into these finite ceilings; v1 Tasks retain their signed limits. */
 export const taskEvaluationBudgetCeilings: Readonly<TaskBudgets> = Object.freeze({
   ...taskBudgetCeilings,
-  runsPerAdmittedUser: 8,
+  runsPerAdmittedUser: 9,
   artifactRequestBodyBytes: 1_048_576,
   evidencePlusArtifactsPerRunBytes: 134_217_728,
   runWallTimeSeconds: 14_400,
