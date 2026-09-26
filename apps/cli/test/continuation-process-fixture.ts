@@ -331,7 +331,8 @@ if (mode === 'pause') {
         chunks.push(Buffer.from(chunk));
       const command = JSON.parse(Buffer.concat(chunks).toString('utf8')) as RunContinuationRequest;
       const run = snapshot.run;
-      if (run.lease.kind !== 'Held') throw new Error('lease');
+      if (run.lease.kind !== 'Held' || run.currentExecution === undefined)
+        throw new Error('lease or current execution');
       const segment = prepareRunSuccessorSegment({
         version: 1,
         kind: 'RunSuccessorSegment',
@@ -344,6 +345,7 @@ if (mode === 'pause') {
         fromRunVersion: run.version,
         predecessor: {
           incarnationId: run.lease.incarnationId,
+          segmentSaid: run.currentExecution.segmentSaid,
           evidenceStreamId: run.currentExecution?.evidenceStreamId ?? '',
           checkpointSaid: command.predecessorCheckpointSaid,
           sealExchangeSaid: command.predecessorSealSaid,
