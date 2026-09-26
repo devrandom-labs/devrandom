@@ -8,9 +8,10 @@ import { evaluationClosureSchema } from './closure.js';
 import { evaluationEvidenceBatchSchema } from './evidence-batch.js';
 import { evaluationEvidenceEventSchema } from './evidence-event.js';
 import { evaluationExecutionProfileSchema } from './execution-profile.js';
-import { evaluationManifestInputSchema } from './manifest.js';
+import { evaluationManifestInputSchema, evaluationManifestSchema } from './manifest.js';
 import { protectedEvaluationArtifactSchema } from './protected-artifact.js';
 import { evaluationSourceInventorySchema } from './source-inventory.js';
+import { evaluationVerifierBundleSchema } from './verifier-bundle.js';
 
 const said = Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' });
 const uuid = Type.String({
@@ -136,6 +137,44 @@ export const evaluationLeaseRenewalReceiptSchema = Type.Union([
   Type.Object({ kind: Type.Literal('Conflict') }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('Unavailable') }, { additionalProperties: false }),
 ]);
+
+/** The owner submits exact parent-held verifier bytes and all four ciphertext descriptors before M locks. */
+export const evaluationManifestLockCommandSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    commandId: uuid,
+    fingerprint,
+    expectedEvaluationVersion: Type.Integer({ minimum: 1 }),
+    leaseId: uuid,
+    manifest: evaluationManifestSchema,
+    verifierBundle: evaluationVerifierBundleSchema,
+    verifierBundleBytesBase64Url: Type.String({
+      minLength: 2,
+      maxLength: 699_052,
+      pattern: '^[A-Za-z0-9_-]+$',
+    }),
+    protectedArtifacts: Type.Array(protectedEvaluationArtifactSchema, {
+      minItems: 4,
+      maxItems: 4,
+    }),
+  },
+  { additionalProperties: false },
+);
+export const evaluationManifestLockReceiptSchema = Type.Object(
+  {
+    kind: Type.Union([Type.Literal('Locked'), Type.Literal('AlreadyLocked')]),
+    evaluationId: uuid,
+    manifestSaid: said,
+    ownerAid: said,
+    policySaid: said,
+    leaseId: uuid,
+    lockedAtLeaseVersion: Type.Integer({ minimum: 1 }),
+    lockedAtEvaluationVersion: Type.Integer({ minimum: 2 }),
+    currentLeaseVersion: Type.Integer({ minimum: 1 }),
+    currentEvaluationVersion: Type.Integer({ minimum: 2 }),
+  },
+  { additionalProperties: false },
+);
 
 /** One public payload per request keeps base64 and event bytes inside the current artifact body cap. */
 export const publicEvaluationArtifactEnvelopeSchema = Type.Object(
