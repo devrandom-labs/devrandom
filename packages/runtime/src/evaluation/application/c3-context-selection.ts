@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import {
   validateExecutionBinding,
   type ComparisonSlot,
@@ -339,7 +341,7 @@ export class ReviewedC3ContextSelection implements C3ContextSelection {
     if (
       bound === undefined ||
       interrupted(input.signal) ||
-      JSON.stringify(input.binding) !== JSON.stringify(bound.binding) ||
+      !isDeepStrictEqual(input.binding, bound.binding) ||
       !said.test(input.edit.proposalEventSaid)
     )
       return { kind: 'Blocked' };

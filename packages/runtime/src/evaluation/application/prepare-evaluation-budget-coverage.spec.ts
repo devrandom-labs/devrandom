@@ -347,7 +347,21 @@ describe('trusted parent Evaluation budget coverage', () => {
 
   it('prepares coverage for an acknowledged, measured nine-dimension prefix', async () => {
     const given = fixture();
-    const result = await prepareEvaluationBudgetCoverage(given.input, given.dependencies);
+    const phase = given.input.binding.phase;
+    const decodedInput = {
+      ...given.input,
+      binding: {
+        ...given.input.binding,
+        phase: {
+          attempt: phase.attempt,
+          repetition: phase.repetition,
+          arm: phase.arm,
+          manifestSaid: phase.manifestSaid,
+          kind: phase.kind,
+        },
+      },
+    };
+    const result = await prepareEvaluationBudgetCoverage(decodedInput, given.dependencies);
     expect(result).toMatchObject({
       kind: 'Prepared',
       event: {

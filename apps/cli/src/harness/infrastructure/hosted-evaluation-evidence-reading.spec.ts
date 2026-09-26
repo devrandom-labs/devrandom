@@ -71,7 +71,20 @@ describe('hosted accepted Evaluation evidence reading', () => {
       readEvidencePage,
       readPublicArtifact: vi.fn(),
     });
-    expect(await reading.openPrefix({ binding, throughSequence: 0, headSaid: first.d })).toEqual({
+    const phase = binding.phase;
+    const decodedBinding = {
+      ...binding,
+      phase: {
+        attempt: phase.attempt,
+        repetition: phase.repetition,
+        arm: phase.arm,
+        manifestSaid: phase.manifestSaid,
+        kind: phase.kind,
+      },
+    };
+    expect(
+      await reading.openPrefix({ binding: decodedBinding, throughSequence: 0, headSaid: first.d }),
+    ).toEqual({
       kind: 'Missing',
     });
     expect(readEvidencePage).toHaveBeenCalledOnce();
@@ -97,7 +110,20 @@ describe('hosted accepted Evaluation evidence reading', () => {
       readEvidencePage,
       readPublicArtifact: vi.fn(),
     });
-    expect(await reading.openPrefix({ binding, throughSequence: 0, headSaid: first.d })).toEqual({
+    const phase = binding.phase;
+    const decodedBinding = {
+      ...binding,
+      phase: {
+        attempt: phase.attempt,
+        repetition: phase.repetition,
+        arm: phase.arm,
+        manifestSaid: phase.manifestSaid,
+        kind: phase.kind,
+      },
+    };
+    expect(
+      await reading.openPrefix({ binding: decodedBinding, throughSequence: 0, headSaid: first.d }),
+    ).toEqual({
       kind: 'Acknowledged',
       events: [first],
       throughSequence: 0,

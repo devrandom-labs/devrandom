@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { validateExecutionBinding, type EvaluationExecutionBinding } from '@devrandom/domain';
 import {
   decodeEvidenceArtifact,
@@ -110,7 +112,7 @@ export class HostedEvaluationEvidenceReading {
       head?.d !== headSaid ||
       head.sequence !== throughSequence ||
       head.harnessRevisionSaid !== binding.harnessRevisionSaid ||
-      JSON.stringify(head.phase) !== JSON.stringify(binding.phase)
+      !isDeepStrictEqual(head.phase, binding.phase)
     )
       return { kind: 'Missing' };
     // Only a complete content-verified, hosted-acknowledged chain is reusable.

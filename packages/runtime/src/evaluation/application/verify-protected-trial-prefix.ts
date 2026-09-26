@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { validateExecutionBinding, type EvaluationExecutionBinding } from '@devrandom/domain';
 import { decodeEvaluationEvidenceEvent, type EvaluationEvidenceEvent } from '@devrandom/protocol';
 
@@ -62,7 +64,7 @@ export function verifyProtectedTrialPrefix(
   const stopped = prefix.events.find((event) => event.d === input.trialEvidenceHeadSaid);
   const sameTrial = (event: EvaluationEvidenceEvent) =>
     event.harnessRevisionSaid === binding.harnessRevisionSaid &&
-    JSON.stringify(event.phase) === JSON.stringify(binding.phase);
+    isDeepStrictEqual(event.phase, binding.phase);
   if (
     custody?.d !== input.custodyEvidenceHeadSaid ||
     custody.detail.kind !== 'ArtifactCaptured' ||
@@ -74,8 +76,8 @@ export function verifyProtectedTrialPrefix(
     stopped.detail.reason !== 'Completed' ||
     custody.harnessRevisionSaid !== binding.harnessRevisionSaid ||
     stopped.harnessRevisionSaid !== binding.harnessRevisionSaid ||
-    JSON.stringify(custody.phase) !== JSON.stringify(binding.phase) ||
-    JSON.stringify(stopped.phase) !== JSON.stringify(binding.phase) ||
+    !isDeepStrictEqual(custody.phase, binding.phase) ||
+    !isDeepStrictEqual(stopped.phase, binding.phase) ||
     prefix.events.filter((event) => event.detail.kind === 'TrialStopped' && sameTrial(event))
       .length !== 1 ||
     prefix.events

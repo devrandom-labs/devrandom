@@ -169,3 +169,31 @@ describe('protected trial accepted-prefix binding', () => {
     ).toEqual({ kind: 'Missing' });
   });
 });
+
+it('accepts the same protected trial decoded with reordered phase keys and rejects another attempt', () => {
+  const { input, prefix } = fixture();
+  const phase = input.binding.phase;
+  const reordered = {
+    ...input,
+    binding: {
+      ...input.binding,
+      phase: {
+        attempt: phase.attempt,
+        repetition: phase.repetition,
+        arm: phase.arm,
+        manifestSaid: phase.manifestSaid,
+        kind: phase.kind,
+      },
+    },
+  };
+  expect(verifyProtectedTrialPrefix(reordered, prefix)).toMatchObject({ kind: 'Verified' });
+  expect(
+    verifyProtectedTrialPrefix(
+      {
+        ...reordered,
+        binding: { ...reordered.binding, phase: { ...reordered.binding.phase, repetition: 2 } },
+      },
+      prefix,
+    ),
+  ).toEqual({ kind: 'Missing' });
+});

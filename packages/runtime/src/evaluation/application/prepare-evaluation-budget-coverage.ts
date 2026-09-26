@@ -194,12 +194,18 @@ function budgetName(value: unknown): value is Budget {
 function samePhase(left: EvaluationEvidenceEvent, right: EvaluationEvidenceEvent): boolean {
   return (
     left.harnessRevisionSaid === right.harnessRevisionSaid &&
-    JSON.stringify(left.phase) === JSON.stringify(right.phase)
+    isDeepStrictEqual(left.phase, right.phase)
   );
 }
 
 function phaseKey(event: EvaluationEvidenceEvent): string {
-  return `${event.harnessRevisionSaid}/${JSON.stringify(event.phase)}`;
+  const phase = event.phase;
+  return JSON.stringify([
+    event.harnessRevisionSaid,
+    ...(phase.kind === 'Trial'
+      ? [phase.kind, phase.manifestSaid, phase.arm, phase.repetition, phase.attempt]
+      : [phase.kind, phase.policySaid, phase.role]),
+  ]);
 }
 
 function sourceMatches(
@@ -474,7 +480,7 @@ export async function prepareEvaluationBudgetCoverage(
   }
   if (
     head.harnessRevisionSaid !== input.binding.harnessRevisionSaid ||
-    JSON.stringify(head.phase) !== JSON.stringify(input.binding.phase)
+    !isDeepStrictEqual(head.phase, input.binding.phase)
   )
     return incomplete('EventChain');
   const totals = Object.fromEntries(budgets.map((budget) => [budget, 0])) as Record<Budget, number>;

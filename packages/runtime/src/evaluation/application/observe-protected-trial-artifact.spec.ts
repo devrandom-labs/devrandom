@@ -332,7 +332,21 @@ describe('protected trial artifact conversation', () => {
   it('retains only the exact protected tuple after real-shaped public and protected observations', async () => {
     const given = fixture({ kind: 'Rejected', error: 'AnyRejection' });
     const wired = dependencies(given);
-    const result = await observeProtectedTrialArtifact(given.input, wired.ports);
+    const phase = given.input.binding.phase;
+    const decodedInput = {
+      ...given.input,
+      binding: {
+        ...given.input.binding,
+        phase: {
+          attempt: phase.attempt,
+          repetition: phase.repetition,
+          arm: phase.arm,
+          manifestSaid: phase.manifestSaid,
+          kind: phase.kind,
+        },
+      },
+    };
+    const result = await observeProtectedTrialArtifact(decodedInput, wired.ports);
     expect(result).toMatchObject({
       kind: 'Retained',
       frozenArtifact: { executableSaid: said('n'), sourceSaid: said('u') },

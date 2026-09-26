@@ -455,7 +455,7 @@ export async function gradePublicTrialArtifact(
       retained.event.personalAgentAid !== input.binding.personalAgentAid ||
       retained.event.taskMandateSaid !== input.binding.taskMandateSaid ||
       retained.event.harnessRevisionSaid !== input.binding.harnessRevisionSaid ||
-      JSON.stringify(retained.event.phase) !== JSON.stringify(input.binding.phase) ||
+      !isDeepStrictEqual(retained.event.phase, input.binding.phase) ||
       retained.event.detail.kind !== 'ArtifactCaptured' ||
       retained.event.detail.custody !== 'ProtectedCiphertext' ||
       retained.event.detail.artifactSaid !== assessed.observationArtifact.d

@@ -131,7 +131,7 @@ function said(value: unknown): value is string {
 function sameTrial(event: EvaluationEvidenceEvent, binding: EvaluationExecutionBinding): boolean {
   return (
     event.harnessRevisionSaid === binding.harnessRevisionSaid &&
-    JSON.stringify(event.phase) === JSON.stringify(binding.phase)
+    isDeepStrictEqual(event.phase, binding.phase)
   );
 }
 

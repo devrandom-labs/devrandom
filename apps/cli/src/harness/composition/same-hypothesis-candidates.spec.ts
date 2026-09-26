@@ -105,6 +105,21 @@ it.each(['Workflow', 'ContextSelection'] as const)(
             slot: { ...c3Input.slot, repetition },
           }),
         ).toMatchObject({ kind: 'Bound' });
+        const decodedBinding: EvaluationExecutionBinding = {
+          ...c3Input.binding,
+          phase: { attempt: 1, repetition, arm: 'C3', manifestSaid: manifest.d, kind: 'Trial' },
+        };
+        const edit = { path: 'src/lib.rs', content: 'Current', proposalEventSaid: nativeSaid('e') };
+        expect(await selection.select({ binding: decodedBinding, edit, signal })).toMatchObject({
+          kind: 'Selected',
+        });
+        expect(
+          await selection.select({
+            binding: { ...decodedBinding, taskMandateSaid: nativeSaid('z') },
+            edit,
+            signal,
+          }),
+        ).toEqual({ kind: 'Blocked' });
         expect(await selection.bind(c3Input)).toEqual({ kind: 'Blocked' });
       }
       const fields = Object.fromEntries(

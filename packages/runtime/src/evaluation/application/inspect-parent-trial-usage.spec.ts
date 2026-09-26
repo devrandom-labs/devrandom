@@ -340,3 +340,25 @@ describe('parent-observed trial usage facts', () => {
     });
   });
 });
+
+it('remeasures a decoded trial without treating JSON phase key order as identity', async () => {
+  const given = fixture();
+  const phase = given.input.binding.phase;
+  const result = await inspectParentTrialUsage(
+    {
+      ...given.input,
+      binding: {
+        ...given.input.binding,
+        phase: {
+          attempt: phase.attempt,
+          repetition: phase.repetition,
+          arm: phase.arm,
+          manifestSaid: phase.manifestSaid,
+          kind: phase.kind,
+        },
+      },
+    },
+    given,
+  );
+  expect(result).toMatchObject({ kind: 'Verified', providerRequests: 1, repeatedFailures: 0 });
+});
