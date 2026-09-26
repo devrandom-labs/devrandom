@@ -5,10 +5,13 @@ import type {
   EvaluationLeaseReceipt,
 } from '@devrandom/domain';
 import type {
+  EvidenceArtifact,
+  EvidenceArtifactMediaType,
   EvaluationEvidenceEvent,
   EvaluationManifest,
   ProtectedEvaluationArtifact,
 } from '@devrandom/protocol';
+import type { AssistantMessage, TranscriptContext } from '@earendil-works/pi-ai';
 
 import type { ToolGatewayOutcome, ToolGatewayProposal } from '../../tool-gateway/tool-gateway.js';
 
@@ -64,6 +67,32 @@ export interface EvaluationToolGateway {
     proposal: ToolGatewayProposal,
     signal: AbortSignal,
   ): Promise<ToolGatewayOutcome>;
+}
+
+/** Only the trusted parent resolves provider credentials, reserves spend and records usage. */
+export interface EvaluationModelInference {
+  complete(input: {
+    readonly binding: EvaluationExecutionBinding;
+    readonly requestOrdinal: number;
+    readonly modelProfileSaid: string;
+    readonly context: TranscriptContext;
+    readonly maximumOutputTokens: number;
+    readonly signal: AbortSignal;
+  }): Promise<
+    | {
+        readonly kind: 'Completed';
+        readonly message: AssistantMessage;
+        readonly usageEventSaid: string;
+      }
+    | {
+        readonly kind:
+          | 'UnknownUsage'
+          | 'BudgetExhausted'
+          | 'LeaseLost'
+          | 'Unavailable'
+          | 'Interrupted';
+      }
+  >;
 }
 
 export interface TrialExecution {
@@ -173,6 +202,17 @@ export interface EvaluationEvidence {
   }): Promise<
     | { readonly kind: 'Acknowledged'; readonly throughSequence: number; readonly headSaid: string }
     | { readonly kind: 'Conflict' | 'Gap' | 'Unavailable' }
+  >;
+}
+
+/** Raw bytes enter durable local custody before an E3 event may reference their SAID. */
+export interface EvaluationRawArtifacts {
+  record(input: {
+    readonly bytes: Uint8Array;
+    readonly mediaType: EvidenceArtifactMediaType;
+  }): Promise<
+    | { readonly kind: 'Stored'; readonly artifact: EvidenceArtifact }
+    | { readonly kind: 'TooLarge' | 'Unavailable' | 'Rejected' }
   >;
 }
 
