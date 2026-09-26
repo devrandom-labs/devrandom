@@ -383,7 +383,8 @@ integration('same calibration Run Mongo continuation', () => {
               run: decodeRunDocument(current).run,
               command: requestCommand,
             });
-            if (committed.kind !== 'Admitted' && committed.kind !== 'Equivalent') return committed;
+            if (committed.kind !== 'Admitted' && committed.kind !== 'Equivalent')
+              return { kind: committed.kind };
             return {
               kind: committed.kind,
               serverTime: recovery.observedAt,
