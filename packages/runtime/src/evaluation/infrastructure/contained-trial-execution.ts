@@ -32,6 +32,14 @@ import type { SourceCustody } from './source-custody.js';
 interface EvidenceCursor {
   readonly nextSequence: number;
   readonly previousEventSaid?: string;
+  /** Replay-derived native debit totals; required when continuing a non-genesis E3 stream. */
+  readonly consumed?: {
+    providerRequests: number;
+    providerInputTokens: number;
+    providerOutputTokens: number;
+    providerSpendMicroUsd: number;
+    toolProposals: number;
+  };
 }
 
 interface ContainedTrialConfiguration {
@@ -106,6 +114,78 @@ function isToolName(value: unknown): value is ToolName {
   );
 }
 
+function openingConsumption(
+  cursor: EvidenceCursor,
+): NonNullable<EvidenceCursor['consumed']> | undefined {
+  const zero = {
+    providerRequests: 0,
+    providerInputTokens: 0,
+    providerOutputTokens: 0,
+    providerSpendMicroUsd: 0,
+    toolProposals: 0,
+  };
+  if (!Number.isSafeInteger(cursor.nextSequence) || cursor.nextSequence < 0) return undefined;
+  if (cursor.nextSequence === 0)
+    return cursor.previousEventSaid === undefined && cursor.consumed === undefined
+      ? zero
+      : undefined;
+  const initial = cursor.consumed;
+  if (
+    !isSaid(cursor.previousEventSaid) ||
+    initial === undefined ||
+    !isDeepStrictEqual(Object.keys(initial).sort(), Object.keys(zero).sort()) ||
+    Object.values(initial).some((value) => !Number.isSafeInteger(value) || value < 0)
+  )
+    return undefined;
+  return { ...initial };
+}
+
+function accountableProviderUsage(
+  message: AssistantMessage,
+  spendMicroUsd: number,
+): { readonly inputTokens: number; readonly outputTokens: number } | undefined {
+  const values = [
+    message.usage.input,
+    message.usage.output,
+    message.usage.cacheRead,
+    message.usage.cacheWrite,
+    message.usage.totalTokens,
+    spendMicroUsd,
+  ];
+  if (values.some((value) => !Number.isSafeInteger(value) || value < 0)) return undefined;
+  const inputTokens = message.usage.input + message.usage.cacheRead + message.usage.cacheWrite;
+  const outputTokens = message.usage.output;
+  return Number.isSafeInteger(inputTokens) &&
+    inputTokens + outputTokens === message.usage.totalTokens
+    ? { inputTokens, outputTokens }
+    : undefined;
+}
+
+function measuredToolElapsed(
+  started: number,
+  finished: number,
+):
+  | {
+      readonly startedMonotonicMicroseconds: number;
+      readonly finishedMonotonicMicroseconds: number;
+      readonly elapsedMilliseconds: number;
+    }
+  | undefined {
+  const start = Math.round(started * 1_000);
+  const end = Math.round(finished * 1_000);
+  const elapsedMilliseconds = Math.ceil((end - start) / 1_000);
+  return Number.isSafeInteger(start) &&
+    Number.isSafeInteger(end) &&
+    end >= start &&
+    Number.isSafeInteger(elapsedMilliseconds)
+    ? {
+        startedMonotonicMicroseconds: start,
+        finishedMonotonicMicroseconds: end,
+        elapsedMilliseconds,
+      }
+    : undefined;
+}
+
 /** Trusted parent relay. Pi and all native effects remain inside separate, disposable compartments. */
 export class DockerContainedTrialExecution implements TrialExecution {
   readonly #configuration: ContainedTrialConfiguration;
@@ -125,6 +205,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
       input.slot.arm === 'H1TaskSearch'
         ? input.manifest.revisions.H1
         : input.manifest.revisions[input.slot.arm];
+    const consumed = openingConsumption(config.cursor);
     if (
       validateExecutionBinding(binding).kind !== 'Accepted' ||
       decodeEvaluationManifest(input.manifest).kind !== 'Accepted' ||
@@ -143,6 +224,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
       input.reviewedBehaviorSaid !== expectedRevision ||
       input.containerProfileSaid !== config.profile.d ||
       input.modelProfileSaid !== config.modelProfileSaid ||
+      consumed === undefined ||
       config.model.provider !== config.profile.modelProvider ||
       config.model.id !== config.profile.modelId ||
       config.workerMounts.some((mount) => mount.writable) ||
@@ -218,6 +300,26 @@ export class DockerContainedTrialExecution implements TrialExecution {
       sequence += 1;
       evidenceHead = prepared.event.d;
       return prepared.event.d;
+    };
+
+    const debit = async (
+      budget: keyof typeof consumed,
+      amount: number,
+      receiptArtifactSaid: string,
+      sourceEventSaid: string,
+    ): Promise<void> => {
+      const next = consumed[budget] + amount;
+      if (!Number.isSafeInteger(next) || next < 0) throw new Error('Evaluation usage overflow.');
+      const detail = {
+        kind: 'EvaluationBudgetDebited',
+        budget,
+        amount,
+        consumed: next,
+        receiptArtifactSaid,
+        sourceEventSaid,
+      } as const;
+      await append(detail as EvaluationEvidenceEvent['detail']);
+      consumed[budget] = next;
     };
 
     const trial = async (): ReturnType<TrialExecution['run']> => {
@@ -354,6 +456,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
               throw new Error(`Evaluation model completion ${completion.kind}.`);
             }
             const message: AssistantMessage = completion.message;
+            const usage = accountableProviderUsage(message, completion.verifiedSpendMicroUsd);
             if (
               !isSaid(completion.usageEventSaid) ||
               message.provider !== config.model.provider ||
@@ -361,6 +464,12 @@ export class DockerContainedTrialExecution implements TrialExecution {
               !Array.isArray(message.content)
             )
               throw new Error('Evaluation model completion identity invalid.');
+            if (usage === undefined)
+              return {
+                kind: 'Invalid',
+                reason: 'UnknownUsage',
+                ...(evidenceHead === undefined ? {} : { evidenceHeadSaid: evidenceHead }),
+              };
             const exchange = await raw({
               kind: 'ModelExchange',
               requestOrdinal,
@@ -368,7 +477,43 @@ export class DockerContainedTrialExecution implements TrialExecution {
               message,
               usageEventSaid: completion.usageEventSaid,
             });
-            await append({ kind: 'ModelExchange', rawArtifactSaid: exchange });
+            const exchangeEventSaid = await append({
+              kind: 'ModelExchange',
+              rawArtifactSaid: exchange,
+            });
+            const usageReceipt = await raw({
+              kind: 'EvaluationProviderUsage',
+              requestOrdinal,
+              modelExchangeEventSaid: exchangeEventSaid,
+              usageEventSaid: completion.usageEventSaid,
+              provider: message.provider,
+              model: message.model,
+              responseId: message.responseId,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              cacheReadTokens: message.usage.cacheRead,
+              cacheWriteTokens: message.usage.cacheWrite,
+              spendMicroUsd: completion.verifiedSpendMicroUsd,
+            });
+            await append({
+              kind: 'ArtifactCaptured',
+              artifactSaid: usageReceipt,
+              custody: 'Public',
+            });
+            await debit('providerRequests', 1, usageReceipt, exchangeEventSaid);
+            await debit('providerInputTokens', usage.inputTokens, usageReceipt, exchangeEventSaid);
+            await debit(
+              'providerOutputTokens',
+              usage.outputTokens,
+              usageReceipt,
+              exchangeEventSaid,
+            );
+            await debit(
+              'providerSpendMicroUsd',
+              completion.verifiedSpendMicroUsd,
+              usageReceipt,
+              exchangeEventSaid,
+            );
             usageSaids.push(completion.usageEventSaid);
             for (const part of message.content) {
               if (part.type !== 'toolCall') continue;
@@ -413,7 +558,35 @@ export class DockerContainedTrialExecution implements TrialExecution {
               toolCallId: proposal.toolCallId,
               inputArtifactSaid: proposalArtifact,
             });
+            const started = performance.now();
             const outcome = await gateway.propose(binding, proposal, input.signal);
+            const measured = measuredToolElapsed(started, performance.now());
+            if (measured === undefined)
+              return {
+                kind: 'Invalid',
+                reason: 'UnknownUsage',
+                ...(evidenceHead === undefined ? {} : { evidenceHeadSaid: evidenceHead }),
+              };
+            const toolReceipt = await raw({
+              kind: 'EvaluationToolElapsed',
+              proposalEventSaid: proposedEvent,
+              toolCallId: proposal.toolCallId,
+              proposalIndex,
+              toolName: expected.name,
+              ...measured,
+              outcomeKind: outcome.kind,
+              childCommandDuration: ['run_formatter', 'run_static_analysis', 'run_tests'].includes(
+                expected.name,
+              )
+                ? 'Unmeasured'
+                : 'NotApplicable',
+            });
+            await append({
+              kind: 'ArtifactCaptured',
+              artifactSaid: toolReceipt,
+              custody: 'Public',
+            });
+            await debit('toolProposals', 1, toolReceipt, proposedEvent);
             const outcomeArtifact = await raw({ kind: 'ToolOutcome', outcome });
             const disposition =
               outcome.kind === 'ApprovalRequired'

@@ -83,6 +83,8 @@ export interface EvaluationModelInference {
         readonly kind: 'Completed';
         readonly message: AssistantMessage;
         readonly usageEventSaid: string;
+        /** Exact provider charge, only after trusted-parent ConcentrateUsage.consume verifies the response. */
+        readonly verifiedSpendMicroUsd: number;
       }
     | {
         readonly kind:
