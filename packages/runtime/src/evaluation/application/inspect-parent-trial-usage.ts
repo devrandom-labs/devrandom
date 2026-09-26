@@ -181,8 +181,10 @@ export async function inspectParentTrialUsage(
     cumulative.set(event.detail.budget, next);
   }
   const models = trial.filter((event) => event.detail.kind === 'ModelExchange');
+  const usageEvents = trial.filter((event) => event.detail.kind === 'UsageDebited');
   if (
     models.length === 0 ||
+    usageEvents.length !== models.length ||
     models.length !== input.providerUsageEventSaids.length ||
     new Set(input.providerUsageEventSaids).size !== input.providerUsageEventSaids.length
   )
@@ -214,10 +216,17 @@ export async function inspectParentTrialUsage(
     }
     const usageEventSaid = input.providerUsageEventSaids[ordinal];
     if (!said(usageEventSaid)) return { kind: 'Incomplete', frontier: 'ProviderUsage' };
+    const usageEvent = usageEvents[ordinal];
     const message = exchange?.message;
     const usage = record(message) ? message.usage : undefined;
     if (
       exchange?.kind !== 'ModelExchange' ||
+      usageEvent?.d !== usageEventSaid ||
+      usageEvent.detail.kind !== 'UsageDebited' ||
+      usageEvent.detail.providerRequests !== 1 ||
+      usageEvent.sequence >= event.sequence ||
+      event.previous.kind !== 'Previous' ||
+      event.previous.eventSaid !== usageEventSaid ||
       exchange.requestOrdinal !== ordinal ||
       exchange.usageEventSaid !== usageEventSaid ||
       !record(message) ||
@@ -287,6 +296,12 @@ export async function inspectParentTrialUsage(
       receipt.cacheReadTokens !== usage.cacheRead ||
       receipt.cacheWriteTokens !== usage.cacheWrite ||
       !count(receipt.spendMicroUsd) ||
+      usageEvent.detail.inputTokens !== usage.input ||
+      usageEvent.detail.outputTokens !== usage.output ||
+      usageEvent.detail.cacheReadTokens !== usage.cacheRead ||
+      usageEvent.detail.cacheWriteTokens !== usage.cacheWrite ||
+      usageEvent.detail.spendMicroUsd !== receipt.spendMicroUsd ||
+      !count(usageEvent.detail.elapsedMilliseconds) ||
       sourceDebits.some((debit) => {
         const expected =
           debit.detail.budget === 'providerRequests'

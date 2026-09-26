@@ -16,6 +16,8 @@ function fixture(
   outcomeKind: 'None' | 'CapabilityNotGranted' | 'SecretDetected' = 'None',
   invalidCumulative = false,
   forgedSource = false,
+  missingAcceptedUsage = false,
+  mismatchedAcceptedUsage = false,
 ) {
   const binding = {
     kind: 'Evaluation' as const,
@@ -67,7 +69,18 @@ function fixture(
     events.push(prepared.event);
     return prepared.event;
   };
-  const usageEventSaid = said('u');
+  const usageEventSaid = missingAcceptedUsage
+    ? said('u')
+    : append({
+        kind: 'UsageDebited',
+        providerRequests: 1,
+        inputTokens: mismatchedAcceptedUsage ? 11 : 10,
+        outputTokens: 2,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 1,
+        spendMicroUsd: 7,
+        elapsedMilliseconds: 0,
+      }).d;
   const responseId = 'response-one';
   const exchange = raw({
     kind: 'ModelExchange',
@@ -231,7 +244,9 @@ describe('parent-observed trial usage facts', () => {
       unsafeEffects: 0,
       unresolved: ['RepeatedFailures'],
     });
-    expect(given.receipts.verifyProviderUsage).toHaveBeenCalledWith({ usageEventSaid: said('u') });
+    expect(given.receipts.verifyProviderUsage).toHaveBeenCalledWith({
+      usageEventSaid: given.input.providerUsageEventSaids[0],
+    });
   });
 
   it('does not turn missing provider authority or substituted custody into zero usage', async () => {
@@ -285,6 +300,22 @@ describe('parent-observed trial usage facts', () => {
       bytes: new TextEncoder().encode('{"kind":"forged"}'),
     });
     expect(await inspectParentTrialUsage(tampered.input, tampered)).toEqual({
+      kind: 'Incomplete',
+      frontier: 'ProviderUsage',
+    });
+  });
+
+  it('rejects a provider SAID that is not an accepted Evaluation usage event', async () => {
+    const missing = fixture('None', false, false, true);
+    expect(await inspectParentTrialUsage(missing.input, missing)).toEqual({
+      kind: 'Incomplete',
+      frontier: 'ProviderUsage',
+    });
+  });
+
+  it('rejects a SAID-valid accepted usage event with a mismatched provider amount', async () => {
+    const mismatched = fixture('None', false, false, false, true);
+    expect(await inspectParentTrialUsage(mismatched.input, mismatched)).toEqual({
       kind: 'Incomplete',
       frontier: 'ProviderUsage',
     });
