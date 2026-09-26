@@ -223,6 +223,13 @@ describe('exact closure evidence index', () => {
     expect(prepareEvaluationClosureEvidenceIndex(incompleteCandidate)).toMatchObject({
       kind: 'Prepared',
     });
+    const missingCandidateProof = fixture();
+    required(missingCandidateProof.audits[4]).proofs.splice(2, 1);
+    required(missingCandidateProof.audits[4]).obligations.proceduralIntegrity = 'Incomplete';
+    required(missingCandidateProof.audits[4]).verdict = 'Incomplete';
+    expect(prepareEvaluationClosureEvidenceIndex(missingCandidateProof)).toMatchObject({
+      kind: 'Prepared',
+    });
   });
 
   it('rejects an otherwise valid audit index above the 128 KiB artifact ceiling', () => {

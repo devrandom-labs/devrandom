@@ -89,7 +89,7 @@ export const evaluationClosureEvidenceIndexSchema = Type.Object(
               },
               { additionalProperties: false },
             ),
-            { minItems: 7, maxItems: 7 },
+            { maxItems: 7 },
           ),
           attemptCoverage: Type.Object(
             {
@@ -297,10 +297,15 @@ function invalidIndex(
   for (const [position, audit] of index.audits.entries()) {
     if (
       audit.scope !== scopes[position] ||
-      audit.proofs.some(
-        (proof, proofPosition) =>
-          proof.scope !== audit.scope || proof.obligation !== tamperAuditObligations[proofPosition],
-      ) ||
+      audit.proofs.some((proof, proofPosition) => {
+        const position = tamperAuditObligations.indexOf(proof.obligation);
+        const prior = audit.proofs[proofPosition - 1];
+        return (
+          proof.scope !== audit.scope ||
+          position < 0 ||
+          (prior !== undefined && position <= tamperAuditObligations.indexOf(prior.obligation))
+        );
+      }) ||
       audit.attemptCoverage.scope !== audit.scope ||
       audit.attemptCoverage.coveredRoles.some(
         (role, rolePosition) => role !== tamperLifecycleRoles[rolePosition],
