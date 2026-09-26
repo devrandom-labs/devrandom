@@ -7,6 +7,7 @@ import { prepareEvidenceArtifact, type EvaluationExecutionProfile } from '@devra
 
 import type {
   EvaluationRawArtifacts,
+  ProtectedCaseCustody,
   ReceiptObservation,
   TaskArtifactConstruction,
 } from '../application/evaluation-conversations.js';
@@ -342,23 +343,29 @@ export class DockerReceiptObservation implements ReceiptObservation {
   readonly #profile: EvaluationExecutionProfile;
   readonly #image: string;
   readonly #artifacts: EvaluationRawArtifacts;
+  readonly #protectedCases: ProtectedCaseCustody | undefined;
 
   constructor(input: {
     readonly executables: ExecutableCustody;
     readonly profile: EvaluationExecutionProfile;
     readonly image: string;
     readonly artifacts: EvaluationRawArtifacts;
+    readonly protectedCases?: ProtectedCaseCustody;
   }) {
     this.#executables = input.executables;
     this.#profile = input.profile;
     this.#image = input.image;
     this.#artifacts = input.artifacts;
+    this.#protectedCases = input.protectedCases;
   }
 
   async observe(
     input: Parameters<ReceiptObservation['observe']>[0],
   ): ReturnType<ReceiptObservation['observe']> {
     if (input.signal.aborted) return { kind: 'Invalid', reason: 'Interrupted' };
+    const protectedCases = this.#protectedCases;
+    if (input.caseScope === 'Protected' && protectedCases === undefined)
+      return { kind: 'Invalid', reason: 'EvidenceUnavailable' };
     const executable = await this.#executables.open(input.executableSaid);
     const stimulusArtifact = prepareEvidenceArtifact(input.stimulus, 'text/plain; charset=utf-8');
     if (
@@ -426,14 +433,31 @@ export class DockerReceiptObservation implements ReceiptObservation {
           error: text.slice(6) as 'InvalidFrame' | 'InvalidPayload' | 'UnsupportedVersion',
         };
       } else return { kind: 'Invalid', reason: 'ProfileDrift' };
-      const rawObservationSaid = await recordJson(this.#artifacts, {
+      const observationRecord = {
         executableSaid: input.executableSaid,
         stimulusSaid: input.stimulusSaid,
         caseScope: input.caseScope,
         observation,
         stdout: observed.output,
         effectiveLimitsDigest: sha(Buffer.from(opened.effectiveLimitsReceipt)),
-      });
+      };
+      let rawObservationSaid: string;
+      let protectedObservation: Awaited<ReturnType<ProtectedCaseCustody['seal']>> | undefined;
+      if (input.caseScope === 'Protected') {
+        if (protectedCases === undefined) return { kind: 'Invalid', reason: 'EvidenceUnavailable' };
+        protectedObservation = await protectedCases.seal({
+          evaluationId: input.evaluationId,
+          objectSaid: input.objectSaid,
+          purpose: 'OracleObservation',
+          segment: input.segment,
+          plaintext: Buffer.from(JSON.stringify(observationRecord), 'utf8'),
+        });
+        if (protectedObservation.kind !== 'Sealed')
+          return { kind: 'Invalid', reason: 'EvidenceUnavailable' };
+        rawObservationSaid = protectedObservation.artifact.d;
+      } else {
+        rawObservationSaid = await recordJson(this.#artifacts, observationRecord);
+      }
       const closed = await compartment.close();
       compartment = undefined;
       if (!closed) return { kind: 'Invalid', reason: 'CleanupUnconfirmed' };
@@ -446,6 +470,9 @@ export class DockerReceiptObservation implements ReceiptObservation {
         executableSaid: input.executableSaid,
         observation,
         rawObservationSaid,
+        ...(protectedObservation?.kind === 'Sealed'
+          ? { protectedObservation: protectedObservation.artifact }
+          : {}),
         cleanupReceiptSaid,
       };
     } catch {

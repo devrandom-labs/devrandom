@@ -1,9 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { prepareEvidenceArtifact, prepareEvaluationExecutionProfile } from '@devrandom/protocol';
 import { describe, expect, it } from 'vitest';
 
+import { assessProtectedCesrCase } from '../application/assess-protected-cesr-case.js';
+import { AesGcmProtectedCaseCustody } from './aes-gcm-protected-case-custody.js';
 import {
   DockerReceiptObservation,
   DockerTaskArtifactConstruction,
@@ -148,7 +151,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         executableSaid: built.executableSaid,
         stimulus: legacy,
         stimulusSaid: legacySaid.artifact.d,
-        caseScope: 'Protected',
+        caseScope: 'Public',
         signal: new AbortController().signal,
       });
       expect(currentResult).toMatchObject({
@@ -189,11 +192,94 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
       });
       expect(correctedBuild.kind).toBe('Frozen');
       if (correctedBuild.kind !== 'Frozen') return;
+      const evaluationId = '11111111-1111-4111-8111-111111111111';
+      const objectSaid = said('h');
+      const hiddenPayload = said('q');
+      const hiddenStimulus = Buffer.from(`-AAN-_AAABAA${hiddenPayload}`);
+      const protectedCases = new AesGcmProtectedCaseCustody(randomBytes(32));
+      const sealedStimulus = await protectedCases.seal({
+        evaluationId,
+        objectSaid,
+        purpose: 'TrialHoldout',
+        segment: 0,
+        plaintext: hiddenStimulus,
+      });
+      const sealedExpected = await protectedCases.seal({
+        evaluationId,
+        objectSaid,
+        purpose: 'OracleObservation',
+        segment: 0,
+        plaintext: Buffer.from(
+          JSON.stringify({
+            kind: 'Parsed',
+            receipts: [{ version: 'Legacy', payload: hiddenPayload }],
+          }),
+        ),
+      });
+      expect(sealedStimulus.kind).toBe('Sealed');
+      expect(sealedExpected.kind).toBe('Sealed');
+      if (sealedStimulus.kind !== 'Sealed' || sealedExpected.kind !== 'Sealed') return;
+      const publicProtectedRecords: string[] = [];
+      const protectedObserver = new DockerReceiptObservation({
+        executables,
+        profile: prepared.profile,
+        image,
+        protectedCases,
+        artifacts: {
+          async record(input) {
+            publicProtectedRecords.push(Buffer.from(input.bytes).toString('utf8'));
+            const mediaType = input.mediaType;
+            if (mediaType !== 'application/json' && mediaType !== 'text/plain; charset=utf-8')
+              return { kind: 'Rejected' as const };
+            return artifacts.record({ bytes: input.bytes, mediaType });
+          },
+        },
+      });
+      const protectedCase = {
+        evaluationId,
+        objectSaid,
+        segment: 0,
+        stimulusArtifact: sealedStimulus.artifact,
+        expectedArtifact: sealedExpected.artifact,
+        signal: new AbortController().signal,
+      };
+      const correctedAssessment = await assessProtectedCesrCase(
+        { ...protectedCase, executableSaid: correctedBuild.executableSaid },
+        protectedCases,
+        protectedObserver,
+      );
+      expect(correctedAssessment).toMatchObject({ kind: 'Assessed', verdict: 'Pass' });
+      if (correctedAssessment.kind === 'Assessed') {
+        const openedObservation = await protectedCases.open({
+          artifact: correctedAssessment.observationArtifact,
+          evaluationId,
+          objectSaid,
+          purpose: 'OracleObservation',
+          segment: 0,
+        });
+        expect(openedObservation.kind).toBe('Opened');
+        if (openedObservation.kind === 'Opened')
+          expect(Buffer.from(openedObservation.plaintext).toString('utf8')).toContain(
+            hiddenPayload,
+          );
+      }
+      const originalAssessment = await assessProtectedCesrCase(
+        { ...protectedCase, executableSaid: built.executableSaid },
+        protectedCases,
+        protectedObserver,
+      );
+      expect(originalAssessment).toMatchObject({ kind: 'Assessed', verdict: 'Fail' });
+      expect(publicProtectedRecords).toHaveLength(2);
+      for (const recorded of publicProtectedRecords) {
+        expect(recorded).not.toContain(hiddenPayload);
+        expect(recorded).not.toContain(hiddenStimulus.toString('utf8'));
+        expect(recorded).toContain('"stopped":true');
+      }
       const correctedLegacy = await observation.observe({
         executableSaid: correctedBuild.executableSaid,
         stimulus: legacy,
         stimulusSaid: legacySaid.artifact.d,
-        caseScope: 'Protected',
+        caseScope: 'Public',
         signal: new AbortController().signal,
       });
       expect(correctedLegacy).toMatchObject({
@@ -208,7 +294,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         executableSaid: correctedBuild.executableSaid,
         stimulus: tamper,
         stimulusSaid: tamperSaid.artifact.d,
-        caseScope: 'Protected',
+        caseScope: 'Public',
         signal: new AbortController().signal,
       });
       expect(correctedTamper).toMatchObject({
@@ -242,7 +328,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         executableSaid: forgedBuild.executableSaid,
         stimulus: current,
         stimulusSaid: currentSaid.artifact.d,
-        caseScope: 'Protected',
+        caseScope: 'Public',
         signal: new AbortController().signal,
       });
       expect(forgedObservation).toMatchObject({ kind: 'Invalid' });

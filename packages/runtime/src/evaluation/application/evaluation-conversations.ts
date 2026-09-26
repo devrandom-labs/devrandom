@@ -160,13 +160,22 @@ export interface TaskArtifactConstruction {
 
 /** This is the fixture's parse_receipt_stream API, observed from frozen executable bytes. */
 export interface ReceiptObservation {
-  observe(input: {
-    readonly executableSaid: string;
-    readonly stimulus: Uint8Array;
-    readonly stimulusSaid: string;
-    readonly caseScope: 'Public' | 'Protected';
-    readonly signal: AbortSignal;
-  }): Promise<
+  observe(
+    input: {
+      readonly executableSaid: string;
+      readonly stimulus: Uint8Array;
+      readonly stimulusSaid: string;
+      readonly signal: AbortSignal;
+    } & (
+      | { readonly caseScope: 'Public' }
+      | {
+          readonly caseScope: 'Protected';
+          readonly evaluationId: string;
+          readonly objectSaid: string;
+          readonly segment: number;
+        }
+    ),
+  ): Promise<
     | {
         readonly kind: 'Observed';
         readonly executableSaid: string;
@@ -183,6 +192,8 @@ export interface ReceiptObservation {
               readonly error: 'InvalidFrame' | 'InvalidPayload' | 'UnsupportedVersion';
             };
         readonly rawObservationSaid: string;
+        /** Encrypted parent custody for protected output; never recorded as public raw bytes. */
+        readonly protectedObservation?: ProtectedEvaluationArtifact;
         readonly cleanupReceiptSaid: string;
       }
     | {
