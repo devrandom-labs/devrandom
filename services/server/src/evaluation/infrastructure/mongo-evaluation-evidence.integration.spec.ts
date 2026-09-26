@@ -10,6 +10,8 @@ import {
   prepareEvaluationEvidenceBatch,
   prepareEvaluationEvidenceEvent,
   prepareEvidenceArtifact,
+  prepareProtectedEvaluationArtifact,
+  type EvidenceArtifact,
 } from '@devrandom/protocol';
 
 import {
@@ -62,7 +64,29 @@ function event(
         spendMicroUsd: number;
         elapsedMilliseconds: number;
       }
-    | { kind: 'ModelExchange'; rawArtifactSaid: string },
+    | { kind: 'ModelExchange'; rawArtifactSaid: string }
+    | {
+        kind: 'ArtifactCaptured';
+        artifactSaid: string;
+        custody: 'Public' | 'ProtectedCiphertext';
+      }
+    | {
+        kind: 'EvaluationBudgetCovered';
+        throughSequence: number;
+        throughHeadSaid: string;
+        totals: {
+          providerRequests: number;
+          providerInputTokens: number;
+          providerOutputTokens: number;
+          providerSpendMicroUsd: number;
+          runWallTimeSeconds: number;
+          toolProposals: number;
+          aggregateChildCommandTimeSeconds: number;
+          changedFiles: number;
+          changedWorktreeBytes: number;
+        };
+        providerUsageEventSaids: string[];
+      },
 ) {
   const prepared = prepareEvaluationEvidenceEvent({
     evaluationId,
@@ -439,5 +463,169 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
     expect(
       await reservations.reconcile({ ownerAid: said('z'), command: existing.command }),
     ).toEqual({ kind: 'NotFound' });
+  });
+
+  it('keeps an otherwise byte-complete closure active until all budget consumption is proven', async () => {
+    const evaluations = database.collection<EvaluationDocument>(
+      evaluationCollectionNames.evaluations,
+    );
+    const before = await evaluations.findOne({ _id: evaluationId, ownerAid });
+    if (before === null || before.chainHeadSaid === null)
+      throw new Error('accepted Evaluation stream missing');
+    const required: { artifact: EvidenceArtifact; bytes: Uint8Array }[] = [];
+    for (let index = 0; index < 39; index++) {
+      const bytes = new TextEncoder().encode(JSON.stringify({ closureEvidence: index }));
+      const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+      if (prepared.kind !== 'Prepared') throw new Error('closure artifact preparation failed');
+      required.push({ artifact: prepared.artifact, bytes });
+    }
+    const protectedArtifact = prepareProtectedEvaluationArtifact({
+      evaluationId,
+      objectSaid: said('q'),
+      purpose: 'OracleObservation',
+      segment: 0,
+      nonce: 'A'.repeat(16),
+      tag: 'B'.repeat(22),
+      ciphertext: 'AA',
+      plaintextByteCount: 1,
+    });
+    if (protectedArtifact.kind !== 'Prepared') throw new Error('protected artifact rejected');
+    const captured = [
+      ...required.map(({ artifact }) => ({
+        kind: 'ArtifactCaptured' as const,
+        artifactSaid: artifact.d,
+        custody: 'Public' as const,
+      })),
+      {
+        kind: 'ArtifactCaptured' as const,
+        artifactSaid: protectedArtifact.artifact.d,
+        custody: 'ProtectedCiphertext' as const,
+      },
+    ];
+    let sequence = before.acceptedThroughSequence + 1;
+    let head = before.chainHeadSaid;
+    for (const [index, detail] of captured.entries()) {
+      const accepted = event(sequence, { kind: 'Previous', eventSaid: head }, detail);
+      sequence++;
+      head = accepted.d;
+      const publicArtifact = required[index];
+      const admitted = await repository.accept({
+        ownerAid,
+        upload: {
+          ...upload([accepted]),
+          publicArtifacts:
+            publicArtifact === undefined
+              ? []
+              : [
+                  {
+                    artifact: publicArtifact.artifact,
+                    bytesBase64Url: Buffer.from(publicArtifact.bytes).toString('base64url'),
+                  },
+                ],
+          protectedArtifacts: publicArtifact === undefined ? [protectedArtifact.artifact] : [],
+        },
+      });
+      expect(admitted.kind).toBe('Accepted');
+    }
+    const current = await evaluations.findOne({ _id: evaluationId, ownerAid });
+    if (current === null || current.chainHeadSaid === null)
+      throw new Error('accepted Evaluation artifacts missing');
+    const saids = [...required.map(({ artifact }) => artifact.d), protectedArtifact.artifact.d];
+    const at = (index: number) => {
+      const value = saids[index];
+      if (value === undefined) throw new Error('closure artifact missing');
+      return value;
+    };
+    const closureInput = {
+      evaluationId,
+      evidenceStreamId: streamId,
+      originRunId,
+      manifestSaid: said('M'),
+      acceptedEventCount: current.acceptedThroughSequence + 1,
+      acceptedHeadSaid: current.chainHeadSaid,
+      observationSaids: Array.from({ length: 18 }, (_, index) => at(index)),
+      measurementSaids: Array.from({ length: 15 }, (_, index) => at(18 + index)),
+      sharedAuditSaid: at(33),
+      armAuditSaids: {
+        H1: at(34),
+        C1: at(35),
+        C2: at(36),
+        C3: at(37),
+        H1TaskSearch: at(38),
+      },
+      protectedCustodySaid: at(39),
+      agentSealSaid: said('g'),
+    };
+    const closure = prepareEvaluationClosure(closureInput);
+    if (closure.kind !== 'Prepared') throw new Error('closure preparation failed');
+    expect(
+      await repository.close({
+        ownerAid,
+        expectedEvaluationVersion: current.version,
+        closure: closure.closure,
+      }),
+    ).toEqual({ kind: 'Incomplete' });
+    const unchanged = await evaluations.findOne({ _id: evaluationId, ownerAid });
+    expect(unchanged).toMatchObject({
+      version: current.version,
+      activeOwnerSlot: ownerAid,
+      acceptedThroughSequence: current.acceptedThroughSequence,
+    });
+    expect(unchanged?.closure).toBeUndefined();
+    expect(
+      await database
+        .collection<{ _id: string }>(evaluationCollectionNames.evaluations)
+        .countDocuments({ _id: evaluationId, settledDebit: { $exists: true } }),
+    ).toBe(0);
+
+    const forgedCoverage = event(
+      current.acceptedThroughSequence + 1,
+      { kind: 'Previous', eventSaid: current.chainHeadSaid },
+      {
+        kind: 'EvaluationBudgetCovered',
+        throughSequence: current.acceptedThroughSequence,
+        throughHeadSaid: current.chainHeadSaid,
+        totals: {
+          providerRequests: 0,
+          providerInputTokens: 0,
+          providerOutputTokens: 0,
+          providerSpendMicroUsd: 0,
+          runWallTimeSeconds: 0,
+          toolProposals: 0,
+          aggregateChildCommandTimeSeconds: 0,
+          changedFiles: 0,
+          changedWorktreeBytes: 0,
+        },
+        providerUsageEventSaids: [],
+      },
+    );
+    expect(
+      (
+        await repository.accept({
+          ownerAid,
+          upload: upload([forgedCoverage]),
+        })
+      ).kind,
+    ).toBe('Accepted');
+    const afterCoverage = await evaluations.findOne({ _id: evaluationId, ownerAid });
+    if (afterCoverage === null || afterCoverage.chainHeadSaid === null)
+      throw new Error('forged coverage did not append');
+    const forgedClosure = prepareEvaluationClosure({
+      ...closureInput,
+      acceptedEventCount: afterCoverage.acceptedThroughSequence + 1,
+      acceptedHeadSaid: afterCoverage.chainHeadSaid,
+    });
+    if (forgedClosure.kind !== 'Prepared') throw new Error('forged closure preparation failed');
+    expect(
+      await repository.close({
+        ownerAid,
+        expectedEvaluationVersion: afterCoverage.version,
+        closure: forgedClosure.closure,
+      }),
+    ).toEqual({ kind: 'Incomplete' });
+    expect(await evaluations.findOne({ _id: evaluationId, ownerAid })).toMatchObject({
+      version: afterCoverage.version,
+      activeOwnerSlot: ownerAid,
+    });
   });
 });

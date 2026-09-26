@@ -13,6 +13,7 @@ import { taskBudgetCeilings } from '@devrandom/domain';
 import {
   decodeEvaluationClosure,
   decodeEvaluationEvidenceBatch,
+  decodeEvaluationEvidenceEvent,
   decodePublicEvaluationArtifact,
   decodeProtectedEvaluationArtifact,
   evidenceArtifactReferences,
@@ -470,19 +471,48 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
             { session },
           );
           if (stored !== new Set(requiredSaids).size) return { kind: 'Incomplete' as const };
-          const sealed = await this.#evaluations.updateOne(
+          const coverageDocument = await this.#events.findOne(
             {
-              _id: evaluation._id,
               ownerAid,
-              version: evaluation.version,
-              closure: { $exists: false },
+              evaluationId: evaluation._id,
+              streamId: evaluation.evidenceStreamId,
+              sequence: evaluation.acceptedThroughSequence,
             },
-            { $set: { closure }, $unset: { activeOwnerSlot: '' }, $inc: { version: 1 } },
             { session },
           );
-          return sealed.matchedCount === 1
-            ? { kind: 'Closed' as const, closureSaid: closure.d }
-            : { kind: 'Conflict' as const };
+          if (
+            coverageDocument === null ||
+            coverageDocument._id !== evaluation.chainHeadSaid ||
+            coverageDocument.event.d !== coverageDocument._id ||
+            decodeEvaluationEvidenceEvent(coverageDocument.event).kind !== 'Accepted' ||
+            coverageDocument.event.detail.kind !== 'EvaluationBudgetCovered' ||
+            coverageDocument.event.sequence !== evaluation.acceptedThroughSequence ||
+            coverageDocument.event.detail.throughSequence !==
+              evaluation.acceptedThroughSequence - 1 ||
+            coverageDocument.event.previous.kind !== 'Previous' ||
+            coverageDocument.event.previous.eventSaid !==
+              coverageDocument.event.detail.throughHeadSaid
+          )
+            return { kind: 'Incomplete' as const };
+          const predecessor = await this.#events.findOne(
+            {
+              ownerAid,
+              evaluationId: evaluation._id,
+              streamId: evaluation.evidenceStreamId,
+              sequence: coverageDocument.event.detail.throughSequence,
+            },
+            { session },
+          );
+          if (
+            predecessor === null ||
+            predecessor._id !== coverageDocument.event.detail.throughHeadSaid ||
+            predecessor.event.d !== predecessor._id ||
+            decodeEvaluationEvidenceEvent(predecessor.event).kind !== 'Accepted'
+          )
+            return { kind: 'Incomplete' as const };
+          // A SAID-valid coverage claim and retained bytes do not prove measured consumption.
+          // Until trusted measured-source receipts are verified, the reservation stays held.
+          return { kind: 'Incomplete' as const };
         }),
       );
     } catch {
