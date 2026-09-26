@@ -98,7 +98,9 @@ export async function sealCesrComparisonCases(
       if (!(drawn instanceof Uint8Array) || drawn.byteLength !== 32)
         return { kind: 'Incomplete', reason: 'Entropy' };
       material.push(drawn);
-      const payload = `E${Buffer.from(drawn).toString('base64url')}`;
+      const encoded = Buffer.from(drawn);
+      const payload = `E${encoded.toString('base64url')}`;
+      encoded.fill(0);
       if (payload.length !== 44 || payloads.includes(payload))
         return { kind: 'Incomplete', reason: 'Entropy' };
       payloads.push(payload);
