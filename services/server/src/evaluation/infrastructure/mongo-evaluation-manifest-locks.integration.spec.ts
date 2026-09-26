@@ -1,5 +1,8 @@
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import Fastify from 'fastify';
 import { MongoClient } from 'mongodb';
@@ -15,6 +18,11 @@ import {
   evaluationManifestLockReceiptSchema,
 } from '@devrandom/protocol';
 import Value from 'typebox/value';
+
+import { HostedEvaluationProtectedArtifacts } from '../../../../../apps/cli/src/harness/infrastructure/hosted-evaluation-protected-artifacts.js';
+import { ServerEvaluationHttp } from '../../../../../apps/cli/src/harness/infrastructure/server-evaluation-http.js';
+import { SqliteEvaluationEvidenceOutbox } from '../../../../../apps/cli/src/harness/infrastructure/sqlite-evaluation-evidence-outbox.js';
+import { decodeDevrandomServerOrigin } from '../../../../../apps/cli/src/infrastructure/devrandom-server-http.js';
 
 import {
   lockEvaluationManifest,
@@ -205,6 +213,7 @@ describeMongo('immutable Evaluation M over listening Fastify and replica Mongo',
   const database = client.db(`devrandom_manifest_${randomUUID().replaceAll('-', '')}`);
   const server = Fastify();
   let address: string;
+  const stateRoots: string[] = [];
 
   beforeAll(async () => {
     await client.connect();
@@ -257,6 +266,7 @@ describeMongo('immutable Evaluation M over listening Fastify and replica Mongo',
     await server.close();
     await database.dropDatabase();
     await client.close();
+    for (const root of stateRoots) rmSync(root, { recursive: true, force: true });
   });
 
   async function put(evaluationId: string, command: unknown, bearer = 'b'.repeat(43)) {
@@ -409,6 +419,153 @@ describeMongo('immutable Evaluation M over listening Fastify and replica Mongo',
     await database
       .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
       .updateOne({ _id: fixtureValue.evaluationId }, { $unset: { activeOwnerSlot: '' } });
+  });
+
+  it('reconciles lost protected observation ACK through real localhost HTTP and replica Mongo', async () => {
+    const given = fixture();
+    await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .insertOne(given.record);
+    expect((await put(given.evaluationId, given.command)).status).toBe(201);
+    const origin = decodeDevrandomServerOrigin(address);
+    if (origin.kind !== 'Accepted') throw new Error('listening origin rejected');
+    const http = new ServerEvaluationHttp(origin.origin, 'b'.repeat(43), fetch);
+    const stateRoot = mkdtempSync(join(tmpdir(), 'devrandom-protected-http-'));
+    stateRoots.push(stateRoot);
+    const opening = SqliteEvaluationEvidenceOutbox.open(stateRoot, {
+      ownerAid,
+      evaluationId: given.evaluationId,
+      streamId: given.record.evidenceStreamId,
+      originRunId: given.record.command.originRunId,
+      taskId: given.record.command.taskId,
+      taskRevisionSaid: said('t'),
+      personalAgentAid: agentAid,
+      taskMandateSaid: said('m'),
+    });
+    if (opening.kind !== 'Opened') throw new Error('private outbox rejected');
+    const outbox = opening.outbox;
+    const phase = {
+      kind: 'Trial' as const,
+      manifestSaid: given.command.manifest.d,
+      arm: 'H1' as const,
+      repetition: 1 as const,
+      attempt: 1 as const,
+    };
+    const stopped = prepareEvaluationEvidenceEvent({
+      evaluationId: given.evaluationId,
+      streamId: given.record.evidenceStreamId,
+      originRunId: given.record.command.originRunId,
+      taskId: given.record.command.taskId,
+      taskRevisionSaid: said('t'),
+      personalAgentAid: agentAid,
+      taskMandateSaid: said('m'),
+      harnessRevisionSaid: given.command.manifest.revisions.H1,
+      phase,
+      sequence: 0,
+      previous: { kind: 'Genesis' },
+      occurredAt: '2026-09-26T06:00:01.000Z',
+      detail: { kind: 'TrialStopped', reason: 'Completed' },
+    });
+    if (stopped.kind !== 'Prepared') throw new Error('stopped event rejected');
+    expect(
+      outbox.stage({
+        commandId: randomUUID(),
+        fingerprint: `sha256:${'a'.repeat(64)}`,
+        events: [stopped.event],
+        publicArtifacts: [],
+        protectedArtifacts: [],
+      }).kind,
+    ).toBe('Staged');
+    const pending = outbox.pending();
+    if (pending.kind !== 'Pending') throw new Error('stopped batch missing');
+    const initial = await http.appendEvidence(pending.upload);
+    if (initial.kind !== 'Acknowledged') throw new Error(`stopped batch ${initial.kind}`);
+    expect(outbox.acknowledge(initial.acknowledgement).kind).toBe('Recorded');
+
+    const protectedCase = given.command.verifierBundle.protectedCase;
+    const observation = prepareProtectedEvaluationArtifact({
+      evaluationId: given.evaluationId,
+      objectSaid: protectedCase.objectSaid,
+      purpose: 'OracleObservation',
+      segment: 0,
+      nonce: Buffer.alloc(12, 9).toString('base64url'),
+      tag: Buffer.alloc(16, 9).toString('base64url'),
+      ciphertext: Buffer.from([9]).toString('base64url'),
+      plaintextByteCount: 1,
+    });
+    if (observation.kind !== 'Prepared') throw new Error('observation artifact rejected');
+    let loseReply = true;
+    const captureStatuses: number[] = [];
+    const lossyHttp = new ServerEvaluationHttp(origin.origin, 'b'.repeat(43), async (url, init) => {
+      const response = await fetch(url, init);
+      const path =
+        typeof url === 'string'
+          ? new URL(url).pathname
+          : url instanceof URL
+            ? url.pathname
+            : new URL(url.url).pathname;
+      if (init?.method === 'POST' && path.endsWith('/batches'))
+        captureStatuses.push(response.status);
+      if (loseReply && init?.method === 'POST' && path.endsWith('/batches')) {
+        loseReply = false;
+        throw new Error('simulated response loss after Mongo commit');
+      }
+      return response;
+    });
+    const adapter = new HostedEvaluationProtectedArtifacts(
+      lossyHttp,
+      { open: () => Promise.resolve({ kind: 'Opened', bytes: given.encoded.bytes }) },
+      outbox,
+      () => '2026-09-26T06:00:02.000Z',
+    );
+    const input = {
+      binding: {
+        kind: 'Evaluation' as const,
+        evaluationId: given.evaluationId,
+        taskId: given.record.command.taskId,
+        taskRevisionSaid: said('t'),
+        originRunId: given.record.command.originRunId,
+        personalAgentAid: agentAid,
+        taskMandateSaid: said('m'),
+        harnessRevisionSaid: given.command.manifest.revisions.H1,
+        evaluationLeaseId: given.record.lease.leaseId,
+        evidenceStreamId: given.record.evidenceStreamId,
+        phase,
+      },
+      manifest: given.command.manifest,
+      lease: given.record.lease,
+      expectedHeadSaid: stopped.event.d,
+      artifacts: [protectedCase.stimulus, protectedCase.expected, observation.artifact] as const,
+    };
+    expect(await adapter.retain(input)).toEqual({ kind: 'Unavailable' });
+    expect(outbox.pending().kind).toBe('Pending');
+    expect(
+      await database.collection(evaluationCollectionNames.artifacts).countDocuments({
+        evaluationId: given.evaluationId,
+      }),
+    ).toBe(5);
+    const retained = await adapter.retain(input);
+    expect(retained).toMatchObject({
+      kind: 'Acknowledged',
+      artifactSaids: [protectedCase.stimulus.d, protectedCase.expected.d, observation.artifact.d],
+      throughSequence: 1,
+    });
+    expect(captureStatuses).toEqual([201, 200]);
+    expect(outbox.pending()).toEqual({ kind: 'Empty' });
+    expect(
+      await database.collection(evaluationCollectionNames.batches).countDocuments({
+        evaluationId: given.evaluationId,
+      }),
+    ).toBe(2);
+    expect(
+      await database.collection(evaluationCollectionNames.artifacts).countDocuments({
+        evaluationId: given.evaluationId,
+      }),
+    ).toBe(5);
+    outbox.close();
+    await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .updateOne({ _id: given.evaluationId }, { $unset: { activeOwnerSlot: '' } });
   });
 
   it('rejects substituted M, absent ciphertext, wrong lease, and expired lease without retaining custody', async () => {
