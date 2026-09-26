@@ -428,6 +428,47 @@ export function blockRun(run: Run, input: RunBlock): RunBlocking {
   };
 }
 
+/** An unsubmitted Run can end without acquiring failure or calibration meaning. */
+export function planRunCancellation(
+  run: Run,
+):
+  | {
+      readonly kind: 'Planned';
+      readonly state: {
+        readonly outcome: { readonly kind: 'Cancelled' };
+        readonly submissionVerification: { readonly kind: 'NotSubmitted' };
+      };
+    }
+  | { readonly kind: 'RunNotActive' | 'SubmissionAlreadyAccepted' | 'SubmissionAlreadyStarted' } {
+  if (run.lifecycle.kind !== 'Active') return { kind: 'RunNotActive' };
+  if (run.submissionVerification.kind === 'Accepted') return { kind: 'SubmissionAlreadyAccepted' };
+  if (run.submissionVerification.kind !== 'NotSubmitted')
+    return { kind: 'SubmissionAlreadyStarted' };
+  return {
+    kind: 'Planned',
+    state: { outcome: { kind: 'Cancelled' }, submissionVerification: { kind: 'NotSubmitted' } },
+  };
+}
+
+/** Explicit owner cancellation is terminal bookkeeping, never a failure qualification. */
+export function cancelRun(
+  run: Run,
+  input: RunCheckpointReference,
+):
+  | { readonly kind: 'Cancelled'; readonly run: Run }
+  | { readonly kind: 'RunNotActive' | 'SubmissionAlreadyAccepted' | 'SubmissionAlreadyStarted' } {
+  const plan = planRunCancellation(run);
+  if (plan.kind !== 'Planned') return plan;
+  return {
+    kind: 'Cancelled',
+    run: transition(
+      run,
+      { kind: 'Ended', outcome: { ...plan.state.outcome, checkpointSaid: input.checkpointSaid } },
+      plan.state.submissionVerification,
+    ),
+  };
+}
+
 export function failRun(run: Run, input: RunFailure): RunFailing {
   if (run.lifecycle.kind !== 'Active') {
     return { kind: 'RunNotActive' };

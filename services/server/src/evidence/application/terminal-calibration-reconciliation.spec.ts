@@ -3,6 +3,7 @@ import {
   prepareEvidenceBatch,
   prepareEvidenceEvent,
   prepareVerifiedCheckpoint,
+  preparePublicVerifierReceipt,
   taskBudgetCeilings,
   type AppendEvidenceBatchBody,
   type EvidenceEventDetail,
@@ -136,6 +137,108 @@ function fixture() {
 }
 
 describe('terminal calibration evidence reconciliation', () => {
+  it('accepts only expired-task cancellation bookkeeping without inventing calibration failure', () => {
+    const { run, stream, started, body } = fixture();
+    const unresolved = preparePublicVerifierReceipt({
+      version: 1,
+      completionConditionId: 'public-test',
+      commandSaid: said('c'),
+      recordedAt,
+      outcome: { kind: 'Unresolved', reason: 'NotAttempted' },
+    });
+    if (unresolved.kind !== 'Prepared') throw new Error('receipt fixture');
+    const checkpoint = prepareVerifiedCheckpoint(
+      {
+        version: 1,
+        taskId: run.binding.taskId,
+        taskRevisionSaid: run.binding.taskRevisionSaid,
+        runId,
+        incarnationId,
+        harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+        harnessLineageId: run.binding.harnessLineageId,
+        personalAgentAid: run.binding.personalAgentAid,
+        governorAid: run.binding.governorAid,
+        taskMandateSaid: run.binding.taskMandateSaid,
+        promotionMandateSaid: run.binding.promotionMandateSaid,
+        purpose: run.binding.purpose,
+        repository: {
+          objectFormat: 'sha1',
+          baseCommit: run.binding.repository.commit,
+          baseTree: run.binding.repository.tree,
+          changedFiles: [],
+        },
+        outputArtifactSaids: [],
+        verifierReceipts: [unresolved.receipt],
+        evidence: { eventCount: 4, finalSequence: 3, chainHeadSaid: stream.cursor.chainHeadSaid },
+        budget: { consumed: run.consumedBudget, remaining: run.binding.budget },
+        runState: {
+          kind: 'Ended',
+          outcome: { kind: 'Cancelled' },
+          verification: { kind: 'NotSubmitted' },
+        },
+        continuation: { kind: 'NoContinuation' },
+      },
+      ['public-test'],
+    );
+    if (checkpoint.kind !== 'Prepared')
+      throw new Error(`cancelled checkpoint fixture: ${checkpoint.reason}`);
+    const input = {
+      run,
+      stream: { ...stream, provisional: { kind: 'None' as const } },
+      runStarted: started,
+      acceptedBudget: run.consumedBudget,
+      completionConditionIds: ['public-test'],
+      expected: {
+        incarnationId,
+        runStartedSaid: started.d,
+        acceptedThroughSequence: 3,
+        chainHeadSaid: stream.cursor.chainHeadSaid,
+      },
+      taskExpiresAt: '2026-09-24T20:00:30.000Z',
+      acceptedSubmission: false,
+      body: {
+        ...body({ kind: 'CheckpointVerified', checkpointSaid: checkpoint.checkpoint.d }),
+        checkpoint: checkpoint.checkpoint,
+      },
+      receivedAt: '2026-09-24T20:01:01.000Z',
+    };
+    expect(assessTerminalCalibrationBatch(input)).toEqual({
+      kind: 'Accepted',
+      phase: 'Checkpoint',
+    });
+    expect(
+      assessTerminalCalibrationBatch({ ...input, taskExpiresAt: '2026-09-24T21:00:00.000Z' }).kind,
+    ).toBe('Rejected');
+    expect(assessTerminalCalibrationBatch({ ...input, acceptedSubmission: true }).kind).toBe(
+      'Rejected',
+    );
+    expect(
+      assessTerminalCalibrationBatch({
+        ...input,
+        acceptedBudget: { ...run.consumedBudget, providerRequests: 1 },
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'BudgetMismatch' });
+    const ackStream = {
+      ...stream,
+      provisional: {
+        kind: 'Checkpointed' as const,
+        checkpointSaid: checkpoint.checkpoint.d,
+        lifecycle: {
+          kind: 'Ended' as const,
+          outcome: { kind: 'Cancelled' as const, checkpointSaid: checkpoint.checkpoint.d },
+        },
+        submissionVerification: { kind: 'NotSubmitted' as const },
+      },
+    };
+    expect(
+      assessTerminalCalibrationBatch({
+        ...input,
+        stream: ackStream,
+        body: body({ kind: 'CheckpointAccepted', checkpointSaid: checkpoint.checkpoint.d }),
+      }),
+    ).toEqual({ kind: 'Accepted', phase: 'Acknowledgement' });
+  });
+
   it('binds a real over-ceiling checkpoint to only measured debit and terminal markers', () => {
     const { run, stream, started } = fixture();
     const checkpointStream = { ...stream, provisional: { kind: 'None' as const } };

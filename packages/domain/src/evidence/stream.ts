@@ -205,10 +205,7 @@ function checkpointDispositionIsValid(checkpoint: EvidenceBatchCheckpoint): bool
       checkpoint.lifecycle.phase.checkpointSaid === checkpoint.checkpointSaid
     );
   }
-  return (
-    checkpoint.lifecycle.outcome.kind !== 'Cancelled' &&
-    checkpoint.lifecycle.outcome.checkpointSaid === checkpoint.checkpointSaid
-  );
+  return checkpoint.lifecycle.outcome.checkpointSaid === checkpoint.checkpointSaid;
 }
 
 function expectedSequence(cursor: EvidenceCursor): number {

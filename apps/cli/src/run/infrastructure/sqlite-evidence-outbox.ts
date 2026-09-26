@@ -1263,8 +1263,10 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
     if (
       this.#terminalCalibrationOnly &&
       (outcome.kind !== 'Ended' ||
-        outcome.outcome.kind !== 'CalibrationExcluded' ||
-        outcome.outcome.reason !== 'BudgetExhausted')
+        (outcome.outcome.kind !== 'Cancelled' &&
+          (outcome.outcome.kind !== 'CalibrationExcluded' ||
+            outcome.outcome.reason !== 'BudgetExhausted')) ||
+        outcome.verification.kind !== 'NotSubmitted')
     )
       return { kind: 'CheckpointRejected' };
     if (

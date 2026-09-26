@@ -1,7 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import {
+  cancelRun,
   planRunCalibration,
+  planRunCancellation,
   recordRunCalibration,
   startRunExecution,
   taskBudgetNames,
@@ -14,6 +16,7 @@ import {
   type EvidenceEvent,
   type EvidenceStreamProjection,
   type TaskProjection,
+  type VerifiedCheckpoint,
   type TerminalCalibrationReconciliationBody,
 } from '@devrandom/protocol';
 import {
@@ -42,6 +45,7 @@ export interface HostedTerminalCalibration {
 }
 
 export interface TerminalCalibrationInput {
+  readonly intent?: 'CancelExpiredRun';
   readonly ownerAid: string;
   readonly run: Run;
   readonly hostedPrefix: readonly EvidenceEvent[];
@@ -69,6 +73,13 @@ export interface TerminalCalibrationDependencies {
   readonly ordinary: HostedEvidence;
   readonly terminal: HostedTerminalCalibration;
   readonly repository: CheckpointRepository;
+  readonly interruptedSource?: {
+    matches(
+      events: readonly EvidenceEvent[],
+      recorder: PreparedCompatibilityEvidence,
+      repository: Extract<VerifiedCheckpoint, { version: 1 }>['repository'],
+    ): boolean;
+  };
   readonly worktree: PreparedRunWorktree;
   readonly calibration: PreparedCompatibilityCalibrationSettlements;
   sealing(hosted: HostedEvidence): RunEvidenceSealing;
@@ -99,8 +110,10 @@ export async function reconcileSealedTerminalCalibration(
   if (
     run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
     run.lifecycle.kind !== 'Ended' ||
-    run.lifecycle.outcome.kind !== 'CalibrationExcluded' ||
-    run.lifecycle.outcome.reason !== 'BudgetExhausted' ||
+    (input.intent === 'CancelExpiredRun'
+      ? run.lifecycle.outcome.kind !== 'Cancelled'
+      : run.lifecycle.outcome.kind !== 'CalibrationExcluded' ||
+        run.lifecycle.outcome.reason !== 'BudgetExhausted') ||
     input.ownerAid !== run.binding.ownerAid ||
     task.ownerAid !== input.ownerAid ||
     task.taskId !== run.binding.taskId ||
@@ -166,11 +179,23 @@ export async function reconcileSealedTerminalCalibration(
   if (
     starts.length !== 1 ||
     verified.length !== 1 ||
-    recorded.length !== 1 ||
-    (verified[0]?.sequence ?? Infinity) >= (recorded[0]?.sequence ?? -1) ||
+    (input.intent === 'CancelExpiredRun'
+      ? recorded.length !== 0
+      : recorded.length !== 1 ||
+        (verified[0]?.sequence ?? Infinity) >= (recorded[0]?.sequence ?? -1)) ||
     last.producer.kind !== 'EvidenceRecorder'
   )
     return { kind: 'BindingRejected' };
+  if (input.intent === 'CancelExpiredRun') {
+    if (
+      events.some(
+        ({ event }) => event.kind === 'RunCalibrationRecorded' || event.kind === 'ResultSubmitted',
+      ) ||
+      run.submissionVerification.kind !== 'NotSubmitted'
+    )
+      return { kind: 'BindingRejected' };
+    return { kind: 'Reconciled', run, checkpointSaid };
+  }
   const committed = await calibration.record({
     kind: 'ExcludedRun',
     runId: run.binding.runId,
@@ -187,6 +212,7 @@ export async function reconcileTerminalCalibrationRun(
   dependencies: TerminalCalibrationDependencies,
 ): Promise<TerminalCalibrationReconciliation> {
   const { run, task, harness } = input;
+  const cancellation = input.intent === 'CancelExpiredRun';
   if (
     run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
     run.lease.kind !== 'Held' ||
@@ -197,6 +223,9 @@ export async function reconcileTerminalCalibrationRun(
     input.ownerAid !== run.binding.ownerAid ||
     task.ownerAid !== input.ownerAid ||
     task.lifecycle.kind !== 'Open' ||
+    (cancellation &&
+      (!Number.isFinite(Date.parse(task.revision.expiresAt)) ||
+        Date.parse(task.revision.expiresAt) > Date.parse(dependencies.now()))) ||
     task.taskId !== run.binding.taskId ||
     task.revisionSaid !== run.binding.taskRevisionSaid ||
     task.harnessLineageId !== run.binding.harnessLineageId ||
@@ -249,6 +278,8 @@ export async function reconcileTerminalCalibrationRun(
     if (taskBudgetNames.some((name) => consumed[name] < run.consumedBudget[name]))
       return { kind: 'LocalEvidenceRejected' };
     const running: Run = { ...replay.run, consumedBudget: consumed };
+    if (cancellation && events.some(({ event }) => event.kind === 'ResultSubmitted'))
+      return { kind: 'BindingRejected' };
     const checkpoints = events.filter(({ event }) => event.kind === 'CheckpointVerified');
     if (checkpoints.length > 1) return { kind: 'LocalEvidenceRejected' };
     // Original observations must retain their original bytes and the ordinary admission law.
@@ -298,11 +329,12 @@ export async function reconcileTerminalCalibrationRun(
       runId: run.binding.runId,
       reason: 'BudgetExhausted' as const,
     };
-    const assessed = await dependencies.calibration.assess(attempt);
+    const assessed = cancellation ? undefined : await dependencies.calibration.assess(attempt);
     if (
-      assessed.kind !== 'Accepted' ||
-      assessed.disposition.kind !== 'Excluded' ||
-      assessed.disposition.reason !== 'BudgetExhausted'
+      !cancellation &&
+      (assessed?.kind !== 'Accepted' ||
+        assessed.disposition.kind !== 'Excluded' ||
+        assessed.disposition.reason !== 'BudgetExhausted')
     )
       return { kind: 'CalibrationRejected' };
     let checkpointSaid: string;
@@ -313,10 +345,24 @@ export async function reconcileTerminalCalibrationRun(
       if (
         checkpoint.kind !== 'Read' ||
         checkpoint.checkpoint.runState.kind !== 'Ended' ||
-        checkpoint.checkpoint.runState.outcome.kind !== 'CalibrationExcluded' ||
-        checkpoint.checkpoint.runState.outcome.reason !== 'BudgetExhausted'
+        (cancellation
+          ? checkpoint.checkpoint.runState.outcome.kind !== 'Cancelled'
+          : checkpoint.checkpoint.runState.outcome.kind !== 'CalibrationExcluded' ||
+            checkpoint.checkpoint.runState.outcome.reason !== 'BudgetExhausted')
       )
         return { kind: 'CheckpointRejected' };
+      if (cancellation) {
+        const captured = await dependencies.repository.capture(dependencies.worktree, {
+          changedFiles: run.binding.budget.changedFiles,
+          changedWorktreeBytes: run.binding.budget.changedWorktreeBytes,
+        });
+        if (
+          captured.kind !== 'Captured' ||
+          !isDeepStrictEqual(captured.repository, checkpoint.checkpoint.repository) ||
+          dependencies.interruptedSource?.matches(events, recorder, captured.repository) !== true
+        )
+          return { kind: 'CheckpointRejected' };
+      }
     } else {
       // A crash between accounting and checkpoint persistence cannot safely measure/debit twice.
       if (
@@ -327,8 +373,12 @@ export async function reconcileTerminalCalibrationRun(
         )
       )
         return { kind: 'CheckpointRejected' };
-      const plan = planRunCalibration(running, assessed.disposition);
-      if (plan.kind !== 'Planned') return { kind: 'CheckpointRejected' };
+      const plan = cancellation
+        ? planRunCancellation(running)
+        : assessed?.kind === 'Accepted'
+          ? planRunCalibration(running, assessed.disposition)
+          : undefined;
+      if (plan?.kind !== 'Planned') return { kind: 'CheckpointRejected' };
       const receipts = harness.completionCommands.map((command) =>
         preparePublicVerifierReceipt({
           version: 1,
@@ -353,7 +403,15 @@ export async function reconcileTerminalCalibrationRun(
         repository: {
           capture: async (worktree, limits, signal) => {
             const captured = await dependencies.repository.capture(worktree, limits, signal);
-            return captured.kind === 'Captured' &&
+            if (
+              cancellation &&
+              (captured.kind !== 'Captured' ||
+                dependencies.interruptedSource?.matches(events, recorder, captured.repository) !==
+                  true)
+            )
+              return { kind: 'RepositoryBindingRejected' };
+            return !cancellation &&
+              captured.kind === 'Captured' &&
               captured.changedWorktreeBytes + consumed.changedWorktreeBytes <=
                 run.binding.budget.changedWorktreeBytes
               ? { kind: 'RepositoryBindingRejected' }
@@ -381,14 +439,22 @@ export async function reconcileTerminalCalibrationRun(
     }
     const stored = recorder.checkpoint(checkpointSaid);
     if (stored.kind !== 'Read') return { kind: 'CheckpointRejected' };
-    const recorded = recordRunCalibration(
-      { ...running, consumedBudget: stored.checkpoint.budget.consumed },
-      { checkpointSaid, disposition: assessed.disposition },
-    );
-    if (recorded.kind !== 'Recorded') return { kind: 'CalibrationRejected' };
+    const checkpointedRun = { ...running, consumedBudget: stored.checkpoint.budget.consumed };
+    const recorded = cancellation
+      ? cancelRun(checkpointedRun, { checkpointSaid })
+      : assessed?.kind === 'Accepted'
+        ? recordRunCalibration(checkpointedRun, {
+            checkpointSaid,
+            disposition: assessed.disposition,
+          })
+        : undefined;
+    if (recorded?.kind !== 'Recorded' && recorded?.kind !== 'Cancelled')
+      return { kind: 'CalibrationRejected' };
     const calibrationEvents = events.filter(({ event }) => event.kind === 'RunCalibrationRecorded');
     if (calibrationEvents.length > 1) return { kind: 'LocalEvidenceRejected' };
     if (
+      !cancellation &&
+      assessed?.kind === 'Accepted' &&
       calibrationEvents.length === 0 &&
       recorder.record({
         occurredAt: dependencies.now(),
@@ -406,7 +472,7 @@ export async function reconcileTerminalCalibrationRun(
       'Sealed'
     )
       return { kind: 'SealingRejected' };
-    if ((await dependencies.calibration.record(attempt)).kind !== 'Recorded')
+    if (!cancellation && (await dependencies.calibration.record(attempt)).kind !== 'Recorded')
       return { kind: 'CalibrationRejected' };
     return { kind: 'Reconciled', run: recorded.run, checkpointSaid };
   } catch {

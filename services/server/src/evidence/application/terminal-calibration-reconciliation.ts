@@ -34,6 +34,8 @@ export interface TerminalCalibrationBatchInput {
   readonly runStarted: EvidenceEvent;
   readonly acceptedBudget: TaskBudgets;
   readonly completionConditionIds: readonly string[];
+  readonly taskExpiresAt?: string;
+  readonly acceptedSubmission?: boolean;
   readonly expected: {
     readonly incarnationId: string;
     readonly runStartedSaid: string;
@@ -167,13 +169,21 @@ export function assessTerminalCalibrationBatch(
     )
       return reject('EventBindingConflict');
   }
+  const cancellationEligible =
+    input.taskExpiresAt !== undefined &&
+    exactTime(input.taskExpiresAt) !== undefined &&
+    Date.parse(input.taskExpiresAt) <= receivedAt &&
+    input.acceptedSubmission === false;
   if (stream.provisional.kind === 'Checkpointed') {
     const event = body.events[0];
     return body.events.length === 1 &&
       body.checkpoint === undefined &&
       stream.provisional.lifecycle.kind === 'Ended' &&
-      stream.provisional.lifecycle.outcome.kind === 'CalibrationExcluded' &&
-      stream.provisional.lifecycle.outcome.reason === 'BudgetExhausted' &&
+      ((stream.provisional.lifecycle.outcome.kind === 'CalibrationExcluded' &&
+        stream.provisional.lifecycle.outcome.reason === 'BudgetExhausted') ||
+        (stream.provisional.lifecycle.outcome.kind === 'Cancelled' &&
+          cancellationEligible &&
+          stream.provisional.submissionVerification.kind === 'NotSubmitted')) &&
       event?.producer.kind === 'EvidenceRecorder' &&
       event.event.kind === 'CheckpointAccepted' &&
       event.event.checkpointSaid === stream.provisional.checkpointSaid
@@ -181,24 +191,29 @@ export function assessTerminalCalibrationBatch(
       : reject('TerminalSequenceInvalid');
   }
   const checkpoint = body.checkpoint;
+  const cancellation =
+    checkpoint?.runState.kind === 'Ended' && checkpoint.runState.outcome.kind === 'Cancelled';
   const markerIndex = body.events.findIndex((event) => event.event.kind === 'CheckpointVerified');
   const marker = body.events[markerIndex];
   const recorded = body.events[markerIndex + 1];
   if (
     checkpoint === undefined ||
     markerIndex < 0 ||
-    markerIndex !== body.events.length - 2 ||
+    markerIndex !== body.events.length - (cancellation ? 1 : 2) ||
     marker?.producer.kind !== 'EvidenceRecorder' ||
     marker.event.kind !== 'CheckpointVerified' ||
     marker.event.checkpointSaid !== checkpoint.d ||
-    recorded?.producer.kind !== 'RunSupervisor' ||
-    recorded.event.kind !== 'RunCalibrationRecorded' ||
-    recorded.event.checkpointSaid !== checkpoint.d ||
-    recorded.event.disposition.kind !== 'Excluded' ||
-    recorded.event.disposition.reason !== 'BudgetExhausted' ||
+    (!cancellation &&
+      (recorded?.producer.kind !== 'RunSupervisor' ||
+        recorded.event.kind !== 'RunCalibrationRecorded' ||
+        recorded.event.checkpointSaid !== checkpoint.d ||
+        recorded.event.disposition.kind !== 'Excluded' ||
+        recorded.event.disposition.reason !== 'BudgetExhausted')) ||
     checkpoint.runState.kind !== 'Ended' ||
-    checkpoint.runState.outcome.kind !== 'CalibrationExcluded' ||
-    checkpoint.runState.outcome.reason !== 'BudgetExhausted' ||
+    (cancellation
+      ? !cancellationEligible
+      : checkpoint.runState.outcome.kind !== 'CalibrationExcluded' ||
+        checkpoint.runState.outcome.reason !== 'BudgetExhausted') ||
     checkpoint.runState.verification.kind !== 'NotSubmitted'
   )
     return reject('TerminalSequenceInvalid');
@@ -229,7 +244,7 @@ export function assessTerminalCalibrationBatch(
         checkpoint.budget.remaining[name] !==
           Math.max(0, run.binding.budget[name] - consumed[name]),
     ) ||
-    consumed.changedWorktreeBytes <= run.binding.budget.changedWorktreeBytes ||
+    (!cancellation && consumed.changedWorktreeBytes <= run.binding.budget.changedWorktreeBytes) ||
     checkpoint.repository.changedFiles.length !== consumed.changedFiles
   )
     return reject('BudgetMismatch');

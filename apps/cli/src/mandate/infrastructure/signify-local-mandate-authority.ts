@@ -66,6 +66,32 @@ export class SignifyLocalMandateAuthority implements CurrentLocalMandates {
     this.#dependencies = dependencies;
   }
 
+  /** Connects existing signer custody only; never provisions principals or renews mandates. */
+  async historicalEvidenceSeal(user: AdmittedUser) {
+    const custody = await this.#custodyFiles.readCustody();
+    const profile = await this.#profiles.read();
+    if (
+      custody === undefined ||
+      profile === undefined ||
+      profile.userAid !== user.principal.aid ||
+      profile.controllerAid !== user.custody.controllerAid ||
+      profile.keriaAgentAid !== user.custody.keriaAgentAid ||
+      user.custody.witnessThreshold !== 1 ||
+      user.custody.witnessAids.length !== 1 ||
+      user.custody.witnessAids[0] !== this.#identity.witnessAid
+    )
+      return { kind: 'Unavailable' as const };
+    const exchange = await this.#dependencies.connectEvidenceSeal({
+      adminUrl: this.#identity.keriaAdminUrl,
+      bootUrl: this.#identity.keriaBootUrl,
+      bran: custody.bran,
+      securityTier: 'low',
+      expectedControllerAid: profile.controllerAid,
+      expectedAgentAid: profile.keriaAgentAid,
+    });
+    return { kind: 'Connected' as const, profile, exchange };
+  }
+
   async establish(user: AdmittedUser): Promise<CurrentLocalMandateAuthority> {
     const custody = await this.#custodyFiles.readCustody();
     if (custody === undefined) {

@@ -99,9 +99,7 @@ function checkpointMatchesLifecycle(checkpointSaid: string, lifecycle: RunLifecy
   if (lifecycle.kind === 'Active') {
     return lifecycle.phase.kind === 'Blocked' && lifecycle.phase.checkpointSaid === checkpointSaid;
   }
-  return (
-    lifecycle.outcome.kind !== 'Cancelled' && lifecycle.outcome.checkpointSaid === checkpointSaid
-  );
+  return lifecycle.outcome.checkpointSaid === checkpointSaid;
 }
 
 function provisionalIsValid(provisional: EvidenceProvisionalOutcome): boolean {

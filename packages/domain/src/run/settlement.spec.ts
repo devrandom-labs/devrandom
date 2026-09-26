@@ -6,6 +6,7 @@ import { acquireFirstRunLease } from './lease.js';
 import { createRun, type Run, type RunPurpose } from './run.js';
 import {
   acceptRunSubmission,
+  cancelRun,
   applySealedRunCheckpoint,
   beginRunSubmission,
   blockRun,
@@ -83,6 +84,36 @@ function runningRun(purpose: RunPurpose = { kind: 'Retained' }): Run {
 }
 
 describe('Run settlement law', () => {
+  it('cancels an interrupted calibration without qualifying it or changing accounting', () => {
+    const run = runningRun({
+      kind: 'PreparedCompatibilityCalibration',
+      campaignId: '57ed9f1a-b444-44b2-95c9-fd780c90a7dd',
+      ordinal: 1,
+    });
+    const cancelled = cancelRun(run, { checkpointSaid: said('x') });
+    expect(cancelled.kind).toBe('Cancelled');
+    if (cancelled.kind !== 'Cancelled') throw new Error(cancelled.kind);
+    expect(cancelled.run.lifecycle).toEqual({
+      kind: 'Ended',
+      outcome: { kind: 'Cancelled', checkpointSaid: said('x') },
+    });
+    expect(cancelled.run.consumedBudget).toEqual(run.consumedBudget);
+    expect(cancelled.run.lease).toEqual(run.lease);
+    expect(cancelled.run.submissionVerification).toEqual({ kind: 'NotSubmitted' });
+    expect(
+      cancelRun(
+        { ...run, submissionVerification: { kind: 'Pending' } },
+        { checkpointSaid: said('x') },
+      ),
+    ).toEqual({ kind: 'SubmissionAlreadyStarted' });
+    expect(
+      cancelRun(
+        { ...run, submissionVerification: { kind: 'Accepted' } },
+        { checkpointSaid: said('x') },
+      ),
+    ).toEqual({ kind: 'SubmissionAlreadyAccepted' });
+  });
+
   function heldPreparingRun(): Run {
     const leased = acquireFirstRunLease(preparingRun(), {
       incarnationId: 'ee87e11d-fb5f-46b4-841f-8a7a5faad97c',

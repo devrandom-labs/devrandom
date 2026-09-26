@@ -17,6 +17,7 @@ import {
 } from './prepared-compatibility-calibration.js';
 import {
   acquireFirstRunLease,
+  cancelRun,
   createRun,
   startRunExecution,
   recordRunCalibration,
@@ -168,17 +169,18 @@ describe('terminal calibration reconciliation', () => {
   );
 });
 
-it.each(['Accepted', 'Rejected'] as const)(
+it.each(['Accepted', 'Rejected', 'Cancelled', 'ChangedSource'] as const)(
   'preserves original accounting before terminal checkpoint and requires seal acknowledgement: %s',
   async (seal) => {
     const root = await mkdtemp(join(tmpdir(), 'terminal-calibration-'));
     try {
+      const cancellation = seal === 'Cancelled' || seal === 'ChangedSource';
       const original = calibrationRun();
       const run: Run = {
         ...original,
         binding: {
           ...original.binding,
-          budget: { ...original.binding.budget, changedWorktreeBytes: 10 },
+          budget: { ...original.binding.budget, changedWorktreeBytes: cancellation ? 100 : 10 },
         },
       };
       let time = '2026-09-24T20:00:02.000Z';
@@ -224,7 +226,7 @@ it.each(['Accepted', 'Rejected'] as const)(
         }).kind,
       ).toBe('Recorded');
       opened.recorder.close();
-      time = '2026-09-24T20:10:00.000Z';
+      time = cancellation ? '2026-10-01T20:10:00.000Z' : '2026-09-24T20:10:00.000Z';
       let record: PreparedCompatibilityCalibrationRecord | undefined;
       const calibration = new PreparedCompatibilityCalibration({
         load: () =>
@@ -256,6 +258,7 @@ it.each(['Accepted', 'Rejected'] as const)(
       );
       const outcome = await reconcileTerminalCalibrationRun(
         {
+          ...(cancellation ? { intent: 'CancelExpiredRun' as const } : {}),
           run,
           hostedPrefix: [started.event],
           ownerAid: run.binding.ownerAid,
@@ -265,6 +268,7 @@ it.each(['Accepted', 'Rejected'] as const)(
         },
         {
           outboxes,
+          interruptedSource: { matches: () => seal !== 'ChangedSource' },
           ordinary,
           terminal: {
             reconcileTerminalCalibration: (_runId, body) => {
@@ -284,14 +288,20 @@ it.each(['Accepted', 'Rejected'] as const)(
             settle: async (recorder) => {
               const delivery = await deliverNextEvidencePage({ recorder, hosted });
               expect(delivery.kind).toBe('Delivered');
-              return seal === 'Accepted'
+              return seal !== 'Rejected'
                 ? { kind: 'Sealed' }
                 : { kind: 'SealAcknowledgementRejected' };
             },
           }),
         },
       );
-      expect(outcome.kind).toBe(seal === 'Accepted' ? 'Reconciled' : 'SealingRejected');
+      if (seal === 'ChangedSource') {
+        expect(outcome.kind).toBe('CheckpointRejected');
+        expect(terminalBodies).toHaveLength(0);
+        expect(record).toBeUndefined();
+        return;
+      }
+      expect(outcome.kind).toBe(seal === 'Rejected' ? 'SealingRejected' : 'Reconciled');
       expect(originalBodies).toHaveLength(2);
       expect(originalBodies[1]?.events[0]?.event).toEqual({
         kind: 'BudgetDebited',
@@ -304,8 +314,20 @@ it.each(['Accepted', 'Rejected'] as const)(
       expect(terminalBodies[0]?.checkpoint?.budget.consumed.changedWorktreeBytes).toBe(20);
       expect(terminalBodies[0]?.checkpoint?.runState).toMatchObject({
         kind: 'Ended',
-        outcome: { kind: 'CalibrationExcluded', reason: 'BudgetExhausted' },
+        outcome: cancellation
+          ? { kind: 'Cancelled' }
+          : { kind: 'CalibrationExcluded', reason: 'BudgetExhausted' },
       });
+      if (cancellation) {
+        expect(
+          terminalBodies[0]?.events.some(({ event }) => event.kind === 'RunCalibrationRecorded'),
+        ).toBe(false);
+        expect(
+          terminalBodies[0]?.events.every(
+            (event) => event.occurredAt === time && event.recordedAt === time,
+          ),
+        ).toBe(true);
+      }
       expect(capture).toHaveBeenCalledTimes(1);
       expect(record?.attempts).toEqual(
         seal === 'Accepted'
@@ -318,7 +340,7 @@ it.each(['Accepted', 'Rejected'] as const)(
   },
 );
 
-it.each(['Exact', 'Tampered', 'Unsealed'] as const)(
+it.each(['Exact', 'Tampered', 'Unsealed', 'Cancelled'] as const)(
   'restores a sealed excluded calibration record only from exact hosted closure: %s',
   async (proof) => {
     const leased = calibrationRun();
@@ -332,13 +354,18 @@ it.each(['Exact', 'Tampered', 'Unsealed'] as const)(
     if (started.kind !== 'Started') throw new Error(started.kind);
     const disposition = { kind: 'Excluded' as const, reason: 'BudgetExhausted' as const };
     const checkpointSaid = said('q');
-    const ended = recordRunCalibration(started.run, { checkpointSaid, disposition });
-    if (ended.kind !== 'Recorded') throw new Error(ended.kind);
+    const ended =
+      proof === 'Cancelled'
+        ? cancelRun(started.run, { checkpointSaid })
+        : recordRunCalibration(started.run, { checkpointSaid, disposition });
+    if (ended.kind !== 'Recorded' && ended.kind !== 'Cancelled') throw new Error(ended.kind);
     const events: EvidenceEvent[] = [];
     for (const event of [
       { kind: 'RunStarted' as const, fromRunVersion: leased.version },
       { kind: 'CheckpointVerified' as const, checkpointSaid },
-      { kind: 'RunCalibrationRecorded' as const, checkpointSaid, disposition },
+      ...(proof === 'Cancelled'
+        ? []
+        : [{ kind: 'RunCalibrationRecorded' as const, checkpointSaid, disposition }]),
       { kind: 'CheckpointAccepted' as const, checkpointSaid },
     ]) {
       const previous = events.at(-1);
@@ -408,6 +435,7 @@ it.each(['Exact', 'Tampered', 'Unsealed'] as const)(
     const calibration = { record } as unknown as TerminalCalibrationDependencies['calibration'];
     const outcome = await reconcileSealedTerminalCalibration(
       {
+        ...(proof === 'Cancelled' ? { intent: 'CancelExpiredRun' as const } : {}),
         ownerAid: leased.binding.ownerAid,
         run: ended.run,
         hostedPrefix:
@@ -421,7 +449,9 @@ it.each(['Exact', 'Tampered', 'Unsealed'] as const)(
       stream,
       calibration,
     );
-    expect(outcome.kind).toBe(proof === 'Exact' ? 'Reconciled' : 'BindingRejected');
+    expect(outcome.kind).toBe(
+      proof === 'Exact' || proof === 'Cancelled' ? 'Reconciled' : 'BindingRejected',
+    );
     expect(record).toHaveBeenCalledTimes(proof === 'Exact' ? 1 : 0);
   },
 );

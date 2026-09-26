@@ -1,4 +1,12 @@
 import {
+  personalAgentAid,
+  governorAid,
+  credentialRegistryId,
+  controllerAid,
+  agentAid,
+  userAid,
+} from '@devrandom/identity';
+import {
   confirmCurrentUserCustody,
   decideUserAdmission,
   verifyDevrandomUserCredential,
@@ -79,6 +87,53 @@ function admittedUser() {
 }
 
 describe('Signify local mandate authority', () => {
+  it.each([false, true])(
+    'historical sealing only connects existing owner custody (changed owner: %s)',
+    async (changed) => {
+      const user = admittedUser();
+      const exchange = { prepare: vi.fn(), deliver: vi.fn() };
+      const dependencies = {
+        connectPrincipals: vi.fn(),
+        connectMandates: vi.fn(),
+        connectRunAdmission: vi.fn(),
+        connectEvidenceSeal: vi.fn().mockResolvedValue(exchange),
+        connectPromotion: vi.fn(),
+        connectActivationReceipts: vi.fn(),
+      };
+      const profiles = {
+        read: () =>
+          Promise.resolve({
+            version: 1 as const,
+            revision: 0,
+            userAid: userAid(
+              changed ? 'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' : user.principal.aid,
+            ),
+            controllerAid: controllerAid(user.custody.controllerAid),
+            keriaAgentAid: agentAid(user.custody.keriaAgentAid),
+            personalAgentAid: personalAgentAid('EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'),
+            governorAid: governorAid('ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'),
+            mandateRegistryId: credentialRegistryId('EDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD'),
+          }),
+        commit: vi.fn(),
+      };
+      const authority = new SignifyLocalMandateAuthority(
+        identityConfiguration,
+        mandateConfiguration,
+        { readCustody: () => Promise.resolve({ version: 1, bran: 'fixture-existing-custody' }) },
+        profiles,
+        dependencies,
+      );
+      const outcome = await authority.historicalEvidenceSeal(user);
+      expect(outcome.kind).toBe(changed ? 'Unavailable' : 'Connected');
+      expect(dependencies.connectEvidenceSeal).toHaveBeenCalledTimes(changed ? 0 : 1);
+      expect(dependencies.connectPrincipals).not.toHaveBeenCalled();
+      expect(dependencies.connectMandates).not.toHaveBeenCalled();
+      expect(dependencies.connectRunAdmission).not.toHaveBeenCalled();
+      expect(dependencies.connectPromotion).not.toHaveBeenCalled();
+      expect(profiles.commit).not.toHaveBeenCalled();
+    },
+  );
+
   it('fails closed before KERIA when the existing controller custody is absent', async () => {
     const connectPrincipals = vi.fn();
     const connectMandates = vi.fn();

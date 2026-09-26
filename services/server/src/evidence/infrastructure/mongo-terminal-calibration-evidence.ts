@@ -17,6 +17,7 @@ import {
   type EvidenceEvent,
 } from '@devrandom/protocol';
 
+import { checkpointRunDisposition } from '../domain/run-binding.js';
 import type { EvidenceBatchCommitment } from '../application/evidence-batches.js';
 import {
   assessTerminalCalibrationBatch,
@@ -215,6 +216,8 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
       stream,
       runStarted,
       acceptedBudget,
+      taskExpiresAt: task.revision.expiresAt,
+      acceptedSubmission: acceptedEvents.some(({ event }) => event.kind === 'ResultSubmitted'),
       completionConditionIds,
       expected,
       body,
@@ -233,7 +236,12 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
       const checkpointSaid = stream.provisional.checkpointSaid;
       const marker = acceptedEvents.find(
         (event) =>
-          event.event.kind === 'RunCalibrationRecorded' &&
+          (stream.provisional.kind === 'Checkpointed' &&
+          stream.provisional.lifecycle.kind === 'Ended' &&
+          stream.provisional.lifecycle.outcome.kind === 'Cancelled'
+            ? event.event.kind === 'CheckpointVerified'
+            : event.event.kind === 'RunCalibrationRecorded') &&
+          'checkpointSaid' in event.event &&
           event.event.checkpointSaid === checkpointSaid,
       );
       if (marker === undefined) return rejected('CheckpointBindingMismatch');
@@ -277,15 +285,7 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
           : {
               kind: 'Present',
               checkpointSaid: body.checkpoint.d,
-              lifecycle: {
-                kind: 'Ended',
-                outcome: {
-                  kind: 'CalibrationExcluded',
-                  reason: 'BudgetExhausted',
-                  checkpointSaid: body.checkpoint.d,
-                },
-              },
-              submissionVerification: { kind: 'NotSubmitted' },
+              ...checkpointRunDisposition(body.checkpoint),
             },
     });
     if (advancement.kind !== 'Accepted')

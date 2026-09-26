@@ -68,6 +68,7 @@ import { BaselineRunSupervisorComposition } from './run/composition/baseline-run
 import { LinuxRunSupervisorComposition } from './run/composition/linux-run-supervisor.js';
 import { TaskTerminalVerificationComposition } from './run/composition/task-terminal-verification.js';
 import { resumeLocalTask } from './run/composition/local-task-resumption.js';
+import { cancelExpiredCalibrationRun } from './run/composition/cancel-expired-calibration.js';
 import { TerminalCalibrationComposition } from './run/composition/terminal-calibration.js';
 import { GitLinuxH1PreLease } from './run/infrastructure/git-linux-h1-prelease.js';
 import {
@@ -511,6 +512,22 @@ const commands: DevrandomCommands = {
       (await currentTaskAuthority().releaseHeldGrants()).kind === 'Released'
         ? 'Released'
         : 'Unavailable',
+    cancel: async (label, runId, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const hosted = await currentTaskAuthority().acquireHostedWork();
+      if (hosted.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
+      const inspected = await hosted.tasks.inspect(label);
+      if (inspected.kind !== 'Inspected') return { kind: 'Blocked', gate: 'Task' };
+      return cancelExpiredCalibrationRun({
+        stateRoot: configuration.stateDirectory,
+        issuerAid: configuration.issuerAid,
+        hosted,
+        local: currentLocalMandates(),
+        task: inspected.task,
+        runId,
+        signal,
+      });
+    },
     resume: async (label, runId, pauseAfterCheckpoint, signal) => {
       const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
       const bundlePath = process.env.DEVRANDOM_LINUX_H1_BUNDLE;

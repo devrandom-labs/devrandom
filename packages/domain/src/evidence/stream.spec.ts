@@ -42,6 +42,35 @@ const blocked: RunLifecycle = {
 };
 
 describe('evidence stream', () => {
+  it.each(['Exact', 'Mismatched'] as const)(
+    'retains a coherent Cancelled checkpoint only with its exact reference: %s',
+    (reference) => {
+      const accepted = acceptEvidenceBatch(stream(), {
+        batchSaid: said('f'),
+        startingSequence: 0,
+        endingSequence: 0,
+        predecessor: { kind: 'Genesis' },
+        eventSaids: [said('g')],
+        encodedBytes: 1024,
+        checkpoint: {
+          kind: 'Present',
+          checkpointSaid: said('p'),
+          lifecycle: {
+            kind: 'Ended',
+            outcome: {
+              kind: 'Cancelled',
+              checkpointSaid: reference === 'Exact' ? said('p') : said('q'),
+            },
+          },
+          submissionVerification: { kind: 'NotSubmitted' },
+        },
+      });
+      expect(accepted.kind).toBe(
+        reference === 'Exact' ? 'Accepted' : 'CheckpointDispositionInvalid',
+      );
+    },
+  );
+
   it('accepts only a bounded contiguous causal batch and retains its checkpoint provisionally', () => {
     const accepted = acceptEvidenceBatch(stream(), {
       batchSaid: said('f'),

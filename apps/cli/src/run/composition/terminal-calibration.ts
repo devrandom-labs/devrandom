@@ -2,7 +2,7 @@ import { lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { AdmittedUser, ProtectedCredentials } from '@devrandom/domain';
-import type { IssuerAid } from '@devrandom/identity';
+import type { LocalEvidenceSealExchange, PersonalAgentAid, IssuerAid } from '@devrandom/identity';
 import {
   decodeRunProjection,
   type BaselineHarnessRevision,
@@ -23,15 +23,15 @@ import {
   type HostedTerminalCalibration,
   type TerminalCalibrationReconciliation,
 } from '../application/terminal-calibration-reconciliation.js';
+import { recordedWorktreeWritesMatch } from '../infrastructure/recorded-worktree-writes.js';
 import { SqliteEvidenceOutboxes } from '../infrastructure/sqlite-evidence-outbox.js';
 import { GitWorktreeChanges } from '../infrastructure/git-worktree-changes.js';
 import { PreparedCompatibilityCalibrationFile } from '../infrastructure/prepared-compatibility-calibration-file.js';
 
-export interface TerminalCalibrationCompositionInput {
+interface TerminalCalibrationCompositionCommon {
   readonly user: AdmittedUser;
   readonly task: TaskProjection;
   readonly harness: BaselineHarnessRevision;
-  readonly mandates: Extract<LocalTaskMandatePreparation, { readonly kind: 'Prepared' }>;
   readonly protectedCredentials: ProtectedCredentials;
   readonly runId: string;
   readonly runs: HostedRunStatuses;
@@ -40,6 +40,24 @@ export interface TerminalCalibrationCompositionInput {
     HostedRunTimelines &
     HostedTerminalCalibration;
 }
+
+export type TerminalCalibrationCompositionInput = TerminalCalibrationCompositionCommon &
+  (
+    | {
+        readonly intent?: undefined;
+        readonly mandates: Extract<LocalTaskMandatePreparation, { readonly kind: 'Prepared' }>;
+      }
+    | {
+        readonly intent: 'CancelExpiredRun';
+        readonly signer: {
+          readonly personalAgentAid: PersonalAgentAid;
+          readonly governorAid: string;
+          readonly taskMandateSaid: string;
+          readonly promotionMandateSaid: string;
+          readonly evidenceSealExchange: LocalEvidenceSealExchange;
+        };
+      }
+  );
 
 export interface TerminalCalibrationCompositionOptions {
   readonly stateRoot: string;
@@ -62,6 +80,16 @@ export class TerminalCalibrationComposition {
   ): Promise<TerminalCalibrationReconciliation> {
     try {
       signal.throwIfAborted();
+      const signer =
+        input.intent === 'CancelExpiredRun'
+          ? input.signer
+          : {
+              personalAgentAid: input.mandates.executionAuthority.personalAgentAid,
+              governorAid: input.mandates.summary.governor.aid,
+              taskMandateSaid: input.mandates.summary.taskMandate.credentialSaid,
+              promotionMandateSaid: input.mandates.summary.promotionMandate.credentialSaid,
+              evidenceSealExchange: input.mandates.executionAuthority.evidenceSealExchange,
+            };
       const hosted = await input.runs.inspect(input.runId);
       if (hosted.kind !== 'Found') return { kind: 'Unavailable' };
       const decoded = decodeRunProjection(hosted.run);
@@ -70,10 +98,10 @@ export class TerminalCalibrationComposition {
       if (
         run.binding.runId !== input.runId ||
         run.binding.ownerAid !== input.user.principal.aid ||
-        run.binding.personalAgentAid !== input.mandates.executionAuthority.personalAgentAid ||
-        run.binding.taskMandateSaid !== input.mandates.summary.taskMandate.credentialSaid ||
-        run.binding.governorAid !== input.mandates.summary.governor.aid ||
-        run.binding.promotionMandateSaid !== input.mandates.summary.promotionMandate.credentialSaid
+        run.binding.personalAgentAid !== signer.personalAgentAid ||
+        run.binding.taskMandateSaid !== signer.taskMandateSaid ||
+        run.binding.governorAid !== signer.governorAid ||
+        run.binding.promotionMandateSaid !== signer.promotionMandateSaid
       )
         return { kind: 'BindingRejected' };
       const events: EvidenceEvent[] = [];
@@ -123,6 +151,7 @@ export class TerminalCalibrationComposition {
       if (run.lifecycle.kind === 'Ended')
         return await reconcileSealedTerminalCalibration(
           {
+            ...(input.intent === undefined ? {} : { intent: input.intent }),
             ownerAid: input.user.principal.aid,
             run,
             hostedPrefix: events,
@@ -145,6 +174,7 @@ export class TerminalCalibrationComposition {
       signal.throwIfAborted();
       return await reconcileTerminalCalibrationRun(
         {
+          ...(input.intent === undefined ? {} : { intent: input.intent }),
           ownerAid: input.user.principal.aid,
           run,
           hostedPrefix: events,
@@ -157,6 +187,10 @@ export class TerminalCalibrationComposition {
             () => this.#options.now(),
             input.protectedCredentials,
           ),
+          interruptedSource: {
+            matches: (events, evidence, repository) =>
+              recordedWorktreeWritesMatch({ events, evidence, repository }),
+          },
           ordinary: input.evidence,
           terminal: input.evidence,
           repository: new GitWorktreeChanges(input.protectedCredentials),
@@ -170,8 +204,8 @@ export class TerminalCalibrationComposition {
             new SealedEvidenceSettlement({
               hostedEvidence,
               hostedSeals: input.evidence,
-              exchange: input.mandates.executionAuthority.evidenceSealExchange,
-              sourceAid: input.mandates.executionAuthority.personalAgentAid,
+              exchange: signer.evidenceSealExchange,
+              sourceAid: signer.personalAgentAid,
               recipientAid: this.#options.issuerAid,
               wait: (milliseconds) => this.#options.wait(milliseconds),
               maximumObservations: 30,
