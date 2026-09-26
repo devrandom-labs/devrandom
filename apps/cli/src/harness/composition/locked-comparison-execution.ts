@@ -116,7 +116,7 @@ export interface LockedComparisonInput {
   readonly candidates: {
     readonly C1: NonNullable<Configuration['c1Treatment']>;
     readonly C2: Omit<NonNullable<Configuration['c2Workflow']>, 'submission' | 'verification'>;
-    readonly C3: NonNullable<Configuration['c3Selection']>;
+    readonly C3: () => NonNullable<Configuration['c3Selection']>;
   };
   readonly hosted: ServerEvaluationHttp;
   readonly outbox: SqliteEvaluationEvidenceOutbox;
@@ -165,7 +165,27 @@ export async function executeLockedComparison(
     return { kind: 'Incomplete', frontier: 'ResearchHandoff' };
   const controller = new AbortController();
   const signal = AbortSignal.any([input.signal, controller.signal]);
-  const evidence = new SqliteHostedEvaluationEvidence(outbox, hosted);
+  // Evidence appends and lease renewal mutate the same hosted Evaluation version.
+  // Sequence this process's writes across the fresh-position/renew conversation;
+  // external writers still face the bounded optimistic-concurrency retry law.
+  let mutationFinished = Promise.resolve();
+  const sequenceMutation = <T>(effect: () => Promise<T>): Promise<T> => {
+    const pending = mutationFinished.then(() => {
+      signal.throwIfAborted();
+      return effect();
+    });
+    mutationFinished = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
+  };
+  const evidenceWriting = {
+    appendEvidence: (upload: Parameters<ServerEvaluationHttp['appendEvidence']>[0]) =>
+      sequenceMutation(() => hosted.appendEvidence(upload, signal)),
+    inspectManifestLock: hosted.inspectManifestLock.bind(hosted),
+  };
+  const evidence = new SqliteHostedEvaluationEvidence(outbox, evidenceWriting);
   const reading = new HostedEvaluationEvidenceReading(hosted);
   const head = (): Head => {
     const position = outbox.position();
@@ -188,7 +208,7 @@ export async function executeLockedComparison(
   let refreshing: Promise<boolean> | undefined;
   const refresh = (): Promise<boolean> => {
     if (refreshing !== undefined) return refreshing;
-    refreshing = (async () => {
+    refreshing = sequenceMutation(async () => {
       const started = Date.now();
       const current = await hosted.readPosition(binding.evaluationId);
       if (
@@ -241,7 +261,7 @@ export async function executeLockedComparison(
           Date.now(),
         ).kind === 'Held'
       );
-    })().finally(() => {
+    }).finally(() => {
       refreshing = undefined;
     });
     return refreshing;
@@ -498,7 +518,11 @@ export async function executeLockedComparison(
         return true;
       },
     });
-    const protectedArtifacts = new HostedEvaluationProtectedArtifacts(hosted, input.cases, outbox);
+    const protectedArtifacts = new HostedEvaluationProtectedArtifacts(
+      evidenceWriting,
+      input.cases,
+      outbox,
+    );
     const lock = new HostedEvaluationManifestLock(hosted, evidence.rawArtifacts);
     const observed: {
       slot: ComparisonSlot;
@@ -636,7 +660,7 @@ export async function executeLockedComparison(
               },
             }
           : {}),
-        ...(slot.arm === 'C3' ? { c3Selection: input.candidates.C3 } : {}),
+        ...(slot.arm === 'C3' ? { c3Selection: input.candidates.C3() } : {}),
         enabledTools: input.baseline.activeTools.map((tool) => tool.identity as ToolName),
         maximumPrompts: budget.providerRequests,
         workerMounts: input.workerMounts,

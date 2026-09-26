@@ -93,7 +93,20 @@ it.each(['Workflow', 'ContextSelection'] as const)(
         taskPrompt: 'fixture-task',
         signal,
       };
-      expect(await candidates.C3.bind(c3Input)).toMatchObject({ kind: 'Bound' });
+      for (const repetition of [1, 2, 3] as const) {
+        const selection = candidates.C3();
+        expect(
+          await selection.bind({
+            ...c3Input,
+            binding: {
+              ...c3Input.binding,
+              phase: { kind: 'Trial', manifestSaid: manifest.d, arm: 'C3', repetition, attempt: 1 },
+            },
+            slot: { ...c3Input.slot, repetition },
+          }),
+        ).toMatchObject({ kind: 'Bound' });
+        expect(await selection.bind(c3Input)).toEqual({ kind: 'Blocked' });
+      }
       const fields = Object.fromEntries(
         Object.entries(manifest).filter(
           ([name]) => !['d', 'version', 'kind', 'slots'].includes(name),
@@ -102,7 +115,7 @@ it.each(['Workflow', 'ContextSelection'] as const)(
       const other = prepareEvaluationManifest({ ...fields, hypothesisSaid: nativeSaid('Z') });
       if (other.kind !== 'Prepared') throw new Error('substitution fixture');
       expect(
-        await candidates.C3.bind({
+        await candidates.C3().bind({
           ...c3Input,
           manifest: other.manifest,
           binding: {

@@ -1247,44 +1247,45 @@ export async function evaluateLocalHarness(
         custody: new GitC2WorkflowTreatmentCustody(),
         ...influence,
       });
-      const c3 = new ReviewedC3ContextSelection({
-        hypothesis,
-        reviewed: descriptor('C3'),
-        successorBytes: candidate('C3').successorBytes,
-        repositoryDirectory: input.repositoryDirectory,
-        candidateCommit: branch('C3').commit,
-        candidateTree: branch('C3').tree,
-        custody: new GitC2WorkflowTreatmentCustody(),
-        history: {
-          read: async (request) => {
-            if (
-              request.binding.taskId !== task.taskId ||
-              request.binding.taskRevisionSaid !== task.revisionSaid ||
-              request.sourceInventorySaid !== inventory.d
-            )
-              return { kind: 'Denied' };
-            const history = await publicHistory.read({
-              taskId: task.taskId,
-              taskRevisionSaid: task.revisionSaid,
-              sourceInventorySaid: inventory.d,
-              sourceDirectory: input.repositoryDirectory,
-              h1Commit: h1.repository.commit,
-              h1Tree: h1.repository.tree,
-              formatMarker: request.formatMarker,
-            });
-            return history.kind === 'Read'
-              ? {
-                  kind: 'Read',
-                  taskId: task.taskId,
-                  taskRevisionSaid: task.revisionSaid,
-                  sourceInventorySaid: inventory.d,
-                  sources: history.sources,
-                }
-              : { kind: 'Unavailable' };
+      const c3 = () =>
+        new ReviewedC3ContextSelection({
+          hypothesis,
+          reviewed: descriptor('C3'),
+          successorBytes: candidate('C3').successorBytes,
+          repositoryDirectory: input.repositoryDirectory,
+          candidateCommit: branch('C3').commit,
+          candidateTree: branch('C3').tree,
+          custody: new GitC2WorkflowTreatmentCustody(),
+          history: {
+            read: async (request) => {
+              if (
+                request.binding.taskId !== task.taskId ||
+                request.binding.taskRevisionSaid !== task.revisionSaid ||
+                request.sourceInventorySaid !== inventory.d
+              )
+                return { kind: 'Denied' };
+              const history = await publicHistory.read({
+                taskId: task.taskId,
+                taskRevisionSaid: task.revisionSaid,
+                sourceInventorySaid: inventory.d,
+                sourceDirectory: input.repositoryDirectory,
+                h1Commit: h1.repository.commit,
+                h1Tree: h1.repository.tree,
+                formatMarker: request.formatMarker,
+              });
+              return history.kind === 'Read'
+                ? {
+                    kind: 'Read',
+                    taskId: task.taskId,
+                    taskRevisionSaid: task.revisionSaid,
+                    sourceInventorySaid: inventory.d,
+                    sources: history.sources,
+                  }
+                : { kind: 'Unavailable' };
+            },
           },
-        },
-        projection: publicHistory,
-      });
+          projection: publicHistory,
+        });
       clearInterval(pulse);
       pulse = undefined;
       const closed = await executeLockedComparison({

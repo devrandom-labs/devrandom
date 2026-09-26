@@ -157,6 +157,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               )
                 throw new Error('fixture evidence gap');
               events.push(...upload.events);
+              aggregateVersion++;
               for (const artifact of upload.publicArtifacts)
                 artifacts.set(artifact.artifact.d, artifact);
               reply(
@@ -196,7 +197,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                 lockedAtLeaseVersion: 1,
                 lockedAtEvaluationVersion: 2,
                 currentLeaseVersion: lease.version,
-                currentEvaluationVersion: Math.max(2, lease.version),
+                currentEvaluationVersion: aggregateVersion,
               });
             } else if (url.pathname.endsWith('/evidence')) {
               const after = Number(url.searchParams.get('after'));
@@ -243,7 +244,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                 ...lease,
                 version: lease.version + 1,
                 serverTime: new Date(renewedAt).toISOString(),
-                expiresAt: new Date(renewedAt + 45000).toISOString(),
+                expiresAt: new Date(renewedAt + 20000).toISOString(),
               };
               reply({
                 kind: 'Renewed',

@@ -332,38 +332,39 @@ export async function nativeComparisonCandidates(
         ...ports,
       }),
     },
-    C3: new ReviewedC3ContextSelection({
-      ...C3,
-      hypothesis: hypothesis.hypothesis,
-      custody: new GitC2WorkflowTreatmentCustody(),
-      history: {
-        read: () =>
-          Promise.resolve({
-            kind: 'Read',
-            taskId: initial.taskId,
-            taskRevisionSaid: initial.taskRevisionSaid,
-            sourceInventorySaid: inventory.inventory.d,
-            sources: [
-              {
-                sourceId: history.artifact.d,
-                artifact: history.artifact,
-                bytes: historyBytes,
-                kind: 'Failure',
-                version: 'Current',
-                custody: 'Public',
-              },
-            ],
-          }),
-      },
-      projection: {
-        project: (source) =>
-          Promise.resolve({
-            kind: 'Projected',
-            sourceId: source.sourceId,
-            text: 'Read exact public compatibility evidence before editing.',
-          }),
-      },
-    }),
+    C3: () =>
+      new ReviewedC3ContextSelection({
+        ...C3,
+        hypothesis: hypothesis.hypothesis,
+        custody: new GitC2WorkflowTreatmentCustody(),
+        history: {
+          read: () =>
+            Promise.resolve({
+              kind: 'Read',
+              taskId: initial.taskId,
+              taskRevisionSaid: initial.taskRevisionSaid,
+              sourceInventorySaid: inventory.inventory.d,
+              sources: [
+                {
+                  sourceId: history.artifact.d,
+                  artifact: history.artifact,
+                  bytes: historyBytes,
+                  kind: 'Failure',
+                  version: 'Current',
+                  custody: 'Public',
+                },
+              ],
+            }),
+        },
+        projection: {
+          project: (source) =>
+            Promise.resolve({
+              kind: 'Projected',
+              sourceId: source.sourceId,
+              text: 'Read exact public compatibility evidence before editing.',
+            }),
+        },
+      }),
   };
   return { manifest: prepared.manifest, candidates, hypothesis: hypothesis.hypothesis };
 }
