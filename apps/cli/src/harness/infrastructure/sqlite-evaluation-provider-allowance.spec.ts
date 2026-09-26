@@ -192,6 +192,8 @@ it.each([false, true])(
       sourceInventorySaid: prepared.policy.sourceInventorySaid,
       allocation: prepared.policy.allocation,
     };
+    let researchPositionReads = 0;
+    let renewResearch = false;
     const hosted = new HostedEvaluationResearchProviderCustody({
       ownerAid: given.current.ownerAid,
       policy: prepared.policy,
@@ -211,14 +213,22 @@ it.each([false, true])(
             kind: 'Read',
             position: {
               version: 1,
-              currentEvaluationVersion: 1,
+              currentEvaluationVersion: renewResearch && ++researchPositionReads >= 2 ? 2 : 1,
               evaluationId: research.evaluationId,
               ownerAid: given.current.ownerAid,
               commandId: command.commandId,
               originRunId: research.originRunId,
               streamId: research.evidenceStreamId,
               reservationSaid: given.current.admission.reservationSaid,
-              lease: given.current.lease,
+              lease:
+                renewResearch && researchPositionReads >= 2
+                  ? {
+                      ...given.current.lease,
+                      version: given.current.lease.version + 1,
+                      serverTime: '2026-09-26T12:00:01.000Z',
+                      expiresAt: '2026-09-26T17:00:01.000Z',
+                    }
+                  : given.current.lease,
               acceptedThroughSequence: -1,
               chainHeadSaid: null,
             },
@@ -228,6 +238,11 @@ it.each([false, true])(
       },
     });
     expect(await hosted.inspect(research)).toEqual(await custody.inspect());
+    renewResearch = true;
+    expect(await hosted.inspect(research)).toMatchObject({
+      kind: 'ResearchCurrent',
+      lease: { version: given.current.lease.version + 1 },
+    });
     expect(await hosted.inspect({ ...research, taskMandateSaid: said('z') })).toEqual({
       kind: 'Lost',
     });
@@ -675,3 +690,142 @@ it('starts each exact Trial slot at ordinal zero while retaining shared accounti
     opened.allowance.close();
   }
 });
+
+it.each(['DuringReplay', 'BetweenPositionAndLock'] as const)(
+  'retains the verified prefix while coherently reading own renewal %s',
+  async (timing) => {
+    const given = fixture();
+    const prepared = prepareEvaluationEvidenceEvent({
+      evaluationId: given.binding.evaluationId,
+      streamId: given.binding.evidenceStreamId,
+      originRunId: given.binding.originRunId,
+      taskId: given.binding.taskId,
+      taskRevisionSaid: given.binding.taskRevisionSaid,
+      personalAgentAid: given.binding.personalAgentAid,
+      taskMandateSaid: given.binding.taskMandateSaid,
+      harnessRevisionSaid: given.binding.harnessRevisionSaid,
+      phase: given.binding.phase,
+      sequence: 0,
+      previous: { kind: 'Genesis' },
+      occurredAt: '2026-09-26T12:00:00.000Z',
+      detail: { kind: 'TrialStopped', reason: 'Completed' },
+    });
+    if (prepared.kind !== 'Prepared') throw new Error('prefix');
+    const head = prepared.event;
+    const position = {
+      version: 1 as const,
+      currentEvaluationVersion: 2,
+      evaluationId: given.binding.evaluationId,
+      ownerAid: given.current.ownerAid,
+      commandId: given.current.admission.commandId,
+      originRunId: given.binding.originRunId,
+      streamId: given.binding.evidenceStreamId,
+      reservationSaid: given.current.admission.reservationSaid,
+      lease: { ...given.current.lease },
+      acceptedThroughSequence: 0,
+      chainHeadSaid: head.d,
+    };
+    const renew = () => {
+      position.currentEvaluationVersion++;
+      position.lease = {
+        ...position.lease,
+        version: position.lease.version + 1,
+        serverTime: new Date(Date.parse(position.lease.serverTime) + 1000).toISOString(),
+        expiresAt: new Date(Date.parse(position.lease.expiresAt) + 1000).toISOString(),
+      };
+    };
+
+    let locks = 0;
+    const http = {
+      readPosition: vi.fn(() => {
+        return Promise.resolve({ kind: 'Read' as const, position: structuredClone(position) });
+      }),
+      inspectManifestLock: vi.fn(() => {
+        locks++;
+        if (timing === 'BetweenPositionAndLock' && locks === 1) renew();
+        return Promise.resolve({
+          kind: 'Locked' as const,
+          receipt: {
+            kind: 'Locked' as const,
+            ...given.current.lock,
+            lockedAtLeaseVersion: 1,
+            lockedAtEvaluationVersion: 2,
+            currentLeaseVersion: position.lease.version,
+            currentEvaluationVersion: position.currentEvaluationVersion,
+          },
+        });
+      }),
+      readEvidencePage: vi.fn(() => {
+        if (timing === 'DuringReplay' && position.lease.version === given.current.lease.version) {
+          renew();
+          renew();
+        }
+        return Promise.resolve({
+          kind: 'Read' as const,
+          page: {
+            version: 1 as const,
+            evaluationId: given.binding.evaluationId,
+            streamId: given.binding.evidenceStreamId,
+            afterSequence: -1,
+            throughSequence: 0,
+            throughHeadSaid: head.d,
+            events: [head],
+          },
+        });
+      }),
+      readPublicArtifact: vi.fn(() => Promise.resolve({ kind: 'Missing' as const })),
+    };
+    const custody = new HostedEvaluationProviderCustody({
+      http,
+      ownerAid: given.current.ownerAid,
+      admittedCommandId: given.current.admission.commandId,
+      manifest: given.current.manifest,
+    });
+    expect(await custody.inspect(given.binding)).toMatchObject({
+      kind: 'Current',
+      lease: { version: given.current.lease.version + (timing === 'DuringReplay' ? 2 : 1) },
+    });
+    expect(http.readPosition.mock.calls.length).toBeLessThanOrEqual(8);
+    expect(http.readEvidencePage).toHaveBeenCalledTimes(2);
+    for (const change of [
+      { ownerAid: said('z') },
+      { commandId: randomUUID() },
+      { reservationSaid: said('z') },
+      { streamId: randomUUID() },
+      { originRunId: randomUUID() },
+      { lease: { ...position.lease, leaseId: randomUUID() } },
+      { acceptedThroughSequence: 1, chainHeadSaid: said('z') },
+      { lease: { ...position.lease, version: position.lease.version - 1 } },
+      { lease: { ...position.lease, expiresAt: '2026-09-26T11:59:00.000Z' } },
+    ]) {
+      let reads = 0;
+      http.readPosition.mockImplementation(() =>
+        Promise.resolve({
+          kind: 'Read' as const,
+          position: structuredClone(++reads === 1 ? position : { ...position, ...change }),
+        }),
+      );
+      expect((await custody.inspect(given.binding)).kind).not.toBe('Current');
+    }
+    http.readPosition.mockImplementation(() =>
+      Promise.resolve({ kind: 'Read' as const, position: structuredClone(position) }),
+    );
+    http.inspectManifestLock.mockImplementation(() => {
+      renew();
+      return Promise.resolve({
+        kind: 'Locked' as const,
+        receipt: {
+          kind: 'Locked' as const,
+          ...given.current.lock,
+          lockedAtLeaseVersion: 1,
+          lockedAtEvaluationVersion: 2,
+          currentLeaseVersion: position.lease.version,
+          currentEvaluationVersion: position.currentEvaluationVersion,
+        },
+      });
+    });
+    http.inspectManifestLock.mockClear();
+    expect(await custody.inspect(given.binding)).toEqual({ kind: 'Unavailable' });
+    expect(http.inspectManifestLock).toHaveBeenCalledTimes(4);
+  },
+);

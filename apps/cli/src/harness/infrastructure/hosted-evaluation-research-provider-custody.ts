@@ -1,3 +1,4 @@
+import { preservesEvaluationPosition } from './evaluation-position-continuity.js';
 import { isDeepStrictEqual } from 'node:util';
 import type { EvaluationExecutionBinding } from '@devrandom/domain';
 import { decodeEvaluationPolicy, type EvaluationPolicy } from '@devrandom/protocol';
@@ -20,6 +21,7 @@ type Hosted = Pick<
 
 /** Reconciles exact admitted policy rights and raw usage without inventing a locked manifest. */
 export class HostedEvaluationResearchProviderCustody implements EvaluationResearchProviderCustody {
+  readonly #reading: HostedEvaluationEvidenceReading;
   readonly #input: {
     readonly ownerAid: string;
     readonly policy: EvaluationPolicy;
@@ -32,6 +34,7 @@ export class HostedEvaluationResearchProviderCustody implements EvaluationResear
     readonly command: Admission;
     readonly http: Hosted;
   }) {
+    this.#reading = new HostedEvaluationEvidenceReading(input.http);
     this.#input = {
       ...input,
       policy: structuredClone(input.policy),
@@ -70,7 +73,7 @@ export class HostedEvaluationResearchProviderCustody implements EvaluationResear
         return { kind: admitted.kind === 'Unavailable' ? 'Unavailable' : 'Lost' };
       const position = await http.readPosition(binding.evaluationId);
       if (position.kind !== 'Read') return { kind: 'Unavailable' };
-      const exact = position.position;
+      let exact = position.position;
       if (
         admitted.evaluationId !== binding.evaluationId ||
         admitted.evidenceStreamId !== binding.evidenceStreamId ||
@@ -84,7 +87,7 @@ export class HostedEvaluationResearchProviderCustody implements EvaluationResear
         exact.lease.leaseId !== binding.evaluationLeaseId
       )
         return { kind: 'Lost' };
-      const reading = new HostedEvaluationEvidenceReading(http);
+      const reading = this.#reading;
       const accepted: Current['accepted'][number][] = [];
       if (exact.acceptedThroughSequence >= 0 && exact.chainHeadSaid !== null) {
         const last = await http.readEvidencePage({
@@ -132,8 +135,9 @@ export class HostedEvaluationResearchProviderCustody implements EvaluationResear
       } else if (exact.acceptedThroughSequence !== -1 || exact.chainHeadSaid !== null)
         return { kind: 'Unavailable' };
       const repeated = await http.readPosition(binding.evaluationId);
-      if (repeated.kind !== 'Read' || !isDeepStrictEqual(repeated.position, exact))
-        return { kind: 'Unavailable' };
+      if (repeated.kind !== 'Read') return { kind: 'Unavailable' };
+      if (!preservesEvaluationPosition(exact, repeated.position)) return { kind: 'Lost' };
+      exact = repeated.position;
       return {
         kind: 'ResearchCurrent',
         ownerAid,

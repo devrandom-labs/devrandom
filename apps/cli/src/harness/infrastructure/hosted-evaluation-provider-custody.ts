@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+import { preservesEvaluationPosition } from './evaluation-position-continuity.js';
 import type { EvaluationExecutionBinding } from '@devrandom/domain';
 import { decodeEvaluationManifest, type EvaluationManifest } from '@devrandom/protocol';
 import {
@@ -59,7 +61,7 @@ export class HostedEvaluationProviderCustody implements EvaluationProviderCustod
     try {
       const position = await this.#http.readPosition(binding.evaluationId);
       if (position.kind !== 'Read') return { kind: 'Unavailable' };
-      const exact = position.position;
+      let exact = position.position;
       if (
         exact.ownerAid !== this.#ownerAid ||
         exact.commandId !== this.#commandId ||
@@ -76,14 +78,14 @@ export class HostedEvaluationProviderCustody implements EvaluationProviderCustod
       );
       if (locked.kind !== 'Locked' && locked.kind !== 'AlreadyLocked')
         return { kind: 'Unavailable' };
-      const lock = locked.receipt;
+      let lock = locked.receipt;
       if (
         lock.evaluationId !== binding.evaluationId ||
         lock.manifestSaid !== manifest.d ||
         lock.ownerAid !== this.#ownerAid ||
         lock.policySaid !== manifest.policySaid ||
         lock.leaseId !== binding.evaluationLeaseId ||
-        lock.currentLeaseVersion !== exact.lease.version
+        lock.currentLeaseVersion < exact.lease.version
       )
         return { kind: 'Lost' };
       let events: Awaited<ReturnType<HostedEvaluationEvidenceReading['openPrefix']>> | undefined;
@@ -139,13 +141,51 @@ export class HostedEvaluationProviderCustody implements EvaluationProviderCustod
         }
       }
       const repeated = await this.#http.readPosition(binding.evaluationId);
+      if (repeated.kind !== 'Read') return { kind: 'Unavailable' };
+      if (!preservesEvaluationPosition(exact, repeated.position)) return { kind: 'Lost' };
       if (
-        repeated.kind !== 'Read' ||
-        repeated.position.chainHeadSaid !== exact.chainHeadSaid ||
-        repeated.position.acceptedThroughSequence !== exact.acceptedThroughSequence ||
-        repeated.position.lease.version !== exact.lease.version
-      )
-        return { kind: 'Unavailable' };
+        !isDeepStrictEqual(repeated.position, exact) ||
+        lock.currentLeaseVersion !== exact.lease.version ||
+        lock.currentEvaluationVersion !== exact.currentEvaluationVersion
+      ) {
+        exact = repeated.position;
+        let coherent = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const refreshed = await this.#http.inspectManifestLock(
+            binding.evaluationId,
+            manifest.d,
+            binding.evaluationLeaseId,
+          );
+          if (refreshed.kind !== 'Locked' && refreshed.kind !== 'AlreadyLocked')
+            return { kind: 'Unavailable' };
+          const candidate = refreshed.receipt;
+          if (
+            candidate.evaluationId !== lock.evaluationId ||
+            candidate.manifestSaid !== lock.manifestSaid ||
+            candidate.ownerAid !== lock.ownerAid ||
+            candidate.policySaid !== lock.policySaid ||
+            candidate.leaseId !== lock.leaseId ||
+            candidate.lockedAtLeaseVersion !== lock.lockedAtLeaseVersion ||
+            candidate.lockedAtEvaluationVersion !== lock.lockedAtEvaluationVersion ||
+            candidate.currentLeaseVersion < exact.lease.version
+          )
+            return { kind: 'Lost' };
+          const confirmed = await this.#http.readPosition(binding.evaluationId);
+          if (confirmed.kind !== 'Read') return { kind: 'Unavailable' };
+          if (!preservesEvaluationPosition(exact, confirmed.position)) return { kind: 'Lost' };
+          if (
+            isDeepStrictEqual(exact, confirmed.position) &&
+            candidate.currentLeaseVersion === exact.lease.version &&
+            candidate.currentEvaluationVersion === exact.currentEvaluationVersion
+          ) {
+            lock = candidate;
+            coherent = true;
+            break;
+          }
+          exact = confirmed.position;
+        }
+        if (!coherent) return { kind: 'Unavailable' };
+      }
       return {
         kind: 'Current',
         ownerAid: this.#ownerAid,
