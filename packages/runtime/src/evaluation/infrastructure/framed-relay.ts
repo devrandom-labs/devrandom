@@ -70,6 +70,9 @@ export class FramedRelay {
     input.once('error', (cause: Error) => {
       this.#fail(cause);
     });
+    output.on('error', (cause: Error) => {
+      this.#fail(cause);
+    });
   }
 
   receive(): Promise<EvaluationRelayFrame> {

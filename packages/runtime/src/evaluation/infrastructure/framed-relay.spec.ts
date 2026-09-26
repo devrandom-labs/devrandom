@@ -4,6 +4,18 @@ import { describe, expect, it } from 'vitest';
 import { FramedRelay } from './framed-relay.js';
 
 describe('evaluation worker framed relay', () => {
+  it('contains a broken worker output pipe and rejects pending and later conversations', async () => {
+    const incoming = new PassThrough();
+    const outgoing = new PassThrough();
+    const relay = new FramedRelay(incoming, outgoing, 'evaluation/slot', 1024);
+    const pending = relay.receive();
+    const failure = Object.assign(new Error('worker pipe closed'), { code: 'EPIPE' });
+    expect(() => outgoing.emit('error', failure)).not.toThrow();
+    await expect(pending).rejects.toThrow('worker pipe closed');
+    await expect(relay.send('Stop', {})).rejects.toThrow('worker pipe closed');
+    await expect(relay.receive()).rejects.toThrow('worker pipe closed');
+  });
+
   it('accepts only ordered frames bound to the current evaluation slot', async () => {
     const incoming = new PassThrough();
     const outgoing = new PassThrough();
