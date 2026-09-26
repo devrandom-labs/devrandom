@@ -1,7 +1,15 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import {
+  assessFailureQualification,
+  type RetainedFailureObservation,
+  type SealedRunObservation,
+} from '@devrandom/domain';
+import {
+  decodeEvaluationExecutionProfile,
+  decodeEvidenceArtifact,
   decodeEvidenceEvent,
+  decodePublicVerifierReceipt,
   decodeRunProjection,
   evidenceArtifactReferences,
   type EvidenceStreamProjection,
@@ -33,7 +41,7 @@ function interrupted(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
-/** Reads six authoritative Run/timeline histories; absent profile/custody proof blocks Q. */
+/** Reads six authoritative Run/timeline histories and their exact profile/receipt custody. */
 export class VerifiedFailureCampaign implements RunQualification {
   readonly #history: CalibrationCampaignHistory;
 
@@ -56,6 +64,10 @@ export class VerifiedFailureCampaign implements RunQualification {
       return { kind: 'Blocked' };
     let campaignId: string | undefined;
     const incarnationIds = new Set<string>();
+    const calibrations: SealedRunObservation[] = [];
+    let retained: SealedRunObservation | undefined;
+    let retainedFailureReference:
+      { readonly eventSaid: string; readonly receiptSaid: string } | undefined;
     for (const [index, runId] of [...history.runIds, input.originRunId].entries()) {
       if (interrupted(input.signal)) return { kind: 'Unavailable' };
       const inspected = await input.runs.inspect(runId);
@@ -112,9 +124,11 @@ export class VerifiedFailureCampaign implements RunQualification {
       let sequence = 0;
       let head: string | undefined;
       let artifactCount = 0;
+      const artifactSaids: string[] = [];
       let checkpointAccepted = false;
-      let retainedFailureObserved = false;
       let profileBound = false;
+      let profileArtifactSaid: string | undefined;
+      let worktreeBranch: string | undefined;
       let workerBegan = false;
       let incarnationId: string | undefined;
       let pages = 0;
@@ -143,7 +157,9 @@ export class VerifiedFailureCampaign implements RunQualification {
           sequence += 1;
           head = event.d;
           incarnationId = event.incarnationId;
-          artifactCount += evidenceArtifactReferences(event.event).length;
+          const references = evidenceArtifactReferences(event.event);
+          artifactCount += references.length;
+          artifactSaids.push(...references);
           if (event.event.kind === 'RunExecutionProfileBound') {
             if (
               profileBound ||
@@ -153,6 +169,8 @@ export class VerifiedFailureCampaign implements RunQualification {
             )
               return { kind: 'Blocked' };
             profileBound = true;
+            profileArtifactSaid = event.event.profileArtifactSaid;
+            worktreeBranch = event.event.worktreeBranch;
           }
           if (
             event.event.kind === 'ModelRequest' ||
@@ -174,8 +192,10 @@ export class VerifiedFailureCampaign implements RunQualification {
             index === 5 &&
             event.event.kind === 'FailureObserved' &&
             event.event.failure === 'HarnessCompatibilityFailure'
-          )
-            retainedFailureObserved = true;
+          ) {
+            if (retainedFailureReference !== undefined) return { kind: 'Blocked' };
+            retainedFailureReference = { eventSaid: event.d, receiptSaid: event.event.receiptSaid };
+          }
         }
         if (page.nextCursor === null) break;
         if (cursors.has(page.nextCursor)) return { kind: 'Blocked' };
@@ -195,7 +215,9 @@ export class VerifiedFailureCampaign implements RunQualification {
         artifactCount === 0 ||
         !profileBound ||
         !checkpointAccepted ||
-        (index === 5 && !retainedFailureObserved)
+        profileArtifactSaid === undefined ||
+        worktreeBranch === undefined ||
+        (index === 5 && retainedFailureReference === undefined)
       )
         return { kind: 'Blocked' };
       if (
@@ -205,8 +227,120 @@ export class VerifiedFailureCampaign implements RunQualification {
       )
         return { kind: 'Blocked' };
       incarnationIds.add(incarnationId);
+      if (input.evidence.readArtifact === undefined) return { kind: 'Blocked' };
+      const profileReading = await input.evidence.readArtifact(
+        runId,
+        profileArtifactSaid,
+        input.signal,
+      );
+      if (
+        profileReading.kind !== 'Read' ||
+        profileReading.artifact.d !== profileArtifactSaid ||
+        profileReading.artifact.mediaType !== 'application/json' ||
+        decodeEvidenceArtifact(profileReading.artifact, profileReading.bytes).kind !== 'Accepted'
+      )
+        return { kind: 'Blocked' };
+      let encodedProfile: unknown;
+      try {
+        encodedProfile = JSON.parse(
+          new TextDecoder('utf-8', { fatal: true }).decode(profileReading.bytes),
+        );
+      } catch {
+        return { kind: 'Blocked' };
+      }
+      const decodedProfile = decodeEvaluationExecutionProfile(encodedProfile);
+      if (
+        decodedProfile.kind !== 'Accepted' ||
+        decodedProfile.profile.d !== input.executionProfileSaid ||
+        decodedProfile.profile.sourceGitCommit !== input.task.revision.repository.commit ||
+        decodedProfile.profile.sourceGitTree !== input.task.revision.repository.tree
+      )
+        return { kind: 'Blocked' };
+      const observation: SealedRunObservation = {
+        run,
+        incarnationId,
+        worktreeId: worktreeBranch,
+        executionProfileSaid: decodedProfile.profile.d,
+        seal: {
+          kind: 'Acknowledged',
+          runId,
+          checkpointSaid,
+          evidenceHeadSaid: head,
+          sealSaid: stream.seal.sealExchangeSaid,
+          artifactSaids,
+        },
+      };
+      if (index < 5) calibrations.push(observation);
+      else retained = observation;
     }
-    // Execution-profile bytes and the retained failure category lack exact-read custody.
-    return { kind: 'Blocked' };
+    if (
+      retained === undefined ||
+      retainedFailureReference === undefined ||
+      input.evidence.readVerifierReceipt === undefined
+    )
+      return { kind: 'Blocked' };
+    const confirmed = calibrations.find(
+      (observation) =>
+        observation.run.lifecycle.kind === 'Ended' &&
+        observation.run.lifecycle.outcome.kind === 'CalibrationConfirmed',
+    );
+    if (
+      confirmed === undefined ||
+      confirmed.run.lifecycle.kind !== 'Ended' ||
+      confirmed.run.lifecycle.outcome.kind !== 'CalibrationConfirmed' ||
+      retained.run.lifecycle.kind !== 'Active' ||
+      retained.run.lifecycle.phase.kind !== 'Blocked'
+    )
+      return { kind: 'Blocked' };
+    const receiptReading = await input.evidence.readVerifierReceipt(
+      input.originRunId,
+      retainedFailureReference.receiptSaid,
+      input.signal,
+    );
+    if (
+      receiptReading.kind !== 'Read' ||
+      receiptReading.checkpointSaid !== retained.run.lifecycle.phase.checkpointSaid ||
+      receiptReading.receipt.d !== retainedFailureReference.receiptSaid ||
+      decodePublicVerifierReceipt(receiptReading.receipt).kind !== 'Accepted' ||
+      receiptReading.receipt.commandSaid !==
+        confirmed.run.lifecycle.outcome.category.legacyCommandSaid ||
+      receiptReading.receipt.outcome.kind !== 'Rejected' ||
+      receiptReading.receipt.outcome.reason.kind !== 'UnexpectedExitCode' ||
+      receiptReading.receipt.outcome.reason.expected !== 0 ||
+      receiptReading.receipt.outcome.reason.observed !==
+        confirmed.run.lifecycle.outcome.category.legacyObservedExitCode
+    )
+      return { kind: 'Blocked' };
+    const retainedFailure: RetainedFailureObservation = {
+      runId: input.originRunId,
+      eventSaid: retainedFailureReference.eventSaid,
+      category: confirmed.run.lifecycle.outcome.category,
+    };
+    const assessment = assessFailureQualification({
+      task: {
+        taskId: input.task.taskId,
+        ownerAid: input.task.ownerAid,
+        harnessLineageId: input.task.harnessLineageId,
+        revision: { said: input.task.revisionSaid },
+        lifecycle: input.task.lifecycle,
+      },
+      calibrations,
+      retained,
+      retainedFailure,
+    });
+    return assessment.kind === 'Qualified'
+      ? {
+          kind: 'Qualified',
+          taskId: input.task.taskId,
+          taskRevisionSaid: input.task.revisionSaid,
+          originRunId: input.originRunId,
+          retainedCheckpointSaid: retained.seal.checkpointSaid,
+          retainedSealSaid: retained.seal.sealSaid,
+          expectedActiveRevisionSaid: input.expectedActiveRevisionSaid,
+          personalAgentAid: retained.run.binding.personalAgentAid,
+          taskMandateSaid: retained.run.binding.taskMandateSaid,
+          executionProfileSaid: input.executionProfileSaid,
+        }
+      : { kind: 'Blocked' };
   }
 }

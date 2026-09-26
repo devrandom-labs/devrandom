@@ -17,7 +17,11 @@ import {
 } from './evidence-artifact.js';
 import { decodeEvidenceBatch, evidenceBatchSchema } from './evidence-batch.js';
 import { evidenceEventSchema } from './evidence-event.js';
-import { decodeVerifiedCheckpoint, verifiedCheckpointSchema } from './verified-checkpoint.js';
+import {
+  decodeVerifiedCheckpoint,
+  publicVerifierReceiptSchema,
+  verifiedCheckpointSchema,
+} from './verified-checkpoint.js';
 
 const safeIntegerSchema = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 const saidSchema = Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' });
@@ -34,6 +38,22 @@ export const evidenceArtifactParametersSchema = Type.Object(
 );
 
 export type EvidenceArtifactParameters = Type.Static<typeof evidenceArtifactParametersSchema>;
+
+export const verifierReceiptParametersSchema = Type.Object(
+  { runId: uuidV4Schema, receiptSaid: saidSchema },
+  { additionalProperties: false },
+);
+
+export const verifierReceiptReadingSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    runId: uuidV4Schema,
+    evidenceStreamId: uuidV4Schema,
+    checkpointSaid: saidSchema,
+    receipt: publicVerifierReceiptSchema,
+  },
+  { additionalProperties: false },
+);
 
 export const evidenceArtifactMetadataHeadersSchema = Type.Object(
   {

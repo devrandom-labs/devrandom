@@ -62,6 +62,7 @@ import { HmacEvidenceTimelineCursor } from './evidence/infrastructure/hmac-evide
 import { issuerEvidenceSealExchanges } from './evidence/infrastructure/issuer-evidence-seal-exchanges.js';
 import { MongoEvidenceArtifacts } from './evidence/infrastructure/mongo-evidence-artifacts.js';
 import { MongoRunArtifactReading } from './evidence/infrastructure/mongo-run-artifact-reading.js';
+import { MongoRunVerifierReceiptReading } from './evidence/infrastructure/mongo-run-verifier-receipt-reading.js';
 import { MongoEvidenceBatches } from './evidence/infrastructure/mongo-evidence-batches.js';
 import { MongoEvidenceBootstrap } from './evidence/infrastructure/mongo-evidence-bootstrap.js';
 import { MongoEvidenceRunContexts } from './evidence/infrastructure/mongo-evidence-run-contexts.js';
@@ -464,6 +465,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     const evidenceRunContexts = new MongoEvidenceRunContexts(hostedDatabase);
     const evidenceArtifacts = new MongoEvidenceArtifacts(hostedWorkCandidate, hostedDatabase);
     const runArtifactReading = new MongoRunArtifactReading(hostedDatabase);
+    const runVerifierReceiptReading = new MongoRunVerifierReceiptReading(hostedDatabase);
     const evidenceBatches = new MongoEvidenceBatches(hostedWorkCandidate, hostedDatabase);
     const evidenceSealContexts = new MongoEvidenceSealContexts(hostedDatabase);
     const evidenceSeals = new MongoEvidenceSeals(hostedWorkCandidate, hostedDatabase);
@@ -477,6 +479,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       conversation: {
         admitArtifact: (input) => evidenceArtifacts.admit(input),
         readArtifact: (input) => runArtifactReading.read(input),
+        readVerifierReceipt: (input) => runVerifierReceiptReading.read(input),
         acceptBatch: (input) =>
           acceptEvidenceBatch(input, {
             contexts: evidenceRunContexts,

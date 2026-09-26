@@ -6,6 +6,7 @@ import {
   prepareEvidenceArtifact,
   prepareEvidenceBatch,
   prepareEvidenceEvent,
+  preparePublicVerifierReceipt,
   type EvidenceBatchAcknowledgement,
 } from '@devrandom/protocol';
 
@@ -79,6 +80,103 @@ function origin() {
 }
 
 describe('Server Evidence HTTP adapter', () => {
+  it('reads a checkpoint-bound public verifier receipt and rejects a forged SAID', async () => {
+    const prepared = preparePublicVerifierReceipt({
+      version: 1,
+      completionConditionId: 'public-test',
+      commandSaid: said('c'),
+      recordedAt: '2026-09-24T20:00:01.000Z',
+      outcome: {
+        kind: 'Rejected',
+        reason: { kind: 'UnexpectedExitCode', expected: 0, observed: 101 },
+        elapsedMilliseconds: 10,
+        outputArtifactSaids: [],
+      },
+    });
+    if (prepared.kind !== 'Prepared') throw new Error('receipt fixture invalid');
+    let forged = false;
+    const server = createServer((request, response) => {
+      expect(request.headers.authorization).toBe(`Bearer ${bearer}`);
+      expect(request.url).toBe(`/api/runs/${runId}/verifier-receipts/${prepared.receipt.d}`);
+      response.writeHead(200, {
+        'cache-control': 'no-store',
+        'content-type': 'application/json',
+      });
+      response.end(
+        JSON.stringify({
+          version: 1,
+          runId,
+          evidenceStreamId: streamId,
+          checkpointSaid: said('k'),
+          receipt: forged ? { ...prepared.receipt, commandSaid: said('x') } : prepared.receipt,
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (address === null || typeof address === 'string') throw new Error('missing HTTP address');
+      const decoded = decodeDevrandomServerOrigin(`http://127.0.0.1:${String(address.port)}`);
+      if (decoded.kind !== 'Accepted') throw new Error('invalid HTTP test origin');
+      const evidence = new ServerEvidenceHttp(decoded.origin, bearer, fetch);
+      await expect(evidence.readVerifierReceipt(runId, prepared.receipt.d)).resolves.toEqual({
+        kind: 'Read',
+        checkpointSaid: said('k'),
+        receipt: prepared.receipt,
+      });
+      forged = true;
+      await expect(evidence.readVerifierReceipt(runId, prepared.receipt.d)).resolves.toEqual({
+        kind: 'ResponseInvalid',
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+  });
+  it('exact-reads an owner-scoped Run artifact over listening HTTP and rejects truncated custody', async () => {
+    const value = fixture();
+    let truncated = false;
+    const server = createServer((request, response) => {
+      expect(request.headers.authorization).toBe(`Bearer ${bearer}`);
+      expect(request.url).toBe(`/api/runs/${runId}/artifacts/${value.artifact.d}`);
+      const bytes = truncated ? value.bytes.slice(0, -1) : value.bytes;
+      response.writeHead(200, {
+        'cache-control': 'no-store',
+        'content-type': 'application/octet-stream',
+        'x-devrandom-artifact-media-type': value.artifact.mediaType,
+        etag: `"${value.artifact.d}"`,
+      });
+      response.end(bytes);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (address === null || typeof address === 'string') throw new Error('missing HTTP address');
+      const decoded = decodeDevrandomServerOrigin(`http://127.0.0.1:${String(address.port)}`);
+      if (decoded.kind !== 'Accepted') throw new Error('invalid HTTP test origin');
+      const evidence = new ServerEvidenceHttp(decoded.origin, bearer, fetch);
+      await expect(evidence.readArtifact(runId, value.artifact.d)).resolves.toEqual({
+        kind: 'Read',
+        artifact: value.artifact,
+        bytes: value.bytes,
+      });
+      truncated = true;
+      await expect(evidence.readArtifact(runId, value.artifact.d)).resolves.toEqual({
+        kind: 'ResponseInvalid',
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+  });
   it('reports a connection lost during the response body as unavailable', async () => {
     const server = createServer((request, response) => {
       request.resume();

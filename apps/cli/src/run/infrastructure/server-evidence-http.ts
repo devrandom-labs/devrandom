@@ -1,6 +1,8 @@
 import {
   appendEvidenceBatchBodySchema,
   decodeEvidenceArtifact,
+  prepareEvidenceArtifact,
+  decodePublicVerifierReceipt,
   decodeEvidenceBatchAcknowledgement,
   decodeEvidenceStreamProjection,
   decodeEvidenceTimelinePage,
@@ -9,10 +11,12 @@ import {
   evidenceSealReconciliationBodySchema,
   evidenceTimelineQuerySchema,
   runParametersSchema,
+  verifierReceiptReadingSchema,
   type AppendEvidenceBatchBody,
   type EvidenceArtifact,
   type EvidenceSealReconciliationBody,
   type EvidenceTimelineQuery,
+  type PublicVerifierReceipt,
 } from '@devrandom/protocol';
 import Value from 'typebox/value';
 
@@ -90,6 +94,118 @@ export class ServerEvidenceHttp implements HostedEvidence, HostedEvidenceSeals, 
     const decoded = decodeEvidenceTimelinePage(response.value.body, runId);
     return decoded.kind === 'Accepted'
       ? { kind: 'Found', page: decoded.page }
+      : { kind: 'ResponseInvalid' };
+  }
+
+  /** Reads bounded raw custody under the current bearer; a descriptor is rederived from bytes. */
+  async readArtifact(
+    runId: string,
+    artifactSaid: string,
+    signal?: AbortSignal,
+  ): Promise<
+    | { readonly kind: 'Read'; readonly artifact: EvidenceArtifact; readonly bytes: Uint8Array }
+    | { readonly kind: 'NotFound' | 'ResponseInvalid' | 'ServerUnavailable' }
+  > {
+    if (
+      !Value.Check(runParametersSchema, { runId }) ||
+      !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(artifactSaid)
+    )
+      return { kind: 'ResponseInvalid' };
+    const cancellation = new AbortController();
+    const combined =
+      signal === undefined ? cancellation.signal : AbortSignal.any([signal, cancellation.signal]);
+    const timeout = setTimeout(() => {
+      cancellation.abort();
+    }, evidenceRequestTimeoutMilliseconds);
+    try {
+      combined.throwIfAborted();
+      const response = await this.#fetch(
+        `${this.#origin}/api/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactSaid)}`,
+        { method: 'GET', headers: { authorization: this.#authorization }, signal: combined },
+      );
+      combined.throwIfAborted();
+      if (response.headers.get('cache-control') !== 'no-store') return { kind: 'ResponseInvalid' };
+      if (response.status === 404) return { kind: 'NotFound' };
+      if (
+        response.status !== 200 ||
+        response.headers.get('content-type') !== 'application/octet-stream' ||
+        response.headers.get('etag') !== `"${artifactSaid}"`
+      )
+        return { kind: 'ResponseInvalid' };
+      const mediaType = response.headers.get('x-devrandom-artifact-media-type');
+      if (mediaType === null || response.body === null) return { kind: 'ResponseInvalid' };
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      for (;;) {
+        const read = await reader.read();
+        combined.throwIfAborted();
+        if (read.done) break;
+        total += read.value.byteLength;
+        if (total > 512 * 1_024) {
+          await reader.cancel();
+          return { kind: 'ResponseInvalid' };
+        }
+        chunks.push(read.value);
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      const prepared = prepareEvidenceArtifact(bytes, mediaType);
+      return prepared.kind === 'Prepared' && prepared.artifact.d === artifactSaid
+        ? { kind: 'Read', artifact: prepared.artifact, bytes }
+        : { kind: 'ResponseInvalid' };
+    } catch {
+      return { kind: 'ServerUnavailable' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async readVerifierReceipt(
+    runId: string,
+    receiptSaid: string,
+    signal?: AbortSignal,
+  ): Promise<
+    | {
+        readonly kind: 'Read';
+        readonly checkpointSaid: string;
+        readonly receipt: PublicVerifierReceipt;
+      }
+    | { readonly kind: 'NotFound' | 'ResponseInvalid' | 'ServerUnavailable' }
+  > {
+    if (
+      !Value.Check(runParametersSchema, { runId }) ||
+      !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(receiptSaid)
+    )
+      return { kind: 'ResponseInvalid' };
+    const response = await this.#request(
+      `/api/runs/${encodeURIComponent(runId)}/verifier-receipts/${encodeURIComponent(receiptSaid)}`,
+      {
+        method: 'GET',
+        headers: { authorization: this.#authorization },
+        ...(signal === undefined ? {} : { signal }),
+      },
+    );
+    if (response.kind !== 'Received') {
+      return response.failure.kind === 'ServerUnavailable'
+        ? { kind: 'ServerUnavailable' }
+        : { kind: 'ResponseInvalid' };
+    }
+    if (response.value.status === 404) return { kind: 'NotFound' };
+    if (
+      response.value.status !== 200 ||
+      !Value.Check(verifierReceiptReadingSchema, response.value.body)
+    )
+      return { kind: 'ResponseInvalid' };
+    const body = Value.Parse(verifierReceiptReadingSchema, response.value.body);
+    return body.runId === runId &&
+      body.receipt.d === receiptSaid &&
+      decodePublicVerifierReceipt(body.receipt).kind === 'Accepted'
+      ? { kind: 'Read', checkpointSaid: body.checkpointSaid, receipt: body.receipt }
       : { kind: 'ResponseInvalid' };
   }
 

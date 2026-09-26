@@ -25,6 +25,8 @@ import {
   evidenceTimelinePageSchema,
   evidenceTimelineQuerySchema,
   evidenceUnavailableProblemSchema,
+  verifierReceiptParametersSchema,
+  verifierReceiptReadingSchema,
   runParametersSchema,
   workAccessAuthorizationHeadersSchema,
   workAccessGrantConcurrentUpdateProblemSchema,
@@ -58,6 +60,7 @@ import type {
   ReconcileEvidenceSealOutcome,
 } from '../application/reconcile-evidence-seal.js';
 import type { RunArtifactReading } from '../application/read-run-artifact.js';
+import type { RunVerifierReceiptReading } from '../application/read-run-verifier-receipt.js';
 
 type EvidenceScope = Extract<WorkAccessScope, 'evidence:append' | 'evidence:seal' | 'run:read'>;
 
@@ -85,6 +88,7 @@ export interface EvidenceConversation {
   readArtifact(
     input: Parameters<RunArtifactReading['read']>[0],
   ): ReturnType<RunArtifactReading['read']>;
+  readVerifierReceipt?: RunVerifierReceiptReading['read'];
   acceptBatch(input: EvidenceBatchCommandInput): Promise<AcceptEvidenceBatchOutcome>;
   reconcileSeal(input: ReconcileEvidenceSealInput): Promise<ReconcileEvidenceSealOutcome>;
   inspectTimeline(input: InspectEvidenceTimelineInput): Promise<InspectEvidenceTimelineOutcome>;
@@ -462,6 +466,54 @@ async function sendUnavailable(
 
 function artifactRoutes(configuration: EvidenceRoutesConfiguration): FastifyPluginCallbackTypebox {
   return (server, _options, done) => {
+    server.get(
+      '/api/runs/:runId/verifier-receipts/:receiptSaid',
+      {
+        schema: {
+          operationId: 'readRunVerifierReceipt',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: verifierReceiptParametersSchema,
+          response: {
+            ...authorizationResponses,
+            200: verifierReceiptReadingSchema,
+            404: evidenceRunNotFoundProblemSchema,
+            503: evidenceUnavailableProblemSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const ownerAid = await authorize(
+          reply,
+          request.headers.authorization,
+          'run:read',
+          configuration,
+        );
+        if (ownerAid === undefined) return;
+        const outcome = await configuration.conversation.readVerifierReceipt?.({
+          ownerAid,
+          runId: request.params.runId,
+          receiptSaid: request.params.receiptSaid,
+        });
+        if (outcome === undefined || outcome.kind === 'Unavailable') {
+          await sendUnavailable(reply, 'HostedMongoDB', configuration.newCorrelationId());
+          return;
+        }
+        if (outcome.kind === 'NotFound') {
+          await sendProblem(
+            reply,
+            evidenceProblem('EvidenceRunNotFound', configuration.newCorrelationId()),
+          );
+          return;
+        }
+        await reply.code(200).send({
+          version: 1,
+          runId: outcome.runId,
+          evidenceStreamId: outcome.evidenceStreamId,
+          checkpointSaid: outcome.checkpointSaid,
+          receipt: outcome.receipt,
+        });
+      },
+    );
     server.removeContentTypeParser(['application/json', 'text/plain']);
     server.addContentTypeParser(
       ['application/octet-stream', 'application/json', 'text/plain', 'text/x-diff'],

@@ -5,6 +5,8 @@ import {
   type EvaluationPolicy,
   type EvaluationSourceInventory,
   type TaskProjection,
+  type EvidenceArtifact,
+  type PublicVerifierReceipt,
 } from '@devrandom/protocol';
 import type Type from 'typebox';
 import Value from 'typebox/value';
@@ -56,6 +58,30 @@ function interrupted(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
+export interface HostedQualificationEvidence {
+  inspect(runId: string, query: EvidenceTimelineQuery): Promise<HostedRunTimelineInspection>;
+  readArtifact?(
+    runId: string,
+    artifactSaid: string,
+    signal?: AbortSignal,
+  ): Promise<
+    | { readonly kind: 'Read'; readonly artifact: EvidenceArtifact; readonly bytes: Uint8Array }
+    | { readonly kind: 'NotFound' | 'ResponseInvalid' | 'ServerUnavailable' }
+  >;
+  readVerifierReceipt?(
+    runId: string,
+    receiptSaid: string,
+    signal?: AbortSignal,
+  ): Promise<
+    | {
+        readonly kind: 'Read';
+        readonly checkpointSaid: string;
+        readonly receipt: PublicVerifierReceipt;
+      }
+    | { readonly kind: 'NotFound' | 'ResponseInvalid' | 'ServerUnavailable' }
+  >;
+}
+
 export interface RunQualification {
   inspect(input: {
     readonly task: TaskProjection;
@@ -63,9 +89,7 @@ export interface RunQualification {
     readonly executionProfileSaid: string;
     readonly expectedActiveRevisionSaid: string;
     readonly runs: { inspect(runId: string): Promise<HostedRunInspection> };
-    readonly evidence: {
-      inspect(runId: string, query: EvidenceTimelineQuery): Promise<HostedRunTimelineInspection>;
-    };
+    readonly evidence: HostedQualificationEvidence;
     readonly signal: AbortSignal;
   }): Promise<
     | {
@@ -103,12 +127,7 @@ export interface HarnessEvaluationDependencies {
           readonly ownerAid: string;
           readonly tasks: { inspect(label: string): Promise<HostedTaskInspection> };
           readonly runs: { inspect(runId: string): Promise<HostedRunInspection> };
-          readonly evidence: {
-            inspect(
-              runId: string,
-              query: EvidenceTimelineQuery,
-            ): Promise<HostedRunTimelineInspection>;
-          };
+          readonly evidence: HostedQualificationEvidence;
           readonly evaluations: {
             prepare(
               command: PreparationCommand,

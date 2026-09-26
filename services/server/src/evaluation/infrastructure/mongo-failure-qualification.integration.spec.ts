@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
+import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import Fastify from 'fastify';
 import { MongoClient, Binary } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -61,6 +63,8 @@ import {
   type EvidenceStreamDocument,
 } from '../../evidence/infrastructure/evidence-stream-document.js';
 import { MongoEvidenceBootstrap } from '../../evidence/infrastructure/mongo-evidence-bootstrap.js';
+import { MongoRunVerifierReceiptReading } from '../../evidence/infrastructure/mongo-run-verifier-receipt-reading.js';
+import { evidenceRoutes } from '../../evidence/route/evidence-routes.js';
 import { MongoFailureQualification } from './mongo-failure-qualification.js';
 
 const uri = process.env.DEVRANDOM_MONGODB_URI;
@@ -580,6 +584,90 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
   afterAll(async () => {
     await database.dropDatabase();
     await client.close();
+  });
+
+  it('serves only the sealed owner-bound public receipt over listening Fastify and Mongo', async () => {
+    const checkpointDocument = await database
+      .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+      .findOne({ runId: qualificationInput.retainedRunId });
+    const receipt = checkpointDocument?.checkpoint.verifierReceipts.find(
+      (candidate) => candidate.commandSaid === commandSaids[2],
+    );
+    if (checkpointDocument === null || receipt === undefined)
+      throw new Error('Missing receipt fixture');
+    const reading = new MongoRunVerifierReceiptReading(database);
+    const server = Fastify().withTypeProvider<TypeBoxTypeProvider>();
+    await server.register(
+      evidenceRoutes({
+        access: {
+          authorize: ({ bearerSecret }) =>
+            Promise.resolve({
+              kind: 'EvidenceAccessAuthorized' as const,
+              ownerAid: bearerSecret === 'a'.repeat(43) ? ownerAid : said('z'),
+            }),
+        },
+        conversation: {
+          admitArtifact: () => Promise.resolve({ kind: 'EvidenceRunNotFound' }),
+          readArtifact: () => Promise.resolve({ kind: 'NotFound' }),
+          readVerifierReceipt: (input) => reading.read(input),
+          acceptBatch: () => Promise.resolve({ kind: 'EvidenceRunNotFound' }),
+          reconcileSeal: () => Promise.resolve({ kind: 'EvidenceRunNotFound' }),
+          inspectTimeline: () => Promise.resolve({ kind: 'EvidenceRunNotFound' }),
+        },
+        now: () => receivedAt,
+        newCorrelationId: randomUUID,
+      }),
+    );
+    const address = await server.listen({ host: '127.0.0.1', port: 0 });
+    try {
+      const url = `${address}/api/runs/${qualificationInput.retainedRunId}/verifier-receipts/${receipt.d}`;
+      const authorized = { authorization: `Bearer ${'a'.repeat(43)}` };
+      const exact = await fetch(url, { headers: authorized });
+      expect(exact.status).toBe(200);
+      expect(await exact.json()).toEqual({
+        version: 1,
+        runId: qualificationInput.retainedRunId,
+        evidenceStreamId: checkpointDocument.evidenceStreamId,
+        checkpointSaid: checkpointDocument.checkpoint.d,
+        receipt,
+      });
+      expect((await fetch(url, { headers: authorized })).status).toBe(200);
+      const foreign = await fetch(url, { headers: { authorization: `Bearer ${'b'.repeat(43)}` } });
+      expect(foreign.status).toBe(404);
+      expect(await foreign.text()).not.toContain(receipt.d);
+      const absent = await fetch(
+        `${address}/api/runs/${qualificationInput.retainedRunId}/verifier-receipts/${said('x')}`,
+        { headers: authorized },
+      );
+      expect(absent.status).toBe(404);
+      const failureEvent = await database
+        .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+        .findOne({
+          runId: qualificationInput.retainedRunId,
+          'event.event.kind': 'FailureObserved',
+          'event.event.receiptSaid': receipt.d,
+        });
+      if (failureEvent === null) throw new Error('Missing failure event fixture');
+      await database
+        .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+        .updateOne({ _id: failureEvent._id }, { $set: { 'event.event.receiptSaid': said('x') } });
+      const corrupt = await fetch(url, { headers: authorized });
+      expect(corrupt.status).toBe(503);
+      await database
+        .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+        .replaceOne({ _id: failureEvent._id }, failureEvent);
+      await database
+        .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+        .deleteOne({
+          _id: checkpointDocument._id,
+        });
+      expect((await fetch(url, { headers: authorized })).status).toBe(404);
+    } finally {
+      await database
+        .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+        .replaceOne({ _id: checkpointDocument._id }, checkpointDocument, { upsert: true });
+      await server.close();
+    }
   });
 
   it('qualifies six distinct, sealed exact-read Runs, then rejects corruption and a missing ordinal', async () => {

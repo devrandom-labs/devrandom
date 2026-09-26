@@ -1,6 +1,9 @@
 import {
   decodeRunProjection,
+  prepareEvaluationExecutionProfile,
+  prepareEvidenceArtifact,
   prepareEvidenceEvent,
+  preparePublicVerifierReceipt,
   type EvidenceEvent,
   type RunProjection,
 } from '@devrandom/protocol';
@@ -16,6 +19,59 @@ const id = (character: string): string =>
 const task = taskProjectionFixture();
 const base = runProjectionFixture();
 const runIds = ['1', '2', '3', '4', '5', '6'].map(id);
+const profilePreparation = prepareEvaluationExecutionProfile({
+  os: 'linux',
+  architecture: 'aarch64',
+  imageDigest: `sha256:${'a'.repeat(64)}`,
+  runtimeDigest: `sha256:${'b'.repeat(64)}`,
+  toolchainDigest: `sha256:${'c'.repeat(64)}`,
+  sourceGitCommit: task.revision.repository.commit,
+  sourceGitTree: task.revision.repository.tree,
+  h1InstructionSaid: said('h'),
+  h1RuntimePromptDigest: `sha256:${'d'.repeat(64)}`,
+  effectiveLimitsReceiptSaid: said('l'),
+  parentDeathCleanupReceiptSaid: said('m'),
+  modelProvider: 'concentrate',
+  modelId: 'deepinfra/deepseek-v4-flash-0731',
+  thinkingLevel: 'low',
+  maximumOutputTokens: 8192,
+  limits: {
+    cpuCount: 2,
+    memoryBytes: 1073741824,
+    processCount: 64,
+    scratchBytes: 67108864,
+    outputBytes: 524288,
+    wallTimeSeconds: 3600,
+  },
+  containment: {
+    nonRoot: true,
+    readOnlyRuntime: true,
+    networkDisabled: true,
+    privilegesDropped: true,
+    restrictedIpc: true,
+    parentDeathCleanup: true,
+  },
+});
+if (profilePreparation.kind !== 'Prepared') throw new Error('profile fixture invalid');
+const evaluationProfile = profilePreparation.profile;
+const profileBytes = new TextEncoder().encode(JSON.stringify(evaluationProfile));
+const profileArtifact = prepareEvidenceArtifact(profileBytes, 'application/json');
+if (profileArtifact.kind !== 'Prepared') throw new Error('profile artifact fixture invalid');
+const profileArtifactDescriptor = profileArtifact.artifact;
+const receiptPreparation = preparePublicVerifierReceipt({
+  version: 1,
+  completionConditionId: 'public-test',
+  commandSaid: said('f'),
+  recordedAt: '2026-09-26T05:00:00.000Z',
+  outcome: {
+    kind: 'Rejected',
+    reason: { kind: 'UnexpectedExitCode', expected: 0, observed: 101 },
+    elapsedMilliseconds: 10,
+    outputArtifactSaids: [],
+  },
+});
+if (receiptPreparation.kind !== 'Prepared') throw new Error('receipt fixture invalid');
+const failureReceipt = receiptPreparation.receipt;
 
 function event(
   run: RunProjection,
@@ -96,8 +152,8 @@ function timeline(run: RunProjection) {
   });
   const profile = event(run, 1, observation.d, {
     kind: 'RunExecutionProfileBound',
-    executionProfileSaid: said('p'),
-    profileArtifactSaid: said('q'),
+    executionProfileSaid: evaluationProfile.d,
+    profileArtifactSaid: profileArtifactDescriptor.d,
     worktreeBranch: `devrandom/run/${run.runId}`,
   });
   const checkpoint = event(run, 2, profile.d, {
@@ -113,7 +169,7 @@ function timeline(run: RunProjection) {
           event(run, 3, checkpoint.d, {
             kind: 'FailureObserved',
             failure: 'HarnessCompatibilityFailure',
-            receiptSaid: said('r'),
+            receiptSaid: failureReceipt.d,
           }),
         ]
       : [observation, profile, checkpoint];
@@ -150,7 +206,7 @@ function timeline(run: RunProjection) {
   };
 }
 
-it('exact-reads all six hosted Run and sealed timeline chains, then blocks missing profile custody', async () => {
+it('qualifies only six exact-read profiles and the retained public verifier receipt', async () => {
   const inspected: string[] = [];
   const timelines: string[] = [];
   const runs = runIds.map((_, index) => run(index));
@@ -161,7 +217,7 @@ it('exact-reads all six hosted Run and sealed timeline chains, then blocks missi
   const result = await qualification.inspect({
     task,
     originRunId: runIds[5] ?? '',
-    executionProfileSaid: said('p'),
+    executionProfileSaid: evaluationProfile.d,
     expectedActiveRevisionSaid: base.harnessRevisionSaid,
     runs: {
       inspect: (runId) => {
@@ -184,12 +240,115 @@ it('exact-reads all six hosted Run and sealed timeline chains, then blocks missi
             : { kind: 'Found' as const, page: timeline(found) },
         );
       },
+      readArtifact: (_runId, artifactSaid) =>
+        Promise.resolve(
+          artifactSaid === profileArtifactDescriptor.d
+            ? { kind: 'Read' as const, artifact: profileArtifactDescriptor, bytes: profileBytes }
+            : { kind: 'NotFound' as const },
+        ),
+      readVerifierReceipt: (_runId, receiptSaid) =>
+        Promise.resolve(
+          receiptSaid === failureReceipt.d
+            ? {
+                kind: 'Read' as const,
+                checkpointSaid: said('c'),
+                receipt: failureReceipt,
+              }
+            : { kind: 'NotFound' as const },
+        ),
     },
     signal: new AbortController().signal,
   });
-  expect(result).toEqual({ kind: 'Blocked' });
+  expect(result).toMatchObject({ kind: 'Qualified', originRunId: runIds[5] });
   expect(inspected).toEqual(runIds);
   expect(timelines).toEqual(runIds);
+});
+
+it.each([
+  'missing profile',
+  'corrupt profile bytes',
+  'missing receipt',
+  'forged receipt',
+  'category mismatch',
+])('blocks six-Run qualification on %s', async (failure) => {
+  const runs = runIds.map((_, index) => run(index));
+  if (failure === 'category mismatch') {
+    const candidate = runs[4];
+    if (
+      candidate === undefined ||
+      candidate.lifecycle.kind !== 'Ended' ||
+      candidate.lifecycle.outcome.kind !== 'CalibrationConfirmed'
+    )
+      throw new Error('bad fixture');
+    runs[4] = {
+      ...candidate,
+      lifecycle: {
+        kind: 'Ended',
+        outcome: {
+          ...candidate.lifecycle.outcome,
+          category: { ...candidate.lifecycle.outcome.category, legacyCommandSaid: said('z') },
+        },
+      },
+    };
+  }
+  const qualification = new VerifiedFailureCampaign({
+    read: () => Promise.resolve({ kind: 'Found', runIds: runIds.slice(0, 5) }),
+  });
+  await expect(
+    qualification.inspect({
+      task,
+      originRunId: runIds[5] ?? '',
+      executionProfileSaid: evaluationProfile.d,
+      expectedActiveRevisionSaid: base.harnessRevisionSaid,
+      runs: {
+        inspect: (runId) => {
+          const found = runs.find((candidate) => candidate.runId === runId);
+          return Promise.resolve(
+            found === undefined
+              ? { kind: 'InputInvalid' as const }
+              : { kind: 'Found' as const, run: found },
+          );
+        },
+      },
+      evidence: {
+        inspect: (runId) => {
+          const found = runs.find((candidate) => candidate.runId === runId);
+          return Promise.resolve(
+            found === undefined
+              ? { kind: 'InputInvalid' as const }
+              : { kind: 'Found' as const, page: timeline(found) },
+          );
+        },
+        readArtifact: () =>
+          Promise.resolve(
+            failure === 'missing profile'
+              ? { kind: 'NotFound' as const }
+              : {
+                  kind: 'Read' as const,
+                  artifact: profileArtifactDescriptor,
+                  bytes:
+                    failure === 'corrupt profile bytes'
+                      ? new TextEncoder().encode('{"tampered":true}')
+                      : profileBytes,
+                },
+          ),
+        readVerifierReceipt: () =>
+          Promise.resolve(
+            failure === 'missing receipt'
+              ? { kind: 'NotFound' as const }
+              : {
+                  kind: 'Read' as const,
+                  checkpointSaid: said('c'),
+                  receipt:
+                    failure === 'forged receipt'
+                      ? { ...failureReceipt, commandSaid: said('z') }
+                      : failureReceipt,
+                },
+          ),
+      },
+      signal: new AbortController().signal,
+    }),
+  ).resolves.toEqual({ kind: 'Blocked' });
 });
 
 it('rejects a sealed cursor whose claimed head differs from the exact final event', async () => {
