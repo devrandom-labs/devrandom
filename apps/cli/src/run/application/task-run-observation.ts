@@ -1,3 +1,5 @@
+import { decodeRunSuccessorSegment } from '@devrandom/protocol';
+import { isDeepStrictEqual } from 'node:util';
 import type {
   EvidenceStreamProjection,
   EvidenceTimelinePage,
@@ -182,12 +184,16 @@ function runMatchesAdmission(run: RunProjection, admission: AcceptedRunAdmission
     run.evidenceStreamId === accepted.evidenceStreamId &&
     repositoryMatches(run.repository, accepted.repository) &&
     run.lease.kind === 'Held' &&
-    run.lease.incarnationId === admission.incarnationId
+    isDeepStrictEqual(run.purpose, accepted.purpose) &&
+    (run.currentExecution !== undefined || run.lease.incarnationId === admission.incarnationId)
   );
 }
 
 function streamMatchesRun(stream: EvidenceStreamProjection, run: RunProjection): boolean {
-  return stream.runId === run.runId && stream.evidenceStreamId === run.evidenceStreamId;
+  return (
+    stream.runId === run.runId &&
+    stream.evidenceStreamId === (run.currentExecution?.evidenceStreamId ?? run.evidenceStreamId)
+  );
 }
 
 function runObservationStopsWatch(run: RunProjection): boolean {
@@ -225,6 +231,7 @@ export class TaskRunObservations {
     }
     let cursor: string | undefined;
     let lastSequence: number | undefined;
+    let streamId: string | undefined;
     for (;;) {
       if (watchWasInterrupted(signal)) {
         yield { kind: 'WatchInterrupted' };
@@ -234,14 +241,18 @@ export class TaskRunObservations {
         yield { kind: 'GrantExpired' };
         return;
       }
-      const reading = await this.#read(
-        opened.observation,
-        cursor === undefined ? { limit: timelinePageLimit } : { limit: timelinePageLimit, cursor },
-      );
+      const reading = await this.#read(opened.observation, {
+        limit: timelinePageLimit,
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(streamId === undefined ? {} : { evidenceStreamId: streamId }),
+      });
       if (reading.kind !== 'Read') {
         yield reading;
         return;
       }
+      if (streamId !== undefined && streamId !== reading.status.stream.evidenceStreamId)
+        lastSequence = undefined;
+      streamId = reading.status.stream.evidenceStreamId;
       const firstSequence = reading.page.events[0]?.event.sequence;
       if (
         firstSequence !== undefined &&
@@ -310,6 +321,43 @@ export class TaskRunObservations {
     };
   }
 
+  async #successorMatchesRun(run: RunProjection, runs: HostedRunStatuses): Promise<boolean> {
+    if (
+      run.currentExecution === undefined ||
+      run.lease.kind !== 'Held' ||
+      runs.readSuccessorSegment === undefined
+    )
+      return false;
+    const read = await runs.readSuccessorSegment(run.runId, run.currentExecution.segmentSaid);
+    if (read.kind !== 'Found') return false;
+    const decoded = decodeRunSuccessorSegment(read.segment);
+    if (decoded.kind !== 'Accepted') return false;
+    const segment = decoded.segment;
+    return (
+      segment.d === run.currentExecution.segmentSaid &&
+      run.lease.segmentSaid === segment.d &&
+      segment.runId === run.runId &&
+      segment.taskId === run.taskId &&
+      segment.taskRevisionSaid === run.taskRevisionSaid &&
+      segment.ownerAid === run.ownerAid &&
+      segment.personalAgentAid === run.personalAgentAid &&
+      segment.taskMandateSaid === run.taskMandateSaid &&
+      segment.fromRunVersion < run.runVersion &&
+      segment.successor.incarnationId === run.lease.incarnationId &&
+      segment.successor.evidenceStreamId === run.currentExecution.evidenceStreamId &&
+      segment.successor.harnessRevisionSaid === run.currentExecution.harnessRevisionSaid &&
+      (run.purpose.kind === 'PreparedCompatibilityCalibration'
+        ? segment.version === 2 &&
+          segment.baseline.harnessRevisionSaid === run.harnessRevisionSaid &&
+          segment.successor.harnessRevisionSaid === run.harnessRevisionSaid
+        : segment.version === 1) &&
+      Object.entries(segment.consumedBudget).every(([key, value]) => {
+        const consumed: unknown = Reflect.get(run.budget.consumed, key);
+        return typeof consumed === 'number' && value <= consumed;
+      })
+    );
+  }
+
   async #read(
     opened: OpenTaskRunObservation,
     query: EvidenceTimelineQuery,
@@ -321,7 +369,19 @@ export class TaskRunObservations {
     if (!runMatchesAdmission(inspected.run, opened.admission)) {
       return { kind: 'RunBindingRejected' };
     }
-    const timeline = await opened.timelines.inspect(inspected.run.runId, query);
+    const run = inspected.run;
+    if (run.currentExecution !== undefined && !(await this.#successorMatchesRun(run, opened.runs)))
+      return { kind: 'RunBindingRejected' };
+    const evidenceStreamId = run.currentExecution?.evidenceStreamId ?? run.evidenceStreamId;
+    const { cursor, ...scope } = query;
+    const timeline = await opened.timelines.inspect(run.runId, {
+      ...scope,
+      ...(cursor !== undefined &&
+      (query.evidenceStreamId === undefined || query.evidenceStreamId === evidenceStreamId)
+        ? { cursor }
+        : {}),
+      evidenceStreamId,
+    });
     if (timeline.kind !== 'Found') {
       return { kind: 'TimelineInspectionRejected', failure: timeline };
     }

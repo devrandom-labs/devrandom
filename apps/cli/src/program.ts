@@ -1060,6 +1060,12 @@ function stoppedRunExitCode(supervision: Extract<RunSupervision, { readonly kind
     return 0;
   }
   if (
+    supervision.run.binding.purpose.kind === 'PreparedCompatibilityCalibration' &&
+    supervision.run.lifecycle.kind === 'Ended' &&
+    supervision.run.lifecycle.outcome.kind === 'CalibrationConfirmed'
+  )
+    return 0;
+  if (
     supervision.run.lifecycle.kind === 'Ended' &&
     supervision.run.lifecycle.outcome.kind === 'Submitted' &&
     supervision.run.submissionVerification.kind === 'Accepted'

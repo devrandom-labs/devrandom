@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 
 import { governorAid, personalAgentAid } from '@devrandom/identity';
-import { prepareEvidenceEvent } from '@devrandom/protocol';
+import { prepareEvidenceEvent, prepareRunSuccessorSegment } from '@devrandom/protocol';
 import type { EvidenceTimelinePage, RunProjection } from '@devrandom/protocol';
 
 import {
@@ -506,3 +506,127 @@ describe('Task Run observation', () => {
     }
   });
 });
+it.each([1, 2] as const)(
+  'observes the exact v%s successor and requests its stream rather than the original stream',
+  async (version) => {
+    const baseRun = heldRun({ kind: 'Running' });
+    const original = {
+      ...baseRun,
+      ...(version === 2
+        ? {
+            purpose: {
+              kind: 'PreparedCompatibilityCalibration' as const,
+              campaignId: baseRun.runId,
+              ordinal: 1 as const,
+            },
+          }
+        : {}),
+    };
+    const successor = {
+      incarnationId: '10000000-0000-4000-8000-000000000001',
+      evidenceStreamId: '10000000-0000-4000-8000-000000000002',
+      harnessRevisionSaid: version === 1 ? `E${'z'.repeat(43)}` : original.harnessRevisionSaid,
+    };
+    const prepared = prepareRunSuccessorSegment({
+      ...(version === 1
+        ? {
+            version: 1 as const,
+            kind: 'RunSuccessorSegment' as const,
+            activation: { pointerVersion: 2, decisionReceiptSaid: checkpointSaid },
+          }
+        : {
+            version: 2 as const,
+            kind: 'CalibrationContinuationSegment' as const,
+            baseline: {
+              pointerVersion: 1 as const,
+              harnessRevisionSaid: original.harnessRevisionSaid,
+            },
+          }),
+      runId: original.runId,
+      taskId: original.taskId,
+      taskRevisionSaid: original.taskRevisionSaid,
+      ownerAid: original.ownerAid,
+      personalAgentAid: original.personalAgentAid,
+      taskMandateSaid: original.taskMandateSaid,
+      fromRunVersion: 3,
+      predecessor: {
+        incarnationId: runIncarnationId,
+        evidenceStreamId: original.evidenceStreamId,
+        checkpointSaid,
+        sealExchangeSaid: checkpointSaid,
+        finalSequence: 2,
+        chainHeadSaid: checkpointSaid,
+      },
+      successor,
+      consumedBudget: original.budget.consumed,
+      admittedAt: '2026-09-24T20:01:00.000Z',
+    });
+    if (prepared.kind !== 'Prepared') throw Error('segment');
+    const run: RunProjection = {
+      ...original,
+      runVersion: 5,
+      currentExecution: {
+        segmentSaid: prepared.segment.d,
+        evidenceStreamId: successor.evidenceStreamId,
+        harnessRevisionSaid: successor.harnessRevisionSaid,
+      },
+      lease: {
+        ...original.lease,
+        incarnationId: successor.incarnationId,
+        segmentSaid: prepared.segment.d,
+        lastChange: {
+          kind: 'Replaced',
+          fromRunVersion: 3,
+          segmentSaid: prepared.segment.d,
+        },
+      },
+    };
+    const page = timeline(run, null);
+    page.stream.evidenceStreamId = successor.evidenceStreamId;
+    const readSegment = vi.fn(() =>
+      Promise.resolve({ kind: 'Found' as const, segment: prepared.segment }),
+    );
+    const inspect = vi.fn(() => Promise.resolve({ kind: 'Found' as const, page }));
+    const base = await authority({
+      runs: [run],
+      pages: [page],
+      timelineQueries: [],
+    }).acquireHostedWork();
+    if (base.kind !== 'Authorized') throw Error('authority');
+    const observations = new TaskRunObservations({
+      authority: {
+        acquireHostedWork: () =>
+          Promise.resolve({
+            ...base,
+            runs: { ...base.runs, readSuccessorSegment: readSegment },
+            evidence: { inspect },
+          }),
+      },
+      admissions: {
+        locateAcceptedRun: () => {
+          const accepted = acceptedAdmission();
+          return Promise.resolve({
+            kind: 'Located',
+            admission: {
+              ...accepted,
+              binding: { ...accepted.binding, purpose: original.purpose },
+              run: { ...accepted.run, purpose: original.purpose },
+            },
+          });
+        },
+      },
+      now: () => Date.parse('2026-09-24T20:02:00.000Z'),
+      wait: vi.fn(),
+    });
+    expect((await observations.status('cesr-compat')).kind).toBe('Observed');
+    expect(readSegment).toHaveBeenCalledWith(run.runId, prepared.segment.d);
+    expect(inspect).toHaveBeenCalledWith(run.runId, {
+      evidenceStreamId: successor.evidenceStreamId,
+    });
+    readSegment.mockResolvedValueOnce({
+      kind: 'Found',
+      segment: { ...prepared.segment, ownerAid: `E${'x'.repeat(43)}` },
+    });
+    expect((await observations.status('cesr-compat')).kind).toBe('RunBindingRejected');
+  },
+);

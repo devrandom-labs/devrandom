@@ -1289,3 +1289,71 @@ describe('devrandom command', () => {
     expect(runtime.exitCodes).toEqual([7]);
   });
 });
+it('reports a sealed confirmed calibration resume as successful without claiming a submitted result', async () => {
+  const { commands } = commandFixture();
+  const runtime = processFixture();
+  const decoded = decodeRunProjection(runProjectionFixture());
+  if (decoded.kind !== 'Accepted') throw Error('run');
+  const resume: DevrandomCommands['tasks']['resume'] = () =>
+    Promise.resolve({
+      kind: 'RunSupervised',
+      context: {
+        text: '',
+        sourceEventSaids: [],
+        includedEventSaids: [],
+        addressableEventSaids: [],
+        addressableArtifactSaids: [],
+      },
+      supervision: {
+        kind: 'Stopped',
+        run: {
+          ...decoded.run,
+          binding: {
+            ...decoded.run.binding,
+            purpose: {
+              kind: 'PreparedCompatibilityCalibration',
+              campaignId: decoded.run.binding.runId,
+              ordinal: 1,
+            },
+          },
+          lifecycle: {
+            kind: 'Ended',
+            outcome: {
+              kind: 'CalibrationConfirmed',
+              checkpointSaid: `E${'a'.repeat(43)}`,
+              category: {
+                version: 1,
+                taskId: decoded.run.binding.taskId,
+                taskRevisionSaid: decoded.run.binding.taskRevisionSaid,
+                harnessRevisionSaid: decoded.run.binding.initialHarnessRevisionSaid,
+                currentCommandSaid: `E${'c'.repeat(43)}`,
+                tamperCommandSaid: `E${'t'.repeat(43)}`,
+                legacyCommandSaid: `E${'l'.repeat(43)}`,
+                legacyObservedExitCode: 101,
+              },
+            },
+          },
+        },
+        cause: {
+          kind: 'ExecutorSettled',
+          disposition: { kind: 'Completed', sessionId: 'session' },
+        },
+        latestHostedRunVersion: decoded.run.version,
+      },
+    });
+  await createProgram(
+    { ...commands, tasks: { ...commands.tasks, resume } },
+    runtime.process,
+  ).parseAsync([
+    'node',
+    'devrandom',
+    'task',
+    'resume',
+    'cesr-scoped-compat',
+    '--run',
+    'original-run',
+  ]);
+  expect(runtime.exitCodes).toEqual([0]);
+  expect(runtime.output.join('')).toContain('Ended.CalibrationConfirmed');
+  expect(runtime.output.join('')).not.toContain('Ended.Submitted');
+});
