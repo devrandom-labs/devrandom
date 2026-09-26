@@ -60,6 +60,26 @@ export {
 } from './pi/model-compatibility.js';
 export { AcceptedRunLease, type AcceptedRunLeaseClock } from './run/accepted-run-lease.js';
 export {
+  DockerRunEnvironment,
+  type RunEnvironmentOpening,
+  type RunEnvironmentOpeningInput,
+  type RunEnvironmentProbe,
+  type RunEnvironmentProbeInput,
+  type RunRuntimeMount,
+} from './run/docker-run-environment.js';
+export {
+  DockerRunPiExecutor,
+  type DockerRunPiExecutorDependencies,
+} from './run/docker-run-pi-executor.js';
+export {
+  bindRunExecutionProfile,
+  digestRunRuntimePrompt,
+  inspectRunExecutionProfileBinding,
+  runInstructionPrompt,
+  type RunExecutionProfileBinding,
+  type RunExecutionProfileInspection,
+} from './run/run-execution-profile-custody.js';
+export {
   keepRunLease,
   MonotonicLeaseClock,
   type LeaseClock,

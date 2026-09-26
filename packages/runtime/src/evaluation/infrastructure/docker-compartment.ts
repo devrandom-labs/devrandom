@@ -186,11 +186,19 @@ export class DockerEvaluationCompartment {
   }
 
   execute(command: readonly string[]): ChildProcessWithoutNullStreams {
+    return this.executeAt('/work', command);
+  }
+
+  /** The Run native-effect compartment invokes exact H1 executables from its mounted worktree. */
+  executeAt(
+    workdir: '/work' | '/work/source',
+    command: readonly string[],
+  ): ChildProcessWithoutNullStreams {
     if (this.#closed || command.length === 0 || command.some((part) => part.includes('\u0000')))
       throw new Error('Evaluation compartment is closed or command invalid.');
     return spawn(
       'docker',
-      ['exec', '-i', '--user', '65534:65534', '--workdir', '/work', this.#name, ...command],
+      ['exec', '-i', '--user', '65534:65534', '--workdir', workdir, this.#name, ...command],
       {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {

@@ -5,6 +5,7 @@ import { lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { IssuerAid } from '@devrandom/identity';
+import type { ProtectedCredentials, Run } from '@devrandom/domain';
 import {
   AcceptedRunLease,
   BaselinePiExecutor,
@@ -15,6 +16,10 @@ import {
   ToolGateway,
   ToolProposalBudgetLedger,
   type PiCredentialSource,
+  type PiExecution,
+  type PiExecutionGateway,
+  type PiModelAccess,
+  type EvidenceRecorder,
   type RunLeaseReceipt,
   type RunSupervision,
   type RunSupervisionSettlement,
@@ -26,7 +31,10 @@ import type {
   AdmittedRunSupervisionProvision,
   AdmittedTaskRunPreparation,
 } from '../../task/application/task-run-execution.js';
-import { BaselineExecutionInputMaterializer } from '../application/baseline-execution-inputs.js';
+import {
+  BaselineExecutionInputMaterializer,
+  type BaselineExecutionInputs,
+} from '../application/baseline-execution-inputs.js';
 import { BaselineRunExecutionPreparation } from '../application/baseline-run-execution-preparation.js';
 import { deliverRunEvidence } from '../application/evidence-delivery.js';
 import { PreparedCompatibilityCalibration } from '../application/prepared-compatibility-calibration.js';
@@ -56,6 +64,37 @@ import { EvidenceRecorderProcessOutput } from '../infrastructure/process-output-
 import { PreparedCompatibilityCalibrationFile } from '../infrastructure/prepared-compatibility-calibration-file.js';
 import { SignifyTaskToolMandate } from '../infrastructure/signify-task-tool-mandate.js';
 import { SqliteEvidenceOutboxes } from '../infrastructure/sqlite-evidence-outbox.js';
+import type { ExactChildCommands } from '../application/exact-child-command.js';
+import type { PreparedRunWorktree } from '../application/run-worktree.js';
+
+export interface RunExecutionProvisionInput {
+  readonly run: Run;
+  readonly worktree: PreparedRunWorktree;
+  readonly runDirectory: string;
+  readonly agentDirectory: string;
+  readonly temporaryDirectory: string;
+  readonly inputs: BaselineExecutionInputs;
+  readonly budget: RunResourceBudget;
+  readonly evidence: EvidenceRecorder;
+  readonly modelAccess: PiModelAccess;
+  readonly protectedCredentials: ProtectedCredentials;
+  now(): string;
+  sessionId(): string;
+  modelTurnId(): string;
+}
+
+export type PreparedRunExecutors = {
+  readonly kind: 'Prepared';
+  readonly commands: ExactChildCommands;
+  pi(gateway: PiExecutionGateway): PiExecution;
+};
+
+export interface RunExecutionProvision {
+  provision(
+    input: RunExecutionProvisionInput,
+    signal: AbortSignal,
+  ): Promise<PreparedRunExecutors | { readonly kind: 'Unavailable' }>;
+}
 
 export interface BaselineRunSupervisorCompositionOptions {
   readonly stateRoot: string;
@@ -63,6 +102,7 @@ export interface BaselineRunSupervisorCompositionOptions {
   readonly issuerAid: IssuerAid;
   readonly modelCredential: PiCredentialSource;
   readonly childEnvironment: Pick<SanitizedChildEnvironment, 'path' | 'language'>;
+  readonly executionProvision?: RunExecutionProvision;
   now(): string;
   sessionId(): string;
   modelTurnId(): string;
@@ -171,18 +211,62 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
             evidence,
             now: () => options.now(),
           });
-          const processes = new PosixExactChildCommands({
-            protectedCredentials: preparation.protectedCredentials,
-            workingDirectory: worktree.directory,
-            outputRoot: join(runDirectory, 'command-output'),
-            maximumOutputBytes: 512 * 1_024,
-            environment: {
-              ...options.childEnvironment,
-              temporaryDirectory,
-            },
-            budget,
-            monotonicNow: () => performance.now(),
+          const modelAccess = new PinnedPiModelAccess({
+            acquire: () => Promise.resolve(modelCredential),
           });
+          const preparedExecutors =
+            options.executionProvision === undefined
+              ? {
+                  kind: 'Prepared' as const,
+                  commands: new PosixExactChildCommands({
+                    protectedCredentials: preparation.protectedCredentials,
+                    workingDirectory: worktree.directory,
+                    outputRoot: join(runDirectory, 'command-output'),
+                    maximumOutputBytes: 512 * 1_024,
+                    environment: {
+                      ...options.childEnvironment,
+                      temporaryDirectory,
+                    },
+                    budget,
+                    monotonicNow: () => performance.now(),
+                  }),
+                  pi: (gateway: PiExecutionGateway) =>
+                    new BaselinePiExecutor({
+                      protectedCredentials: preparation.protectedCredentials,
+                      worktree: inputs.inputs.worktree,
+                      agentDirectory,
+                      harness: inputs.inputs.harness,
+                      instructions: inputs.inputs.instructions,
+                      prompt: inputs.inputs.prompt,
+                      modelAccess,
+                      budget,
+                      gateway,
+                      evidence,
+                      now: () => options.now(),
+                      sessionId: () => options.sessionId(),
+                      modelTurnId: () => options.modelTurnId(),
+                    }),
+                }
+              : await options.executionProvision.provision(
+                  {
+                    run: running,
+                    worktree,
+                    runDirectory,
+                    agentDirectory,
+                    temporaryDirectory,
+                    inputs: inputs.inputs,
+                    budget,
+                    evidence,
+                    modelAccess,
+                    protectedCredentials: preparation.protectedCredentials,
+                    now: () => options.now(),
+                    sessionId: () => options.sessionId(),
+                    modelTurnId: () => options.modelTurnId(),
+                  },
+                  preparationSignal,
+                );
+          if (preparedExecutors.kind !== 'Prepared') return { kind: 'DependencyUnavailable' };
+          const processes = preparedExecutors.commands;
           const repository = new GitWorktreeChanges(preparation.protectedCredentials);
           const commands = new RunWorktreeCommands({
             commands: processes,
@@ -329,23 +413,7 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
                   signal,
                 }),
             },
-            pi: new BaselinePiExecutor({
-              protectedCredentials: preparation.protectedCredentials,
-              worktree: inputs.inputs.worktree,
-              agentDirectory,
-              harness: inputs.inputs.harness,
-              instructions: inputs.inputs.instructions,
-              prompt: inputs.inputs.prompt,
-              modelAccess: new PinnedPiModelAccess({
-                acquire: () => Promise.resolve(modelCredential),
-              }),
-              budget,
-              gateway,
-              evidence,
-              now: () => options.now(),
-              sessionId: () => options.sessionId(),
-              modelTurnId: () => options.modelTurnId(),
-            }),
+            pi: preparedExecutors.pi(gateway),
             settlement,
             budget,
             wallClock: leaseClock,

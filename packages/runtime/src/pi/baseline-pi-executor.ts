@@ -30,6 +30,7 @@ import type {
   PiExecution,
   PiExecutionDisposition,
 } from '../run/run-supervisor.js';
+import { runInstructionPrompt } from '../run/run-execution-profile-custody.js';
 import type {
   AcceptedRunBudgetReservation,
   RunBudgetAmount,
@@ -351,7 +352,7 @@ function rejectedToolTerminal(
   }
 }
 
-function toolTerminal(outcome: ToolGatewayOutcome): ExecutorTerminalDisposition | undefined {
+export function toolTerminal(outcome: ToolGatewayOutcome): ExecutorTerminalDisposition | undefined {
   switch (outcome.kind) {
     case 'SecretDetected':
       return outcome;
@@ -396,7 +397,7 @@ function toolSummary(outcome: ToolGatewayOutcome): string {
   }
 }
 
-function recordingTerminal(
+export function recordingTerminal(
   recording: Exclude<EvidenceRecording, { readonly kind: 'Recorded' }>,
 ): ExecutorTerminalDisposition {
   switch (recording.kind) {
@@ -413,7 +414,7 @@ function recordingTerminal(
   }
 }
 
-function usageIsAccountable(message: AssistantMessage, spendMicroUsd: number): boolean {
+export function usageIsAccountable(message: AssistantMessage, spendMicroUsd: number): boolean {
   const tokenValues = [
     message.usage.input,
     message.usage.output,
@@ -428,12 +429,6 @@ function usageIsAccountable(message: AssistantMessage, spendMicroUsd: number): b
     spendMicroUsd >= 0 &&
     Number.isSafeInteger(spendMicroUsd)
   );
-}
-
-function instructionPrompt(instructions: BaselinePiExecutorDependencies['instructions']): string {
-  return instructions
-    .map(({ path, content }) => `<instruction path="${path}">\n${content}\n</instruction>`)
-    .join('\n');
 }
 
 function initialInputMeasurement(
@@ -460,9 +455,14 @@ function initialInputMeasurement(
   };
 }
 
-function requestContextMeasurement(
+export function requestContextMeasurement(
   messages: Parameters<typeof estimateTokens>[0][],
-  harness: BaselineHarnessRevision,
+  harness: {
+    readonly modelCompatibility: Pick<
+      BaselineHarnessRevision['modelCompatibility'],
+      'provider' | 'model' | 'contextWindowTokens' | 'maximumOutputTokens'
+    >;
+  },
   providerRequestsAdmitted: number,
 ): Extract<ContextCapacityMeasurement, { readonly kind: 'ProviderRequest' }> | undefined {
   const piEstimate = messages.reduce((total, message) => total + estimateTokens(message), 0);
@@ -491,7 +491,9 @@ function requestContextMeasurement(
   };
 }
 
-function requestInputTokens(messages: Parameters<typeof estimateTokens>[0][]): number | undefined {
+export function requestInputTokens(
+  messages: Parameters<typeof estimateTokens>[0][],
+): number | undefined {
   const piEstimate = messages.reduce((total, message) => total + estimateTokens(message), 0);
   // Reserve the full encoded byte allowance, not an average characters-per-token ratio.
   // The normalized transcript includes system sections and tool declarations.
@@ -509,7 +511,7 @@ function maximumCostRate(model: Model<Api>, kind: 'Input' | 'Output'): number | 
   return rates.every((rate) => Number.isFinite(rate) && rate >= 0) ? Math.max(...rates) : undefined;
 }
 
-function providerReservation(
+export function providerReservation(
   inputTokens: number,
   maximumOutputTokens: number,
   model: Model<Api>,
@@ -534,7 +536,7 @@ function providerReservation(
   return reservation;
 }
 
-function providerActualUsage(
+export function providerActualUsage(
   message: AssistantMessage,
   spendMicroUsd: number,
 ): readonly RunBudgetAmount[] {
@@ -552,7 +554,9 @@ function providerActualUsage(
   return amounts;
 }
 
-function budgetTerminal(commitment: RunBudgetCommitment): ExecutorTerminalDisposition | undefined {
+export function budgetTerminal(
+  commitment: RunBudgetCommitment,
+): ExecutorTerminalDisposition | undefined {
   switch (commitment.kind) {
     case 'SecretDetected':
       return commitment;
@@ -657,7 +661,7 @@ export class BaselinePiExecutor implements PiExecution {
     ) {
       return { kind: 'DependencyUnavailable' };
     }
-    const systemPrompt = instructionPrompt(this.#dependencies.instructions);
+    const systemPrompt = runInstructionPrompt(this.#dependencies.instructions);
     const initialContext = initialInputMeasurement(
       this.#dependencies.prompt,
       systemPrompt,
