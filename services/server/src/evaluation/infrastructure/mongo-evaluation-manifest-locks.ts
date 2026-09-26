@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { Binary, MongoServerError, type Collection, type Db, type MongoClient } from 'mongodb';
 
-import { taskBudgetCeilings } from '@devrandom/domain';
+import { taskBudgetCeilings, taskEvaluationBudgetCeilings } from '@devrandom/domain';
 import {
   bindEvaluationVerifierBundle,
   decodeEvaluationVerifierBundleBytes,
@@ -286,7 +286,7 @@ export class MongoEvaluationManifestLocks implements EvaluationManifestLocks {
             );
           const ceiling = Math.min(
             evaluation.reserved.evidencePlusArtifactsPerRunBytes,
-            taskBudgetCeilings.evidencePlusArtifactsPerRunBytes,
+            taskEvaluationBudgetCeilings.evidencePlusArtifactsPerRunBytes,
           );
           if (evaluation.acceptedBytes + acceptedBytes > ceiling)
             return { kind: 'QuotaExceeded' as const };

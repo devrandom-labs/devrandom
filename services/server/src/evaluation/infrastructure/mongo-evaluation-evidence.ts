@@ -14,6 +14,7 @@ import {
   closeComparison,
   evaluationConsumables,
   taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
   type EvaluationAllowance,
   type EvaluationConsumable,
 } from '@devrandom/domain';
@@ -207,7 +208,11 @@ export type EvaluationBudgetCoverageReplay =
         | 'MissingDimension';
     };
 
-/** Structural replay only: it does not attest provider, clock, child, or worktree measurements. */
+/** Structural replay of an already admitted reservation; it does not authorize that reservation.
+ * Admission intersects the signed Task and mandate with residual spend. The reservation remains
+ * the effective limit for v1 and v2 Tasks; the supported v2 ceiling is only an outer sanity bound.
+ * This replay does not attest provider, clock, child, or worktree measurements.
+ */
 export function replayEvaluationBudgetCoverage(input: {
   readonly events: readonly EvaluationEvidenceEvent[];
   readonly reserved: EvaluationAllowance;
@@ -219,7 +224,7 @@ export function replayEvaluationBudgetCoverage(input: {
       (budget) =>
         !Number.isSafeInteger(input.reserved[budget]) ||
         input.reserved[budget] < 0 ||
-        input.reserved[budget] > taskBudgetCeilings[budget],
+        input.reserved[budget] > taskEvaluationBudgetCeilings[budget],
     )
   )
     return { kind: 'Incomplete', reason: 'BudgetExceeded' };
@@ -302,7 +307,7 @@ export function replayEvaluationBudgetCoverage(input: {
       if (
         !Number.isSafeInteger(next) ||
         next > input.reserved[budget] ||
-        next > taskBudgetCeilings[budget]
+        next > taskEvaluationBudgetCeilings[budget]
       )
         return { kind: 'Incomplete', reason: 'BudgetExceeded' };
       if (debit.consumed !== next) return { kind: 'Incomplete', reason: 'DebitSequenceInvalid' };
@@ -788,7 +793,7 @@ export class MongoEvaluationEvidence
           const acceptedBytes = batch.encodedByteCount + publicBytes + protectedBytes;
           const ceiling = Math.min(
             evaluation.reserved.evidencePlusArtifactsPerRunBytes,
-            taskBudgetCeilings.evidencePlusArtifactsPerRunBytes,
+            taskEvaluationBudgetCeilings.evidencePlusArtifactsPerRunBytes,
           );
           if (evaluation.acceptedBytes + acceptedBytes > ceiling)
             return { kind: 'QuotaExceeded' as const };
@@ -1518,7 +1523,7 @@ export class MongoEvaluationEvidence
                 !Number.isSafeInteger(consumed[name]) ||
                 consumed[name] < 0 ||
                 consumed[name] > evaluation.reserved[name] ||
-                consumed[name] > taskBudgetCeilings[name],
+                consumed[name] > taskEvaluationBudgetCeilings[name],
             )
           )
             return { kind: 'Incomplete' as const };

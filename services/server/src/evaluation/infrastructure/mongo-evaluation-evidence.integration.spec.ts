@@ -307,103 +307,104 @@ it('replays each of the nine budget dimensions but does not attest its measureme
   // A claimed provider SAID without an accepted source-bound event cannot close E3.
 });
 
-it('structurally links a provider witness to its source and all four provider debits', () => {
-  const trialEvent = (
-    sequence: number,
-    previous: Parameters<typeof event>[1],
-    detail: Parameters<typeof event>[2],
-  ) =>
-    event(sequence, previous, detail, {
-      kind: 'Trial',
-      manifestSaid: said('m'),
-      arm: 'H1',
-      repetition: 1,
-      attempt: 1,
-    });
-  const names = [
-    'providerRequests',
-    'providerInputTokens',
-    'providerOutputTokens',
-    'providerSpendMicroUsd',
-    'runWallTimeSeconds',
-    'toolProposals',
-    'aggregateChildCommandTimeSeconds',
-    'changedFiles',
-    'changedWorktreeBytes',
-  ] as const;
-  const exchange = trialEvent(
-    0,
-    { kind: 'Genesis' },
-    { kind: 'ModelExchange', rawArtifactSaid: said('x') },
-  );
-  const report = trialEvent(
-    1,
-    { kind: 'Previous', eventSaid: exchange.d },
-    { kind: 'ArtifactCaptured', artifactSaid: said('r'), custody: 'Public' },
-  );
-  const receipt = trialEvent(
-    2,
-    { kind: 'Previous', eventSaid: report.d },
-    { kind: 'ArtifactCaptured', artifactSaid: said('u'), custody: 'Public' },
-  );
-  const verified = trialEvent(
-    3,
-    { kind: 'Previous', eventSaid: receipt.d },
-    {
-      kind: 'ProviderUsageVerified',
-      modelExchangeEventSaid: exchange.d,
-      receiptArtifactSaid: said('u'),
-      providerReportArtifactSaid: said('r'),
-      requestOrdinal: 0,
-    },
-  );
-  const proposal = trialEvent(
-    4,
-    { kind: 'Previous', eventSaid: verified.d },
-    { kind: 'ToolProposed', proposalIndex: 0, toolCallId: 'tool-1', inputArtifactSaid: said('i') },
-  );
-  const events = [exchange, report, receipt, verified, proposal];
-  for (const name of names) {
-    const predecessor = events.at(-1);
-    if (predecessor === undefined) throw new Error('fixture predecessor missing');
-    events.push(
-      trialEvent(
+it.each([1, 51])(
+  'replays %i provider witnesses within the accepted reservation, preserving narrower reservations',
+  (count) => {
+    const trialEvent = (
+      sequence: number,
+      previous: Parameters<typeof event>[1],
+      detail: Parameters<typeof event>[2],
+    ) =>
+      event(sequence, previous, detail, {
+        kind: 'Trial',
+        manifestSaid: said('m'),
+        arm: 'H1',
+        repetition: 1,
+        attempt: 1,
+      });
+    const names = [
+      'providerRequests',
+      'providerInputTokens',
+      'providerOutputTokens',
+      'providerSpendMicroUsd',
+      'runWallTimeSeconds',
+      'toolProposals',
+      'aggregateChildCommandTimeSeconds',
+      'changedFiles',
+      'changedWorktreeBytes',
+    ] as const;
+    const events: ReturnType<typeof event>[] = [];
+    const witnesses: string[] = [];
+    const append = (detail: Parameters<typeof event>[2]) => {
+      const previous = events.at(-1);
+      const next = trialEvent(
         events.length,
-        { kind: 'Previous', eventSaid: predecessor.d },
-        {
+        previous === undefined ? { kind: 'Genesis' } : { kind: 'Previous', eventSaid: previous.d },
+        detail,
+      );
+      events.push(next);
+      return next;
+    };
+    for (let ordinal = 0; ordinal < count; ordinal += 1) {
+      const exchange = append({ kind: 'ModelExchange', rawArtifactSaid: said('x') });
+      append({ kind: 'ArtifactCaptured', artifactSaid: said('r'), custody: 'Public' });
+      append({ kind: 'ArtifactCaptured', artifactSaid: said('u'), custody: 'Public' });
+      const verified = append({
+        kind: 'ProviderUsageVerified',
+        modelExchangeEventSaid: exchange.d,
+        receiptArtifactSaid: said('u'),
+        providerReportArtifactSaid: said('r'),
+        requestOrdinal: ordinal,
+      });
+      witnesses.push(verified.d);
+      const proposal = append({
+        kind: 'ToolProposed',
+        proposalIndex: ordinal,
+        toolCallId: `tool-${String(ordinal)}`,
+        inputArtifactSaid: said('i'),
+      });
+      for (const name of names)
+        append({
           kind: 'EvaluationBudgetDebited',
           budget: name,
           amount: 1,
-          consumed: 1,
+          consumed: ordinal + 1,
           receiptArtifactSaid: name.startsWith('provider') ? said('u') : said('z'),
           sourceEventSaid: name === 'toolProposals' ? proposal.d : exchange.d,
+        });
+    }
+    const head = events.at(-1);
+    if (head === undefined) throw new Error('fixture head missing');
+    events.push(
+      trialEvent(
+        events.length,
+        { kind: 'Previous', eventSaid: head.d },
+        {
+          kind: 'EvaluationBudgetCovered',
+          throughSequence: head.sequence,
+          throughHeadSaid: head.d,
+          totals: Object.fromEntries(names.map((name) => [name, count])) as Record<
+            (typeof names)[number],
+            number
+          >,
+          providerUsageEventSaids: witnesses,
         },
       ),
     );
-  }
-  const head = events.at(-1);
-  if (head === undefined) throw new Error('fixture head missing');
-  events.push(
-    trialEvent(
-      events.length,
-      { kind: 'Previous', eventSaid: head.d },
-      {
-        kind: 'EvaluationBudgetCovered',
-        throughSequence: head.sequence,
-        throughHeadSaid: head.d,
-        totals: Object.fromEntries(names.map((name) => [name, 1])) as Record<
-          (typeof names)[number],
-          number
-        >,
-        providerUsageEventSaids: [verified.d],
-      },
-    ),
-  );
-  expect(replayEvaluationBudgetCoverage({ events, reserved: budget })).toMatchObject({
-    kind: 'StructurallyConsistent',
-    totals: Object.fromEntries(names.map((name) => [name, 1])),
-  });
-});
+    expect(
+      replayEvaluationBudgetCoverage({ events, reserved: { ...budget, providerRequests: count } }),
+    ).toMatchObject({
+      kind: 'StructurallyConsistent',
+      totals: Object.fromEntries(names.map((name) => [name, count])),
+    });
+    expect(
+      replayEvaluationBudgetCoverage({
+        events,
+        reserved: { ...budget, providerRequests: count - 1 },
+      }),
+    ).toEqual({ kind: 'Incomplete', reason: 'BudgetExceeded' });
+  },
+);
 
 function upload(events: ReturnType<typeof event>[]) {
   const prepared = prepareEvaluationEvidenceBatch(events);
