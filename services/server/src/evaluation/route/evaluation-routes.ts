@@ -8,7 +8,9 @@ import {
   evaluationAdmissionReceiptSchema,
   evaluationClosureCommandSchema,
   evaluationEvidenceAcknowledgementSchema,
+  evaluationAcceptedEvidencePageSchema,
   evaluationEvidenceUploadSchema,
+  evaluationPublicArtifactReadSchema,
   evaluationLeaseRenewalCommandSchema,
   evaluationLeaseRenewalReceiptSchema,
   evaluationManifestLockCommandSchema,
@@ -41,6 +43,7 @@ import type {
   EvaluationManifestLockCommand,
   EvaluationManifestLockOutcome,
 } from '../application/lock-evaluation-manifest.js';
+import type { AcceptedEvaluationEvidenceReading } from '../application/read-accepted-evaluation-evidence.js';
 
 type EvaluationScope =
   | 'evaluation:prepare'
@@ -60,6 +63,21 @@ const manifestParameters = Type.Object(
   {
     evaluationId: evaluationIdParameters.properties.evaluationId,
     manifestSaid: Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' }),
+  },
+  { additionalProperties: false },
+);
+const publicArtifactParameters = Type.Object(
+  {
+    evaluationId: evaluationIdParameters.properties.evaluationId,
+    artifactSaid: Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' }),
+  },
+  { additionalProperties: false },
+);
+const evidenceReadQuery = Type.Object(
+  {
+    after: Type.String({ pattern: '^(?:-1|[0-9]{1,4})$' }),
+    through: Type.String({ pattern: '^[0-9]{1,4}$' }),
+    head: Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' }),
   },
   { additionalProperties: false },
 );
@@ -128,6 +146,7 @@ export interface EvaluationRoutesConfiguration {
       readonly evidenceIndex: EvaluationClosureIndexCustody;
     }): Promise<EvaluationClosureOutcome>;
   };
+  readonly reading?: AcceptedEvaluationEvidenceReading;
   now(): string;
   newCorrelationId(): string;
 }
@@ -400,6 +419,97 @@ export function evaluationRoutes(
                 ? 400
                 : 409;
         return fail(reply, status, `EvaluationEvidence${result.kind}`);
+      },
+    );
+
+    server.get(
+      '/api/evaluations/:evaluationId/evidence',
+      {
+        schema: {
+          operationId: 'readAcceptedEvaluationEvidence',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: evaluationIdParameters,
+          querystring: evidenceReadQuery,
+          response: {
+            200: evaluationAcceptedEvidencePageSchema,
+            400: problem,
+            403: problem,
+            409: problem,
+            503: problem,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = await authorize(request.headers.authorization, 'evaluation:append');
+        if (access.kind !== 'Authorized')
+          return fail(reply, access.kind === 'Unavailable' ? 503 : 403, 'EvaluationAccessDenied');
+        const afterSequence = Number(request.query.after);
+        const throughSequence = Number(request.query.through);
+        if (afterSequence >= throughSequence || throughSequence > 9_999)
+          return fail(reply, 400, 'EvaluationReadInvalid');
+        if (configuration.reading === undefined)
+          return fail(reply, 503, 'EvaluationReadUnavailable');
+        const result = await configuration.reading.readPage({
+          ownerAid: access.ownerAid,
+          evaluationId: request.params.evaluationId,
+          afterSequence,
+          throughSequence,
+          throughHeadSaid: request.query.head,
+        });
+        if (result.kind === 'Read')
+          return reply.code(200).send({ ...result.page, events: [...result.page.events] });
+        return fail(
+          reply,
+          result.kind === 'Denied' ? 403 : result.kind === 'Conflict' ? 409 : 503,
+          `EvaluationRead${result.kind}`,
+        );
+      },
+    );
+
+    server.get(
+      '/api/evaluations/:evaluationId/artifacts/:artifactSaid',
+      {
+        schema: {
+          operationId: 'readPublicEvaluationArtifact',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: publicArtifactParameters,
+          response: {
+            200: evaluationPublicArtifactReadSchema,
+            400: problem,
+            403: problem,
+            404: problem,
+            409: problem,
+            503: problem,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = await authorize(request.headers.authorization, 'evaluation:append');
+        if (access.kind !== 'Authorized')
+          return fail(reply, access.kind === 'Unavailable' ? 503 : 403, 'EvaluationAccessDenied');
+        if (configuration.reading === undefined)
+          return fail(reply, 503, 'EvaluationReadUnavailable');
+        const result = await configuration.reading.readPublicArtifact({
+          ownerAid: access.ownerAid,
+          evaluationId: request.params.evaluationId,
+          artifactSaid: request.params.artifactSaid,
+        });
+        if (result.kind === 'Read')
+          return reply.code(200).send({
+            version: 1,
+            evaluationId: request.params.evaluationId,
+            artifact: result.artifact,
+            bytesBase64Url: Buffer.from(result.bytes).toString('base64url'),
+          });
+        const status =
+          result.kind === 'Denied'
+            ? 403
+            : result.kind === 'Missing'
+              ? 404
+              : result.kind === 'Conflict'
+                ? 409
+                : 503;
+        return fail(reply, status, `EvaluationArtifact${result.kind}`);
       },
     );
 

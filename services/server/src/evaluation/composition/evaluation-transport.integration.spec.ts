@@ -7,7 +7,11 @@ import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify from 'fastify';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { prepareEvaluationEvidenceEvent, prepareEvidenceArtifact } from '@devrandom/protocol';
+import {
+  prepareEvaluationEvidenceEvent,
+  prepareEvidenceArtifact,
+  prepareProtectedEvaluationArtifact,
+} from '@devrandom/protocol';
 
 import { ServerEvaluationHttp } from '../../../../../apps/cli/src/harness/infrastructure/server-evaluation-http.js';
 import { SqliteEvaluationEvidenceOutbox } from '../../../../../apps/cli/src/harness/infrastructure/sqlite-evaluation-evidence-outbox.js';
@@ -127,6 +131,7 @@ describeMongo('CLI Evaluation outbox through listening Fastify and replica Mongo
           accept: (input) => acceptEvaluationEvidence(input, { batches }),
           close: () => Promise.resolve({ kind: 'Unavailable' }),
         },
+        reading: batches,
         now: () => new Date().toISOString(),
         newCorrelationId: randomUUID,
       }),
@@ -264,5 +269,91 @@ describeMongo('CLI Evaluation outbox through listening Fastify and replica Mongo
     expect(await otherOwner.appendEvidence(restored.upload)).toEqual({ kind: 'Conflict' });
     expect(await database.collection(evaluationCollectionNames.batches).countDocuments()).toBe(2);
     reopened.outbox.close();
+  });
+
+  it('exact-reads the accepted prefix and public raw bytes without crossing owner or ciphertext custody', async () => {
+    const origin = decodeDevrandomServerOrigin(address);
+    if (origin.kind !== 'Accepted') throw new Error(origin.kind);
+    const owner = new ServerEvaluationHttp(origin.origin, 'b'.repeat(43), fetch);
+    const otherOwner = new ServerEvaluationHttp(origin.origin, 'c'.repeat(43), fetch);
+    const stored = await database
+      .collection<{ event: { d: string } }>(evaluationCollectionNames.events)
+      .findOne({ evaluationId, sequence: 1 });
+    if (stored === null) throw new Error('accepted prefix fixture missing');
+    const page = await owner.readEvidencePage({
+      evaluationId,
+      afterSequence: -1,
+      throughSequence: 1,
+      throughHeadSaid: stored.event.d,
+    });
+    expect(page.kind).toBe('Read');
+    if (page.kind !== 'Read') throw new Error(page.kind);
+    expect(page.page.events.map((event) => event.sequence)).toEqual([0, 1]);
+    expect(page.page.events[1]?.d).toBe(stored.event.d);
+    expect(
+      await otherOwner.readEvidencePage({
+        evaluationId,
+        afterSequence: -1,
+        throughSequence: 1,
+        throughHeadSaid: stored.event.d,
+      }),
+    ).toEqual({ kind: 'Denied' });
+    expect(
+      await owner.readEvidencePage({
+        evaluationId,
+        afterSequence: -1,
+        throughSequence: 1,
+        throughHeadSaid: said('x'),
+      }),
+    ).toEqual({ kind: 'Conflict' });
+    const modelArtifact = page.page.events[0]?.detail;
+    if (modelArtifact?.kind !== 'ModelExchange') throw new Error('model artifact missing');
+    const raw = await owner.readPublicArtifact({
+      evaluationId,
+      artifactSaid: modelArtifact.rawArtifactSaid,
+    });
+    expect(raw.kind).toBe('Read');
+    if (raw.kind !== 'Read') throw new Error(raw.kind);
+    expect(new TextDecoder().decode(raw.bytes)).toBe('actual raw model response');
+    expect(
+      await otherOwner.readPublicArtifact({
+        evaluationId,
+        artifactSaid: modelArtifact.rawArtifactSaid,
+      }),
+    ).toEqual({ kind: 'Denied' });
+    const protectedArtifact = prepareProtectedEvaluationArtifact({
+      evaluationId,
+      objectSaid: said('z'),
+      purpose: 'TrialHoldout',
+      segment: 0,
+      nonce: 'AAAAAAAAAAAAAAAA',
+      tag: 'AAAAAAAAAAAAAAAAAAAAAA',
+      ciphertext: 'AA',
+      plaintextByteCount: 1,
+    });
+    if (protectedArtifact.kind !== 'Prepared') throw new Error(protectedArtifact.reason);
+    await database
+      .collection<{
+        _id: string;
+        ownerAid: string;
+        evaluationId: string;
+        custody: 'ProtectedCiphertext';
+        artifact: typeof protectedArtifact.artifact;
+        acceptedAt: Date;
+      }>(evaluationCollectionNames.artifacts)
+      .insertOne({
+        _id: protectedArtifact.artifact.d,
+        ownerAid,
+        evaluationId,
+        custody: 'ProtectedCiphertext',
+        artifact: protectedArtifact.artifact,
+        acceptedAt: new Date(),
+      });
+    expect(
+      await owner.readPublicArtifact({
+        evaluationId,
+        artifactSaid: protectedArtifact.artifact.d,
+      }),
+    ).toEqual({ kind: 'Missing' });
   });
 });

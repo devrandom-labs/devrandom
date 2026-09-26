@@ -67,6 +67,7 @@ import type {
   EvaluationEvidenceBatches,
   EvaluationEvidenceUpload,
 } from '../application/accept-evaluation-evidence.js';
+import type { AcceptedEvaluationEvidenceReading } from '../application/read-accepted-evaluation-evidence.js';
 import type { EvaluationClosureIndexCustody } from '../application/close-evaluation.js';
 import {
   evaluationCollectionNames,
@@ -295,7 +296,9 @@ export function replayEvaluationBudgetCoverage(input: {
 }
 
 /** Atomic native Evaluation stream; a Run's sealed stream is never touched. */
-export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
+export class MongoEvaluationEvidence
+  implements EvaluationEvidenceBatches, AcceptedEvaluationEvidenceReading
+{
   readonly #client: MongoClient;
   readonly #evaluations: Collection<EvaluationDocument>;
   readonly #batches: Collection<EvaluationBatchDocument>;
@@ -326,6 +329,107 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
     this.#taskReservationFences = database.collection(
       evaluationCollectionNames.taskReservationFences,
     );
+  }
+
+  async readPage(
+    input: Parameters<AcceptedEvaluationEvidenceReading['readPage']>[0],
+  ): ReturnType<AcceptedEvaluationEvidenceReading['readPage']> {
+    const { ownerAid, evaluationId, afterSequence, throughSequence, throughHeadSaid } = input;
+    if (
+      !Number.isSafeInteger(afterSequence) ||
+      afterSequence < -1 ||
+      !Number.isSafeInteger(throughSequence) ||
+      throughSequence > 9_999 ||
+      throughSequence <= afterSequence ||
+      !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(throughHeadSaid)
+    )
+      return { kind: 'Conflict' };
+    try {
+      const evaluation = await this.#evaluations.findOne({ _id: evaluationId, ownerAid });
+      if (evaluation === null) return { kind: 'Denied' };
+      if (evaluation.acceptedThroughSequence < throughSequence) return { kind: 'Conflict' };
+      const head = await this.#events.findOne({
+        evaluationId,
+        ownerAid,
+        streamId: evaluation.evidenceStreamId,
+        sequence: throughSequence,
+      });
+      if (
+        head === null ||
+        head._id !== throughHeadSaid ||
+        head.event.d !== throughHeadSaid ||
+        head.event.sequence !== throughSequence ||
+        head.event.evaluationId !== evaluationId ||
+        head.event.streamId !== evaluation.evidenceStreamId ||
+        decodeEvaluationEvidenceEvent(head.event).kind !== 'Accepted'
+      )
+        return { kind: 'Conflict' };
+      const end = Math.min(throughSequence, afterSequence + 32);
+      const documents = await this.#events
+        .find({
+          evaluationId,
+          ownerAid,
+          streamId: evaluation.evidenceStreamId,
+          sequence: { $gt: afterSequence, $lte: end },
+        })
+        .sort({ sequence: 1 })
+        .limit(32)
+        .toArray();
+      if (
+        documents.length !== end - afterSequence ||
+        documents.some(
+          (document, index) =>
+            document.sequence !== afterSequence + index + 1 ||
+            document._id !== document.event.d ||
+            document.event.sequence !== document.sequence ||
+            document.event.evaluationId !== evaluationId ||
+            document.event.streamId !== evaluation.evidenceStreamId ||
+            decodeEvaluationEvidenceEvent(document.event).kind !== 'Accepted',
+        )
+      )
+        return { kind: 'Conflict' };
+      return {
+        kind: 'Read',
+        page: {
+          version: 1,
+          evaluationId,
+          streamId: evaluation.evidenceStreamId,
+          afterSequence,
+          throughSequence,
+          throughHeadSaid,
+          events: documents.map((document) => document.event),
+        },
+      };
+    } catch {
+      return { kind: 'Unavailable' };
+    }
+  }
+
+  async readPublicArtifact(
+    input: Parameters<AcceptedEvaluationEvidenceReading['readPublicArtifact']>[0],
+  ): ReturnType<AcceptedEvaluationEvidenceReading['readPublicArtifact']> {
+    const { ownerAid, evaluationId, artifactSaid } = input;
+    if (!/^[A-Z][A-Za-z0-9_-]{43}$/u.test(artifactSaid)) return { kind: 'Conflict' };
+    try {
+      const evaluation = await this.#evaluations.findOne({ _id: evaluationId, ownerAid });
+      if (evaluation === null) return { kind: 'Denied' };
+      const stored = await this.#artifacts.findOne({
+        _id: artifactSaid,
+        ownerAid,
+        evaluationId,
+        custody: 'Public',
+      });
+      if (stored === null) return { kind: 'Missing' };
+      if (!(stored.bytes instanceof Binary) || stored.artifact.d !== artifactSaid)
+        return { kind: 'Conflict' };
+      const bytes = Uint8Array.from(stored.bytes.buffer);
+      const decoded = decodeEvidenceArtifact(stored.artifact, bytes);
+      if (decoded.kind !== 'Accepted' || bytes.byteLength > 384 * 1_024)
+        return { kind: 'Conflict' };
+      return { kind: 'Read', artifact: decoded.artifact, bytes };
+    } catch {
+      return { kind: 'Unavailable' };
+    }
   }
 
   async #sourceReadExists(

@@ -41961,6 +41961,1126 @@
         }
       }
     },
+    "/api/evaluations/{evaluationId}/evidence": {
+      "get": {
+        "operationId": "readAcceptedEvaluationEvidence",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:-1|[0-9]{1,4})$"
+            },
+            "in": "query",
+            "name": "after",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{1,4}$"
+            },
+            "in": "query",
+            "name": "through",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "in": "query",
+            "name": "head",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "in": "path",
+            "name": "evaluationId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer [A-Za-z0-9_-]{43}$"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "version",
+                    "evaluationId",
+                    "streamId",
+                    "afterSequence",
+                    "throughSequence",
+                    "throughHeadSaid",
+                    "events"
+                  ],
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "const": 1
+                    },
+                    "evaluationId": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "streamId": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "afterSequence": {
+                      "type": "integer",
+                      "minimum": -1,
+                      "maximum": 9999
+                    },
+                    "throughSequence": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9999
+                    },
+                    "throughHeadSaid": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "version",
+                          "d",
+                          "evaluationId",
+                          "streamId",
+                          "originRunId",
+                          "taskId",
+                          "taskRevisionSaid",
+                          "personalAgentAid",
+                          "taskMandateSaid",
+                          "harnessRevisionSaid",
+                          "phase",
+                          "sequence",
+                          "previous",
+                          "occurredAt",
+                          "detail"
+                        ],
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "evaluationId": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                          },
+                          "streamId": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                          },
+                          "originRunId": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                          },
+                          "taskId": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                          },
+                          "taskRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "personalAgentAid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "taskMandateSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "harnessRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "phase": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["kind", "policySaid", "role"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "Research"
+                                  },
+                                  "policySaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "role": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "DiagnosticRefiner"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "CandidateWorker"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "manifestSaid",
+                                  "arm",
+                                  "repetition",
+                                  "attempt"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "Trial"
+                                  },
+                                  "manifestSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "arm": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "H1"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "C1"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "C2"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "C3"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "H1TaskSearch"
+                                      }
+                                    ]
+                                  },
+                                  "repetition": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "const": 1
+                                      },
+                                      {
+                                        "type": "number",
+                                        "const": 2
+                                      },
+                                      {
+                                        "type": "number",
+                                        "const": 3
+                                      }
+                                    ]
+                                  },
+                                  "attempt": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "const": 1
+                                      },
+                                      {
+                                        "type": "number",
+                                        "const": 2
+                                      }
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "previous": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["kind"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "Genesis"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["kind", "eventSaid"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "Previous"
+                                  },
+                                  "eventSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "occurredAt": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                          },
+                          "detail": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["kind", "rawArtifactSaid"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "ModelExchange"
+                                  },
+                                  "rawArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "proposalIndex",
+                                  "toolCallId",
+                                  "inputArtifactSaid"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "ToolProposed"
+                                  },
+                                  "proposalIndex": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "toolCallId": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  },
+                                  "inputArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "proposalEventSaid",
+                                  "disposition",
+                                  "receiptArtifactSaid"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "ToolAuthorization"
+                                  },
+                                  "proposalEventSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "disposition": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "Allowed"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "Denied"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "PendingApproval"
+                                      }
+                                    ]
+                                  },
+                                  "receiptArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "authorizationEventSaid",
+                                  "receiptArtifactSaid"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "EffectObserved"
+                                  },
+                                  "authorizationEventSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "receiptArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "providerRequests",
+                                  "inputTokens",
+                                  "outputTokens",
+                                  "cacheReadTokens",
+                                  "cacheWriteTokens",
+                                  "spendMicroUsd",
+                                  "elapsedMilliseconds"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "UsageDebited"
+                                  },
+                                  "providerRequests": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "inputTokens": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "outputTokens": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "cacheReadTokens": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "cacheWriteTokens": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "spendMicroUsd": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "elapsedMilliseconds": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "budget",
+                                  "amount",
+                                  "consumed",
+                                  "receiptArtifactSaid"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "EvaluationBudgetDebited"
+                                  },
+                                  "budget": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "providerRequests"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "providerInputTokens"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "providerOutputTokens"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "providerSpendMicroUsd"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "runWallTimeSeconds"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "toolProposals"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "aggregateChildCommandTimeSeconds"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "changedFiles"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "changedWorktreeBytes"
+                                      }
+                                    ]
+                                  },
+                                  "amount": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "consumed": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "receiptArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "sourceEventSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "throughSequence",
+                                  "throughHeadSaid",
+                                  "totals",
+                                  "providerUsageEventSaids"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "EvaluationBudgetCovered"
+                                  },
+                                  "throughSequence": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "throughHeadSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "totals": {
+                                    "type": "object",
+                                    "required": [
+                                      "providerRequests",
+                                      "providerInputTokens",
+                                      "providerOutputTokens",
+                                      "providerSpendMicroUsd",
+                                      "runWallTimeSeconds",
+                                      "toolProposals",
+                                      "aggregateChildCommandTimeSeconds",
+                                      "changedFiles",
+                                      "changedWorktreeBytes"
+                                    ],
+                                    "properties": {
+                                      "providerRequests": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "providerInputTokens": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "providerOutputTokens": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "providerSpendMicroUsd": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "runWallTimeSeconds": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "toolProposals": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "aggregateChildCommandTimeSeconds": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "changedFiles": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "changedWorktreeBytes": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  "providerUsageEventSaids": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                    },
+                                    "uniqueItems": true
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["kind", "artifactSaid", "custody"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "ArtifactCaptured"
+                                  },
+                                  "artifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "custody": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "Public"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "ProtectedCiphertext"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["kind", "sourceSaid", "rawArtifactSaid"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "SourceRead"
+                                  },
+                                  "sourceSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "rawArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["kind", "reason"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "TrialStopped"
+                                  },
+                                  "reason": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "Completed"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "Interrupted"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "Invalid"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "LeaseLost"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "BudgetExhausted"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["kind", "reason", "markerSaid"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "DataWithheld"
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "const": "ProtectedSecret"
+                                  },
+                                  "markerSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 32
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/evaluations/{evaluationId}/artifacts/{artifactSaid}": {
+      "get": {
+        "operationId": "readPublicEvaluationArtifact",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "in": "path",
+            "name": "evaluationId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "in": "path",
+            "name": "artifactSaid",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer [A-Za-z0-9_-]{43}$"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["version", "evaluationId", "artifact", "bytesBase64Url"],
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "const": 1
+                    },
+                    "evaluationId": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "artifact": {
+                      "type": "object",
+                      "required": ["version", "d", "mediaType", "byteLength", "contentDigest"],
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "d": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "mediaType": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "application/octet-stream"
+                            },
+                            {
+                              "type": "string",
+                              "const": "application/json"
+                            },
+                            {
+                              "type": "string",
+                              "const": "text/plain; charset=utf-8"
+                            },
+                            {
+                              "type": "string",
+                              "const": "text/x-diff; charset=utf-8"
+                            }
+                          ]
+                        },
+                        "byteLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 524288
+                        },
+                        "contentDigest": {
+                          "type": "string",
+                          "pattern": "^sha256:[a-f0-9]{64}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "bytesBase64Url": {
+                      "type": "string",
+                      "minLength": 0,
+                      "maxLength": 524288,
+                      "pattern": "^[A-Za-z0-9_-]*$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/evaluations/{evaluationId}/lease": {
       "put": {
         "operationId": "renewEvaluationLease",

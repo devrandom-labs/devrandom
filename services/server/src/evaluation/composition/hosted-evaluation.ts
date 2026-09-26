@@ -203,6 +203,7 @@ export function composeHostedEvaluation(input: {
             closures: evidence,
           }),
       },
+      reading: evidence,
       now,
       newCorrelationId: randomUUID,
     },

@@ -228,6 +228,30 @@ export const evaluationEvidenceAcknowledgementSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/** A bounded, owner-authorized view of an immutable accepted Evaluation prefix. */
+export const evaluationAcceptedEvidencePageSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    evaluationId: uuid,
+    streamId: uuid,
+    afterSequence: Type.Integer({ minimum: -1, maximum: 9_999 }),
+    throughSequence: Type.Integer({ minimum: 0, maximum: 9_999 }),
+    throughHeadSaid: said,
+    events: Type.Array(evaluationEvidenceEventSchema, { minItems: 1, maxItems: 32 }),
+  },
+  { additionalProperties: false },
+);
+
+/** Raw bytes are available only for Public custody; protected ciphertext has no read DTO. */
+export const evaluationPublicArtifactReadSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    evaluationId: uuid,
+    ...publicEvaluationArtifactEnvelopeSchema.properties,
+  },
+  { additionalProperties: false },
+);
+
 export const evaluationClosureCommandSchema = Type.Object(
   {
     version: Type.Literal(1),

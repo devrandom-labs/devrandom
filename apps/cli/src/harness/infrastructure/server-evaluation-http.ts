@@ -2,6 +2,7 @@ import {
   decodeEvaluationClosure,
   decodeEvidenceArtifact,
   decodeEvaluationEvidenceBatch,
+  decodeEvaluationEvidenceEvent,
   decodeEvaluationExecutionProfile,
   decodeEvaluationManifest,
   decodeEvaluationSourceInventory,
@@ -12,7 +13,9 @@ import {
   evaluationAdmissionReceiptSchema,
   evaluationClosureCommandSchema,
   evaluationEvidenceAcknowledgementSchema,
+  evaluationAcceptedEvidencePageSchema,
   evaluationEvidenceUploadSchema,
+  evaluationPublicArtifactReadSchema,
   evaluationLeaseRenewalCommandSchema,
   evaluationLeaseRenewalReceiptSchema,
   evaluationManifestLockCommandSchema,
@@ -63,6 +66,21 @@ export type HostedEvaluationEvidenceDelivery =
       readonly kind:
         'Rejected' | 'Denied' | 'Conflict' | 'QuotaExceeded' | 'Unavailable' | 'ResponseInvalid';
     };
+
+export type HostedEvaluationEvidencePage =
+  | {
+      readonly kind: 'Read';
+      readonly page: Type.Static<typeof evaluationAcceptedEvidencePageSchema>;
+    }
+  | { readonly kind: 'Denied' | 'Conflict' | 'Unavailable' | 'ResponseInvalid' };
+
+export type HostedEvaluationPublicArtifact =
+  | {
+      readonly kind: 'Read';
+      readonly artifact: Type.Static<typeof evaluationPublicArtifactReadSchema>['artifact'];
+      readonly bytes: Uint8Array;
+    }
+  | { readonly kind: 'Denied' | 'Missing' | 'Conflict' | 'Unavailable' | 'ResponseInvalid' };
 
 export type HostedEvaluationLeaseRenewal =
   | {
@@ -238,6 +256,108 @@ export class ServerEvaluationHttp {
     if (response.status === 403) return { kind: 'Denied' };
     if (response.status === 409) return { kind: 'Conflict' };
     if (response.status === 413) return { kind: 'QuotaExceeded' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    return { kind: 'ResponseInvalid' };
+  }
+
+  async readEvidencePage(input: {
+    readonly evaluationId: string;
+    readonly afterSequence: number;
+    readonly throughSequence: number;
+    readonly throughHeadSaid: string;
+  }): Promise<HostedEvaluationEvidencePage> {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+        input.evaluationId,
+      ) ||
+      !Number.isSafeInteger(input.afterSequence) ||
+      input.afterSequence < -1 ||
+      !Number.isSafeInteger(input.throughSequence) ||
+      input.throughSequence <= input.afterSequence ||
+      input.throughSequence > 9_999 ||
+      !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(input.throughHeadSaid)
+    )
+      return { kind: 'ResponseInvalid' };
+    const response = await this.#request(
+      'GET',
+      `/api/evaluations/${input.evaluationId}/evidence?after=${String(input.afterSequence)}&through=${String(input.throughSequence)}&head=${input.throughHeadSaid}`,
+      undefined,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200) {
+      if (!Value.Check(evaluationAcceptedEvidencePageSchema, response.body))
+        return { kind: 'ResponseInvalid' };
+      const page = response.body;
+      if (
+        page.evaluationId !== input.evaluationId ||
+        page.afterSequence !== input.afterSequence ||
+        page.throughSequence !== input.throughSequence ||
+        page.throughHeadSaid !== input.throughHeadSaid ||
+        page.events.length !== Math.min(32, input.throughSequence - input.afterSequence) ||
+        page.events.some(
+          (event, index) =>
+            decodeEvaluationEvidenceEvent(event).kind !== 'Accepted' ||
+            event.sequence !== input.afterSequence + index + 1 ||
+            event.evaluationId !== page.evaluationId ||
+            event.streamId !== page.streamId ||
+            (index > 0 &&
+              (event.previous.kind !== 'Previous' ||
+                event.previous.eventSaid !== page.events[index - 1]?.d)),
+        )
+      )
+        return { kind: 'ResponseInvalid' };
+      if (
+        (input.afterSequence === -1 && page.events[0]?.previous.kind !== 'Genesis') ||
+        (page.events.at(-1)?.sequence === input.throughSequence &&
+          page.events.at(-1)?.d !== input.throughHeadSaid)
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: 'Read', page };
+    }
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 403) return { kind: 'Denied' };
+    if (response.status === 409) return { kind: 'Conflict' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    return { kind: 'ResponseInvalid' };
+  }
+
+  async readPublicArtifact(input: {
+    readonly evaluationId: string;
+    readonly artifactSaid: string;
+  }): Promise<HostedEvaluationPublicArtifact> {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(
+        input.evaluationId,
+      ) ||
+      !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(input.artifactSaid)
+    )
+      return { kind: 'ResponseInvalid' };
+    const response = await this.#request(
+      'GET',
+      `/api/evaluations/${input.evaluationId}/artifacts/${input.artifactSaid}`,
+      undefined,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200) {
+      if (!Value.Check(evaluationPublicArtifactReadSchema, response.body))
+        return { kind: 'ResponseInvalid' };
+      if (
+        response.body.evaluationId !== input.evaluationId ||
+        response.body.artifact.d !== input.artifactSaid
+      )
+        return { kind: 'ResponseInvalid' };
+      const decoded = decodePublicEvaluationArtifact({
+        artifact: response.body.artifact,
+        bytesBase64Url: response.body.bytesBase64Url,
+      });
+      return decoded.kind === 'Accepted'
+        ? { kind: 'Read', artifact: response.body.artifact, bytes: decoded.bytes }
+        : { kind: 'ResponseInvalid' };
+    }
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 403) return { kind: 'Denied' };
+    if (response.status === 404) return { kind: 'Missing' };
+    if (response.status === 409) return { kind: 'Conflict' };
     if (response.status === 503) return { kind: 'Unavailable' };
     return { kind: 'ResponseInvalid' };
   }
