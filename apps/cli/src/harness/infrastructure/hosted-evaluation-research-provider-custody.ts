@@ -120,6 +120,7 @@ export class HostedEvaluationResearchProviderCustody implements EvaluationResear
           if (verified.kind !== 'Verified') return { kind: 'Unavailable' };
           accepted.push({
             eventSaid: event.d,
+            phase: event.phase,
             requestOrdinal: event.detail.requestOrdinal,
             responseId: verified.responseId,
             providerReportArtifactSaid: event.detail.providerReportArtifactSaid,

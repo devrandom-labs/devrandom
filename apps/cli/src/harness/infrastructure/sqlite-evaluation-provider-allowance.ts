@@ -346,7 +346,7 @@ function reservationRow(value: unknown): ReservationRow | undefined {
 function attemptIdentity(phase: EvaluationExecutionBinding['phase']): string {
   return phase.kind === 'Trial'
     ? `Trial:${phase.arm}:${String(phase.repetition)}:${String(phase.attempt)}`
-    : phase.kind;
+    : `${phase.kind}::`;
 }
 
 const reservationSchema =
@@ -527,9 +527,10 @@ export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllo
       );
       if (
         accepted.size !== current.accepted.length ||
-        current.accepted.some(
-          (proof) =>
-            proof.phase.kind !== 'Trial' || proof.phase.manifestSaid !== current.manifest.d,
+        current.accepted.some((proof) =>
+          current.kind === 'Current'
+            ? proof.phase.kind !== 'Trial' || proof.phase.manifestSaid !== current.manifest.d
+            : proof.phase.kind !== 'Research' || proof.phase.policySaid !== current.policy.d,
         ) ||
         known.some(
           (row) => row.attempt_key === attemptKey && row.request_ordinal >= input.requestOrdinal,
