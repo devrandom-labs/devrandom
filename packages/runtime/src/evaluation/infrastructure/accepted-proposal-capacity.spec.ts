@@ -19,7 +19,7 @@ const budget = {
   evidencePlusArtifactsPerRunBytes: 10000,
 };
 
-function fixture() {
+function fixture(arm: 'H1' | 'C1' | 'C2' | 'C3' | 'H1TaskSearch' = 'C2') {
   const prepared = prepareEvaluationManifest({
     evaluationId: id('1'),
     taskId: id('2'),
@@ -51,14 +51,14 @@ function fixture() {
     originRunId: manifest.originRunId,
     personalAgentAid: manifest.personalAgentAid,
     taskMandateSaid: manifest.taskMandateSaid,
-    harnessRevisionSaid: manifest.revisions.C2,
+    harnessRevisionSaid: arm === 'H1TaskSearch' ? manifest.revisions.H1 : manifest.revisions[arm],
     evaluationId: manifest.evaluationId,
     evaluationLeaseId: id('4'),
     evidenceStreamId: id('5'),
     phase: {
       kind: 'Trial' as const,
       manifestSaid: manifest.d,
-      arm: 'C2' as const,
+      arm,
       repetition: 1 as const,
       attempt: 1 as const,
     },
@@ -107,6 +107,31 @@ function fixture() {
 }
 
 describe('accepted Evaluation proposal capacity', () => {
+  it.each(['H1', 'C1', 'C3', 'H1TaskSearch'] as const)(
+    'enforces the exact %s trial allowance',
+    async (arm) => {
+      const given = fixture(arm);
+      expect(await given.capacity.inspect(given.binding)).toEqual({ kind: 'Available' });
+      given.append({
+        kind: 'EvaluationBudgetDebited',
+        budget: 'toolProposals',
+        amount: 1,
+        consumed: 1,
+        receiptArtifactSaid: said('r'),
+        sourceEventSaid: given.proposed,
+      });
+      given.append({
+        kind: 'ToolProposed',
+        proposalIndex: 1,
+        toolCallId: 'second',
+        inputArtifactSaid: said('j'),
+      });
+      expect(await given.capacity.inspect(given.binding)).toEqual({
+        kind: arm === 'H1TaskSearch' ? 'Exhausted' : 'Available',
+      });
+    },
+  );
+
   it('allows exactly one unbilled final proposal with room in the held allocation', async () => {
     const given = fixture();
     expect(await given.capacity.inspect(given.binding)).toEqual({ kind: 'Available' });

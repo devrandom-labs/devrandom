@@ -10,6 +10,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   observeProtectedTrialArtifact,
+  observePublicTrialArtifact,
+  gradePublicTrialArtifact,
   type ProtectedTrialArtifactDependencies,
 } from './observe-protected-trial-artifact.js';
 
@@ -275,6 +277,29 @@ function dependencies(given: ReturnType<typeof fixture>) {
 }
 
 describe('protected trial artifact conversation', () => {
+  it('freezes public observations before opening any protected case and grades only after the caller selects', async () => {
+    const given = fixture();
+    const wired = dependencies(given);
+    const publicObservation = await observePublicTrialArtifact(given.input, wired.ports);
+    expect(publicObservation.kind).toBe('PublicObserved');
+    expect(wired.openProtected).not.toHaveBeenCalled();
+    expect(wired.retain).not.toHaveBeenCalled();
+    if (publicObservation.kind !== 'PublicObserved') throw new Error('public observation missing');
+    expect(
+      await gradePublicTrialArtifact(
+        {
+          ...given.input,
+          publicObservation,
+          expectedHeadSaid: publicObservation.trialEvidenceHeadSaid,
+        },
+        wired.ports,
+      ),
+    ).toMatchObject({ kind: 'Retained' });
+    expect(wired.openProtected).toHaveBeenCalled();
+    expect(wired.run).toHaveBeenCalledTimes(1);
+    expect(wired.build).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses to construct a worker when the measured parent oracle differs from the M-bound bundle', async () => {
     const given = fixture();
     const wired = dependencies(given);

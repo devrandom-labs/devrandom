@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { isDeepStrictEqual } from 'node:util';
 import type { EvaluationExecutionBinding, EvaluationLeaseReceipt } from '@devrandom/domain';
 import {
   bindEvaluationVerifierBundle,
@@ -169,11 +170,44 @@ export function observedPublicCase(
   );
 }
 
-/** E3's parent-only stopped source -> frozen executable -> verifier conversation. */
+export type PublicTrialArtifactObservation =
+  | Extract<ProtectedTrialArtifactObservation, { kind: 'Incomplete' }>
+  | ({
+      readonly kind: 'PublicObserved';
+      readonly manifestSaid: string;
+      readonly binding: EvaluationExecutionBinding;
+    } & Pick<
+      Extract<ProtectedTrialArtifactObservation, { kind: 'Retained' }>,
+      | 'capturedSourceSaid'
+      | 'trialEvidenceHeadSaid'
+      | 'trialCleanupReceiptSaid'
+      | 'providerUsageEventSaids'
+      | 'frozenArtifact'
+      | 'publicCases'
+    >);
+
+/** Single-attempt convenience; search controls must freeze both public observations first. */
 export async function observeProtectedTrialArtifact(
   input: ProtectedTrialInput,
   dependencies: ProtectedTrialArtifactDependencies,
 ): Promise<ProtectedTrialArtifactObservation> {
+  if (input.binding.phase.kind === 'Trial' && input.binding.phase.arm === 'H1TaskSearch')
+    return { kind: 'Incomplete', frontier: 'PublicObservation' };
+  const observed = await observePublicTrialArtifact(input, dependencies);
+  if (observed.kind !== 'PublicObserved') return observed;
+  return gradePublicTrialArtifact(
+    { ...input, publicObservation: observed, expectedHeadSaid: observed.trialEvidenceHeadSaid },
+    dependencies,
+  );
+}
+
+async function inspectTrialBasis(
+  input: ProtectedTrialInput,
+  dependencies: ProtectedTrialArtifactDependencies,
+): Promise<
+  | { readonly kind: 'Bound'; readonly bundle: EvaluationVerifierBundle }
+  | Extract<ProtectedTrialArtifactObservation, { kind: 'Incomplete' }>
+> {
   if (interrupted(input.signal)) return { kind: 'Incomplete', frontier: 'TrialExecution' };
   try {
     const lock = await dependencies.lock.inspect({ manifest: input.manifest, lease: input.lease });
@@ -212,6 +246,17 @@ export async function observeProtectedTrialArtifact(
   } catch {
     return { kind: 'Incomplete', frontier: 'OracleIdentity' };
   }
+  return { kind: 'Bound', bundle };
+}
+
+/** Stops and freezes the task artifact, then observes only disclosed public conditions. */
+export async function observePublicTrialArtifact(
+  input: ProtectedTrialInput,
+  dependencies: ProtectedTrialArtifactDependencies,
+): Promise<PublicTrialArtifactObservation> {
+  const basis = await inspectTrialBasis(input, dependencies);
+  if (basis.kind !== 'Bound') return basis;
+  const { bundle } = basis;
   const invoked = await runProtectedTrial(input, dependencies.execution);
   if (invoked.kind !== 'Executed' || invoked.observation.kind !== 'Stopped')
     return { kind: 'Incomplete', frontier: 'TrialExecution' };
@@ -286,6 +331,44 @@ export async function observeProtectedTrialArtifact(
       cleanupReceiptSaid: observed.cleanupReceiptSaid,
     });
   }
+  return {
+    kind: 'PublicObserved',
+    manifestSaid: input.manifest.d,
+    binding: structuredClone(input.binding),
+    capturedSourceSaid: stopped.capturedSourceSaid,
+    trialEvidenceHeadSaid: stopped.evidenceHeadSaid,
+    trialCleanupReceiptSaid: stopped.cleanupReceiptSaid,
+    providerUsageEventSaids: [...stopped.providerUsageEventSaids],
+    frozenArtifact: built,
+    publicCases,
+  };
+}
+
+/** Grade exact frozen bytes after the trusted caller has durably selected any search control. */
+export async function gradePublicTrialArtifact(
+  input: ProtectedTrialInput & {
+    readonly publicObservation: Extract<PublicTrialArtifactObservation, { kind: 'PublicObserved' }>;
+    readonly expectedHeadSaid: string;
+  },
+  dependencies: ProtectedTrialArtifactDependencies,
+): Promise<ProtectedTrialArtifactObservation> {
+  const basis = await inspectTrialBasis(input, dependencies);
+  if (basis.kind !== 'Bound') return basis;
+  const { bundle } = basis;
+  const observed = input.publicObservation;
+  const built = observed.frozenArtifact;
+  const publicCases = observed.publicCases;
+  if (
+    observed.manifestSaid !== input.manifest.d ||
+    !isDeepStrictEqual(observed.binding, input.binding) ||
+    built.sourceSaid !== observed.capturedSourceSaid ||
+    !said.test(input.expectedHeadSaid) ||
+    !isDeepStrictEqual(
+      publicCases.map((item) => item.id),
+      input.manifest.publicConditionIds,
+    )
+  )
+    return { kind: 'Incomplete', frontier: 'PublicObservation' };
   const protectedCase = bundle.protectedCase;
   const assessed = await assessProtectedCesrCase(
     {
@@ -316,7 +399,7 @@ export async function observeProtectedTrialArtifact(
       binding: input.binding,
       manifest: input.manifest,
       lease: input.lease,
-      expectedHeadSaid: stopped.evidenceHeadSaid,
+      expectedHeadSaid: input.expectedHeadSaid,
       artifacts: [protectedCase.stimulus, protectedCase.expected, assessed.observationArtifact],
     });
     if (
@@ -327,7 +410,7 @@ export async function observeProtectedTrialArtifact(
       retained.event.sequence !== retained.throughSequence ||
       retained.event.d !== retained.headSaid ||
       retained.event.previous.kind !== 'Previous' ||
-      retained.event.previous.eventSaid !== stopped.evidenceHeadSaid ||
+      retained.event.previous.eventSaid !== input.expectedHeadSaid ||
       retained.event.evaluationId !== input.binding.evaluationId ||
       retained.event.streamId !== input.binding.evidenceStreamId ||
       retained.event.originRunId !== input.binding.originRunId ||
@@ -348,10 +431,10 @@ export async function observeProtectedTrialArtifact(
   }
   return {
     kind: 'Retained',
-    capturedSourceSaid: stopped.capturedSourceSaid,
-    trialEvidenceHeadSaid: stopped.evidenceHeadSaid,
-    trialCleanupReceiptSaid: stopped.cleanupReceiptSaid,
-    providerUsageEventSaids: stopped.providerUsageEventSaids,
+    capturedSourceSaid: observed.capturedSourceSaid,
+    trialEvidenceHeadSaid: observed.trialEvidenceHeadSaid,
+    trialCleanupReceiptSaid: observed.trialCleanupReceiptSaid,
+    providerUsageEventSaids: observed.providerUsageEventSaids,
     frozenArtifact: built,
     publicCases,
     protectedVerdict: assessed.verdict,

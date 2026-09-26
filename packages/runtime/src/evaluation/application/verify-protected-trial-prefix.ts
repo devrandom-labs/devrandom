@@ -17,7 +17,7 @@ export type ProtectedTrialPrefixVerification =
     }
   | { readonly kind: 'Missing' };
 
-/** Verifies the exact hosted stop→protected-ciphertext ACK link before usage is attributed. */
+/** Verifies the exact hosted stopped prefix and later protected-ciphertext ACK before usage attribution. */
 export function verifyProtectedTrialPrefix(
   input: {
     readonly binding: EvaluationExecutionBinding;
@@ -59,26 +59,31 @@ export function verifyProtectedTrialPrefix(
       return { kind: 'Missing' };
   }
   const custody = prefix.events[custodyEvidenceSequence];
-  const stopped = prefix.events[custodyEvidenceSequence - 1];
+  const stopped = prefix.events.find((event) => event.d === input.trialEvidenceHeadSaid);
+  const sameTrial = (event: EvaluationEvidenceEvent) =>
+    event.harnessRevisionSaid === binding.harnessRevisionSaid &&
+    JSON.stringify(event.phase) === JSON.stringify(binding.phase);
   if (
     custody?.d !== input.custodyEvidenceHeadSaid ||
     custody.detail.kind !== 'ArtifactCaptured' ||
     custody.detail.custody !== 'ProtectedCiphertext' ||
     custody.detail.artifactSaid !== input.protectedObservationSaid ||
-    stopped?.d !== input.trialEvidenceHeadSaid ||
+    stopped === undefined ||
+    stopped.sequence >= custodyEvidenceSequence ||
     stopped.detail.kind !== 'TrialStopped' ||
     stopped.detail.reason !== 'Completed' ||
     custody.harnessRevisionSaid !== binding.harnessRevisionSaid ||
     stopped.harnessRevisionSaid !== binding.harnessRevisionSaid ||
     JSON.stringify(custody.phase) !== JSON.stringify(binding.phase) ||
     JSON.stringify(stopped.phase) !== JSON.stringify(binding.phase) ||
+    prefix.events.filter((event) => event.detail.kind === 'TrialStopped' && sameTrial(event))
+      .length !== 1 ||
     prefix.events
-      .slice(0, custodyEvidenceSequence - 1)
+      .slice(stopped.sequence + 1, custodyEvidenceSequence)
       .some(
         (event) =>
-          event.detail.kind === 'TrialStopped' &&
-          event.harnessRevisionSaid === binding.harnessRevisionSaid &&
-          JSON.stringify(event.phase) === JSON.stringify(binding.phase),
+          sameTrial(event) &&
+          !(event.detail.kind === 'ArtifactCaptured' && event.detail.custody === 'Public'),
       )
   )
     return { kind: 'Missing' };

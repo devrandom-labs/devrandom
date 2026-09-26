@@ -38,7 +38,6 @@ export class AcceptedProposalCapacity implements CurrentEvaluationProposalCapaci
       validateExecutionBinding(binding).kind !== 'Accepted' ||
       decodeEvaluationManifest(manifest).kind !== 'Accepted' ||
       phase.kind !== 'Trial' ||
-      phase.arm !== 'C2' ||
       phase.manifestSaid !== manifest.d ||
       binding.evaluationId !== manifest.evaluationId ||
       binding.taskId !== manifest.taskId ||
@@ -46,7 +45,14 @@ export class AcceptedProposalCapacity implements CurrentEvaluationProposalCapaci
       binding.originRunId !== manifest.originRunId ||
       binding.personalAgentAid !== manifest.personalAgentAid ||
       binding.taskMandateSaid !== manifest.taskMandateSaid ||
-      binding.harnessRevisionSaid !== manifest.revisions.C2
+      binding.harnessRevisionSaid !==
+        (phase.arm === 'H1TaskSearch' ? manifest.revisions.H1 : manifest.revisions[phase.arm]) ||
+      !manifest.slots.some(
+        (slot) =>
+          slot.arm === phase.arm &&
+          slot.repetition === phase.repetition &&
+          slot.attempt === phase.attempt,
+      )
     )
       return { kind: 'Unavailable' };
     let accepted: Awaited<ReturnType<EvaluationAcceptedPrefix['open']>>;
@@ -124,7 +130,11 @@ export class AcceptedProposalCapacity implements CurrentEvaluationProposalCapaci
       15 * manifest.allocation.perEntry.toolProposals +
       manifest.allocation.finalization.toolProposals;
     if (!Number.isSafeInteger(total) || total < 0) return { kind: 'Unavailable' };
-    return cumulative >= total || slotDebits >= manifest.allocation.perEntry.toolProposals
+    return cumulative >= total ||
+      slotDebits >=
+        Math.floor(
+          manifest.allocation.perEntry.toolProposals / (phase.arm === 'H1TaskSearch' ? 2 : 1),
+        )
       ? { kind: 'Exhausted' }
       : { kind: 'Available' };
   }

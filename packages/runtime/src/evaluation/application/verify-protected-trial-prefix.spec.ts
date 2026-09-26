@@ -75,6 +75,89 @@ function fixture() {
 }
 
 describe('protected trial accepted-prefix binding', () => {
+  it('permits exact other-trial and public selection evidence between stopped source and protected custody', () => {
+    const { input, prefix } = fixture();
+    const stopped = prefix.events[0];
+    const capture = prefix.events[1];
+    if (stopped === undefined || capture === undefined) throw new Error('missing fixture');
+    const selection = prepareEvaluationEvidenceEvent(
+      JSON.parse(
+        JSON.stringify({
+          ...stopped,
+          d: undefined,
+          version: undefined,
+          sequence: 1,
+          previous: { kind: 'Previous', eventSaid: stopped.d },
+          detail: { kind: 'ArtifactCaptured', artifactSaid: said('s'), custody: 'Public' },
+        }),
+      ),
+    );
+    if (selection.kind !== 'Prepared') throw new Error('selection fixture');
+    const custody = prepareEvaluationEvidenceEvent(
+      JSON.parse(
+        JSON.stringify({
+          ...capture,
+          d: undefined,
+          version: undefined,
+          sequence: 2,
+          previous: { kind: 'Previous', eventSaid: selection.event.d },
+        }),
+      ),
+    );
+    if (custody.kind !== 'Prepared') throw new Error('custody fixture');
+    const actual = {
+      ...input,
+      custodyEvidenceHeadSaid: custody.event.d,
+      custodyEvidenceSequence: 2,
+    };
+    expect(
+      verifyProtectedTrialPrefix(actual, {
+        kind: 'Acknowledged',
+        events: [stopped, selection.event, custody.event],
+        throughSequence: 2,
+        headSaid: custody.event.d,
+      }),
+    ).toMatchObject({ kind: 'Verified', stoppedSequence: 0, custodySequence: 2 });
+    const effect = prepareEvaluationEvidenceEvent(
+      JSON.parse(
+        JSON.stringify({
+          ...selection.event,
+          d: undefined,
+          version: undefined,
+          detail: {
+            kind: 'ToolProposed',
+            proposalIndex: 1,
+            toolCallId: 'late',
+            inputArtifactSaid: said('i'),
+          },
+        }),
+      ),
+    );
+    if (effect.kind !== 'Prepared') throw new Error('effect fixture');
+    const altered = prepareEvaluationEvidenceEvent(
+      JSON.parse(
+        JSON.stringify({
+          ...custody.event,
+          d: undefined,
+          version: undefined,
+          previous: { kind: 'Previous', eventSaid: effect.event.d },
+        }),
+      ),
+    );
+    if (altered.kind !== 'Prepared') throw new Error('altered fixture');
+    expect(
+      verifyProtectedTrialPrefix(
+        { ...actual, custodyEvidenceHeadSaid: altered.event.d },
+        {
+          kind: 'Acknowledged',
+          events: [stopped, effect.event, altered.event],
+          throughSequence: 2,
+          headSaid: altered.event.d,
+        },
+      ),
+    ).toEqual({ kind: 'Missing' });
+  });
+
   it('binds stopped trial and exact protected observation ciphertext to hosted custody', () => {
     const { input, prefix } = fixture();
     expect(verifyProtectedTrialPrefix(input, prefix).kind).toBe('Verified');
