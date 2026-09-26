@@ -402,6 +402,63 @@ export class MongoEvaluationEvidence
     );
   }
 
+  async readPosition(
+    input: Parameters<AcceptedEvaluationEvidenceReading['readPosition']>[0],
+  ): ReturnType<AcceptedEvaluationEvidenceReading['readPosition']> {
+    const { ownerAid, evaluationId } = input;
+    try {
+      const evaluation = await this.#evaluations.findOne({ _id: evaluationId, ownerAid });
+      if (evaluation === null) return { kind: 'Denied' };
+      const { lease, acceptedThroughSequence, chainHeadSaid } = evaluation;
+      if (
+        evaluation.closure !== undefined ||
+        lease.evaluationId !== evaluationId ||
+        !Number.isSafeInteger(lease.version) ||
+        lease.version < 1 ||
+        !Number.isFinite(Date.parse(lease.serverTime)) ||
+        !Number.isFinite(Date.parse(lease.expiresAt)) ||
+        Date.parse(lease.expiresAt) <= Date.now() ||
+        !Number.isSafeInteger(acceptedThroughSequence) ||
+        acceptedThroughSequence < -1 ||
+        acceptedThroughSequence > 9_999 ||
+        (acceptedThroughSequence === -1) !== (chainHeadSaid === null)
+      )
+        return { kind: 'Conflict' };
+      if (acceptedThroughSequence >= 0) {
+        const head = await this.#events.findOne({
+          evaluationId,
+          ownerAid,
+          streamId: evaluation.evidenceStreamId,
+          sequence: acceptedThroughSequence,
+        });
+        if (
+          head === null ||
+          head._id !== chainHeadSaid ||
+          head.event.d !== chainHeadSaid ||
+          decodeEvaluationEvidenceEvent(head.event).kind !== 'Accepted'
+        )
+          return { kind: 'Conflict' };
+      }
+      return {
+        kind: 'Read',
+        position: {
+          version: 1,
+          evaluationId,
+          ownerAid,
+          commandId: evaluation.command.commandId,
+          originRunId: evaluation.command.originRunId,
+          streamId: evaluation.evidenceStreamId,
+          reservationSaid: evaluation.reservationSaid,
+          lease,
+          acceptedThroughSequence,
+          chainHeadSaid,
+        },
+      };
+    } catch {
+      return { kind: 'Unavailable' };
+    }
+  }
+
   async readPage(
     input: Parameters<AcceptedEvaluationEvidenceReading['readPage']>[0],
   ): ReturnType<AcceptedEvaluationEvidenceReading['readPage']> {

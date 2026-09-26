@@ -94,6 +94,82 @@ export interface EvaluationModelInference {
   >;
 }
 
+/** Durable trusted-parent capacity for one Evaluation provider turn, separate from Run budgets. */
+export interface EvaluationProviderAllowance {
+  reserve(input: {
+    readonly binding: EvaluationExecutionBinding;
+    readonly requestOrdinal: number;
+    readonly maximum: {
+      readonly providerRequests: 1;
+      readonly inputTokens: number;
+      readonly outputTokens: number;
+      readonly spendMicroUsd: number;
+    };
+  }): Promise<
+    | { readonly kind: 'Reserved'; readonly reservationId: string }
+    | { readonly kind: 'Exhausted' | 'Unavailable' }
+  >;
+  record(input: {
+    readonly reservationId: string;
+    readonly usage:
+      | {
+          readonly kind: 'Verified';
+          readonly providerRequests: 1;
+          readonly inputTokens: number;
+          readonly outputTokens: number;
+          readonly spendMicroUsd: number;
+          readonly responseId: string;
+          readonly providerReportArtifactSaid: string;
+        }
+      | { readonly kind: 'Unresolved' };
+  }): Promise<{ readonly kind: 'Recorded' | 'Exhausted' | 'Unavailable' }>;
+}
+
+/** Trusted local inspection of authenticated hosted admission, current M/lease, and accepted raw usage. */
+export interface EvaluationProviderCustody {
+  inspect(binding: EvaluationExecutionBinding): Promise<
+    | {
+        readonly kind: 'Current';
+        readonly ownerAid: string;
+        readonly admission: {
+          readonly commandId: string;
+          readonly evaluationId: string;
+          readonly evidenceStreamId: string;
+          readonly originRunId: string;
+          readonly reservationSaid: string;
+          readonly leaseId: string;
+        };
+        readonly manifest: EvaluationManifest;
+        readonly lock: {
+          readonly evaluationId: string;
+          readonly manifestSaid: string;
+          readonly ownerAid: string;
+          readonly policySaid: string;
+          readonly leaseId: string;
+          readonly currentLeaseVersion: number;
+        };
+        readonly lease: {
+          readonly evaluationId: string;
+          readonly leaseId: string;
+          readonly version: number;
+          readonly serverTime: string;
+          readonly expiresAt: string;
+        };
+        /** Complete verified Trial provider usage set from an exact authenticated hosted prefix. */
+        readonly accepted: readonly {
+          readonly eventSaid: string;
+          readonly requestOrdinal: number;
+          readonly responseId: string;
+          readonly providerReportArtifactSaid: string;
+          readonly inputTokens: number;
+          readonly outputTokens: number;
+          readonly spendMicroUsd: number;
+        }[];
+      }
+    | { readonly kind: 'Lost' | 'Unavailable' }
+  >;
+}
+
 export interface TrialExecution {
   run(input: {
     readonly binding: EvaluationExecutionBinding;

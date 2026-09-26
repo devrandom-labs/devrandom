@@ -14,6 +14,7 @@ import {
   evaluationClosureCommandSchema,
   evaluationEvidenceAcknowledgementSchema,
   evaluationAcceptedEvidencePageSchema,
+  evaluationPositionSchema,
   evaluationEvidenceUploadSchema,
   evaluationPublicArtifactReadSchema,
   evaluationLeaseRenewalCommandSchema,
@@ -72,6 +73,10 @@ export type HostedEvaluationEvidencePage =
       readonly kind: 'Read';
       readonly page: Type.Static<typeof evaluationAcceptedEvidencePageSchema>;
     }
+  | { readonly kind: 'Denied' | 'Conflict' | 'Unavailable' | 'ResponseInvalid' };
+
+export type HostedEvaluationPosition =
+  | { readonly kind: 'Read'; readonly position: Type.Static<typeof evaluationPositionSchema> }
   | { readonly kind: 'Denied' | 'Conflict' | 'Unavailable' | 'ResponseInvalid' };
 
 export type HostedEvaluationPublicArtifact =
@@ -256,6 +261,37 @@ export class ServerEvaluationHttp {
     if (response.status === 403) return { kind: 'Denied' };
     if (response.status === 409) return { kind: 'Conflict' };
     if (response.status === 413) return { kind: 'QuotaExceeded' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    return { kind: 'ResponseInvalid' };
+  }
+
+  async readPosition(evaluationId: string): Promise<HostedEvaluationPosition> {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(evaluationId)
+    )
+      return { kind: 'ResponseInvalid' };
+    const response = await this.#request(
+      'GET',
+      `/api/evaluations/${evaluationId}/position`,
+      undefined,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200) {
+      if (!Value.Check(evaluationPositionSchema, response.body)) return { kind: 'ResponseInvalid' };
+      if (
+        response.body.evaluationId !== evaluationId ||
+        (response.body.acceptedThroughSequence === -1) !== (response.body.chainHeadSaid === null) ||
+        response.body.lease.evaluationId !== evaluationId ||
+        !Number.isFinite(Date.parse(response.body.lease.serverTime)) ||
+        !Number.isFinite(Date.parse(response.body.lease.expiresAt)) ||
+        Date.parse(response.body.lease.expiresAt) <= Date.now()
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: 'Read', position: response.body };
+    }
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 403) return { kind: 'Denied' };
+    if (response.status === 409) return { kind: 'Conflict' };
     if (response.status === 503) return { kind: 'Unavailable' };
     return { kind: 'ResponseInvalid' };
   }

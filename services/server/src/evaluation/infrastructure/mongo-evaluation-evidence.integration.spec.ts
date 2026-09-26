@@ -484,7 +484,13 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
     const reservations = new MongoEvaluationReservations(client, database);
     server.register(
       evaluationRoutes({
-        access: { authorize: () => Promise.resolve({ kind: 'Authorized', ownerAid }) },
+        access: {
+          authorize: ({ bearerSecret }) =>
+            Promise.resolve({
+              kind: 'Authorized',
+              ownerAid: bearerSecret === 'b'.repeat(43) ? said('x') : ownerAid,
+            }),
+        },
         preparation: { prepare: () => Promise.resolve('Unavailable') },
         admission: { admit: () => Promise.resolve({ kind: 'Unavailable' }) },
         manifest: {
@@ -502,6 +508,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
           accept: (input) => acceptEvaluationEvidence(input, { batches: repository }),
           close: (input) => repository.close(input),
         },
+        reading: repository,
         now: () => new Date().toISOString(),
         newCorrelationId: randomUUID,
       }),
@@ -592,6 +599,48 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
     expect(gap.status).toBe(409);
     expect(await database.collection(evaluationCollectionNames.events).countDocuments()).toBe(1);
     expect(await database.collection(evaluationCollectionNames.batches).countDocuments()).toBe(1);
+  });
+
+  it('reads only the owner current Evaluation cursor and rejects stale lease or substituted head', async () => {
+    const endpoint = `${address}/api/evaluations/${evaluationId}/position`;
+    const authorized = { authorization: `Bearer ${'a'.repeat(43)}` };
+    const current = await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .findOne({ _id: evaluationId, ownerAid });
+    if (current === null || current.chainHeadSaid === null)
+      throw new Error('accepted fixture missing');
+    const read = await fetch(endpoint, { headers: authorized });
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({
+      version: 1,
+      evaluationId,
+      ownerAid,
+      commandId: current.command.commandId,
+      streamId,
+      reservationSaid: current.reservationSaid,
+      acceptedThroughSequence: current.acceptedThroughSequence,
+      chainHeadSaid: current.chainHeadSaid,
+    });
+    expect(
+      (await fetch(endpoint, { headers: { authorization: `Bearer ${'b'.repeat(43)}` } })).status,
+    ).toBe(403);
+    const evaluations = database.collection<EvaluationDocument>(
+      evaluationCollectionNames.evaluations,
+    );
+    await evaluations.updateOne(
+      { _id: evaluationId },
+      { $set: { 'lease.expiresAt': '2026-09-26T00:00:00.000Z' } },
+    );
+    expect((await fetch(endpoint, { headers: authorized })).status).toBe(409);
+    await evaluations.updateOne(
+      { _id: evaluationId },
+      { $set: { lease: current.lease, chainHeadSaid: said('z') } },
+    );
+    expect((await fetch(endpoint, { headers: authorized })).status).toBe(409);
+    await evaluations.updateOne(
+      { _id: evaluationId },
+      { $set: { chainHeadSaid: current.chainHeadSaid } },
+    );
   });
 
   it('rolls back missing raw bytes and rejects incomplete evidence-only closure', async () => {

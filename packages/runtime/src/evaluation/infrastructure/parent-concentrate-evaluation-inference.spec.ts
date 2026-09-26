@@ -7,6 +7,7 @@ import {
 import { expect, it, vi } from 'vitest';
 
 import type { EvaluationExecutionBinding } from '@devrandom/domain';
+import { prepareEvidenceArtifact } from '@devrandom/protocol';
 
 import { ParentConcentrateEvaluationInference } from './parent-concentrate-evaluation-inference.js';
 
@@ -128,6 +129,12 @@ it('returns an exact parent-observed provider frame only after lease, reservatio
       inputTokens: 14,
       outputTokens: 2,
       spendMicroUsd: 7,
+      responseId: 'response-1',
+      providerReportArtifactSaid: (() => {
+        const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+        if (prepared.kind !== 'Prepared') throw new Error(prepared.reason);
+        return prepared.artifact.d;
+      })(),
     },
   });
 });

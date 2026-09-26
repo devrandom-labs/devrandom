@@ -242,6 +242,23 @@ export const evaluationAcceptedEvidencePageSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/** Owner-scoped current admission and stream cursor, read before exact prefix replay. */
+export const evaluationPositionSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    evaluationId: uuid,
+    ownerAid: said,
+    commandId: uuid,
+    originRunId: uuid,
+    streamId: uuid,
+    reservationSaid: said,
+    lease: evaluationLeaseSchema,
+    acceptedThroughSequence: Type.Integer({ minimum: -1, maximum: 9_999 }),
+    chainHeadSaid: Type.Union([said, Type.Null()]),
+  },
+  { additionalProperties: false },
+);
+
 /** Raw bytes are available only for Public custody; protected ciphertext has no read DTO. */
 export const evaluationPublicArtifactReadSchema = Type.Object(
   {

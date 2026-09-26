@@ -1,5 +1,5 @@
-import { validateExecutionBinding, type EvaluationExecutionBinding } from '@devrandom/domain';
-import type { EvaluationExecutionProfile } from '@devrandom/protocol';
+import { validateExecutionBinding } from '@devrandom/domain';
+import { prepareEvidenceArtifact, type EvaluationExecutionProfile } from '@devrandom/protocol';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 
 import {
@@ -10,6 +10,7 @@ import {
 import type {
   EvaluationLease,
   EvaluationModelInference,
+  EvaluationProviderAllowance,
 } from '../application/evaluation-conversations.js';
 import { inspectConcentrateProviderReport } from './concentrate-provider-report.js';
 
@@ -22,35 +23,6 @@ type TrialProfile = Pick<
   EvaluationExecutionProfile,
   'd' | 'modelProvider' | 'modelId' | 'maximumOutputTokens' | 'thinkingLevel'
 >;
-
-/** Parent-owned reservation for one Evaluation provider request, separate from Run budget. */
-export interface EvaluationProviderAllowance {
-  reserve(input: {
-    readonly binding: EvaluationExecutionBinding;
-    readonly requestOrdinal: number;
-    readonly maximum: {
-      readonly providerRequests: 1;
-      readonly inputTokens: number;
-      readonly outputTokens: number;
-      readonly spendMicroUsd: number;
-    };
-  }): Promise<
-    | { readonly kind: 'Reserved'; readonly reservationId: string }
-    | { readonly kind: 'Exhausted' | 'Unavailable' }
-  >;
-  record(input: {
-    readonly reservationId: string;
-    readonly usage:
-      | {
-          readonly kind: 'Verified';
-          readonly providerRequests: 1;
-          readonly inputTokens: number;
-          readonly outputTokens: number;
-          readonly spendMicroUsd: number;
-        }
-      | { readonly kind: 'Unresolved' };
-  }): Promise<{ readonly kind: 'Recorded' | 'Exhausted' | 'Unavailable' }>;
-}
 
 interface Configuration {
   readonly profile: TrialProfile;
@@ -199,12 +171,19 @@ export class ParentConcentrateEvaluationInference implements EvaluationModelInfe
       await record({ kind: 'Unresolved' });
       return { kind: 'UnknownUsage' };
     }
+    const report = prepareEvidenceArtifact(providerReportBytes, 'application/json');
+    if (report.kind !== 'Prepared') {
+      await record({ kind: 'Unresolved' });
+      return { kind: 'UnknownUsage' };
+    }
     const settled = await record({
       kind: 'Verified',
       providerRequests: 1,
       inputTokens: inspected.inputTokens,
       outputTokens: inspected.outputTokens,
       spendMicroUsd: inspected.spendMicroUsd,
+      responseId: inspected.responseId,
+      providerReportArtifactSaid: report.artifact.d,
     });
     if (settled.kind !== 'Recorded')
       return { kind: settled.kind === 'Exhausted' ? 'BudgetExhausted' : 'Unavailable' };

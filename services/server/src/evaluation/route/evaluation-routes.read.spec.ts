@@ -75,7 +75,11 @@ describe('owner-scoped accepted Evaluation evidence reads', () => {
           accept: () => Promise.resolve({ kind: 'Unavailable' }),
           close: () => Promise.resolve({ kind: 'Unavailable' }),
         },
-        reading: { readPage, readPublicArtifact },
+        reading: {
+          readPage,
+          readPublicArtifact,
+          readPosition: () => Promise.resolve({ kind: 'Unavailable' }),
+        },
         now: () => new Date().toISOString(),
         newCorrelationId: randomUUID,
       }),

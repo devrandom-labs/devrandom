@@ -1,7 +1,19 @@
-import type { EvidenceArtifact, EvaluationEvidenceEvent } from '@devrandom/protocol';
+import type {
+  EvidenceArtifact,
+  EvaluationEvidenceEvent,
+  evaluationPositionSchema,
+} from '@devrandom/protocol';
+import type Type from 'typebox';
 
 /** Owner-scoped exact read of the hosted accepted Evaluation stream and its public raw custody. */
 export interface AcceptedEvaluationEvidenceReading {
+  readPosition(input: {
+    readonly ownerAid: string;
+    readonly evaluationId: string;
+  }): Promise<
+    | { readonly kind: 'Read'; readonly position: Type.Static<typeof evaluationPositionSchema> }
+    | { readonly kind: 'Denied' | 'Conflict' | 'Unavailable' }
+  >;
   readPage(input: {
     readonly ownerAid: string;
     readonly evaluationId: string;

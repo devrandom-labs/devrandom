@@ -9,6 +9,7 @@ import {
   evaluationClosureCommandSchema,
   evaluationEvidenceAcknowledgementSchema,
   evaluationAcceptedEvidencePageSchema,
+  evaluationPositionSchema,
   evaluationEvidenceUploadSchema,
   evaluationPublicArtifactReadSchema,
   evaluationLeaseRenewalCommandSchema,
@@ -419,6 +420,35 @@ export function evaluationRoutes(
                 ? 400
                 : 409;
         return fail(reply, status, `EvaluationEvidence${result.kind}`);
+      },
+    );
+
+    server.get(
+      '/api/evaluations/:evaluationId/position',
+      {
+        schema: {
+          operationId: 'readEvaluationPosition',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: evaluationIdParameters,
+          response: { 200: evaluationPositionSchema, 403: problem, 409: problem, 503: problem },
+        },
+      },
+      async (request, reply) => {
+        const access = await authorize(request.headers.authorization, 'evaluation:append');
+        if (access.kind !== 'Authorized')
+          return fail(reply, access.kind === 'Unavailable' ? 503 : 403, 'EvaluationAccessDenied');
+        if (configuration.reading === undefined)
+          return fail(reply, 503, 'EvaluationReadUnavailable');
+        const result = await configuration.reading.readPosition({
+          ownerAid: access.ownerAid,
+          evaluationId: request.params.evaluationId,
+        });
+        if (result.kind === 'Read') return reply.code(200).send(result.position);
+        return fail(
+          reply,
+          result.kind === 'Denied' ? 403 : result.kind === 'Conflict' ? 409 : 503,
+          `EvaluationPosition${result.kind}`,
+        );
       },
     );
 
