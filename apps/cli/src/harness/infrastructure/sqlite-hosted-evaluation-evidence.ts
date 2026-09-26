@@ -124,34 +124,9 @@ export class SqliteHostedEvaluationEvidence implements EvaluationEvidence {
     const flushed = await this.flush();
     if (flushed.kind !== 'Acknowledged')
       return flushed.kind === 'QuotaExceeded' ? { kind: 'Unavailable' } : { kind: flushed.kind };
-    const position = this.#outbox.position();
-    if (position.kind !== 'Position') return { kind: 'Unavailable' };
-    if (
-      position.acknowledgedSequence !== input.throughSequence ||
-      position.acknowledgedHeadSaid !== input.expectedHeadSaid ||
-      input.fromSequence < 0 ||
-      input.fromSequence > input.throughSequence
-    )
-      return { kind: 'Conflict' };
-    // Resolve the exact acknowledged upload, rather than accepting a foreign id with
-    // a coincidentally matching numeric cursor.
-    let predecessor: string | null = null;
-    for (let index = 0; index <= input.throughSequence; index++) {
-      const next = this.#outbox.following(predecessor);
-      if (next.kind !== 'Found' || next.acknowledgement === null) return { kind: 'Gap' };
-      if (
-        next.upload.batch.evaluationId !== input.evaluationId ||
-        next.upload.batch.streamId !== input.streamId
-      )
-        return { kind: 'Conflict' };
-      if (next.acknowledgement.chainHeadSaid === input.expectedHeadSaid)
-        return {
-          kind: 'Acknowledged',
-          throughSequence: input.throughSequence,
-          headSaid: input.expectedHeadSaid,
-        };
-      predecessor = next.acknowledgement.chainHeadSaid;
-    }
-    return { kind: 'Gap' };
+    const acknowledged = this.#outbox.acknowledgedPrefix(input);
+    return acknowledged.kind === 'Acknowledged'
+      ? acknowledged
+      : { kind: acknowledged.kind === 'Corrupt' ? 'Unavailable' : 'Conflict' };
   }
 }

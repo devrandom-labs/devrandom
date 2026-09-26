@@ -685,6 +685,51 @@ export class SqliteEvaluationEvidenceOutbox {
     }
   }
 
+  /** Resolve the current exact hosted receipt after one complete durable integrity inspection. */
+  acknowledgedPrefix(input: {
+    readonly evaluationId: string;
+    readonly streamId: string;
+    readonly fromSequence: number;
+    readonly throughSequence: number;
+    readonly expectedHeadSaid: string;
+  }):
+    | { readonly kind: 'Acknowledged'; readonly throughSequence: number; readonly headSaid: string }
+    | { readonly kind: 'Conflict' | 'Corrupt' } {
+    try {
+      if (!validStoredState(this.#database, this.#binding, (row) => this.#decodeUpload(row)))
+        return { kind: 'Corrupt' };
+      const current = state(this.#database);
+      if (current === undefined) return { kind: 'Corrupt' };
+      if (
+        input.evaluationId !== this.#binding.evaluationId ||
+        input.streamId !== this.#binding.streamId ||
+        !Number.isSafeInteger(input.fromSequence) ||
+        input.fromSequence < 0 ||
+        input.fromSequence > input.throughSequence ||
+        current.acknowledged_sequence !== input.throughSequence ||
+        current.acknowledged_head_said !== input.expectedHeadSaid
+      )
+        return { kind: 'Conflict' };
+      const row = uploadRow(
+        this.#database
+          .prepare('SELECT * FROM uploads WHERE ending_sequence = ? AND chain_head_said = ?')
+          .get(input.throughSequence, input.expectedHeadSaid),
+      );
+      if (row === undefined || row.acknowledgement === null) return { kind: 'Corrupt' };
+      const upload = this.#decodeUpload(row);
+      const receipt: unknown = JSON.parse(row.acknowledgement);
+      if (upload === undefined || !matchingAcknowledgement(receipt, upload, this.#binding))
+        return { kind: 'Corrupt' };
+      return {
+        kind: 'Acknowledged',
+        throughSequence: input.throughSequence,
+        headSaid: input.expectedHeadSaid,
+      };
+    } catch {
+      return { kind: 'Corrupt' };
+    }
+  }
+
   /** Exact staged successor, including a prior ACK, for crash and lost-response reconciliation. */
   following(predecessorSaid: string | null):
     | {
