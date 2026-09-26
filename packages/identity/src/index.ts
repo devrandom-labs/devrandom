@@ -3,6 +3,7 @@ export * from './credential-schema.js';
 export * from './credential-delivery.js';
 export * from './credential.js';
 export * from './evidence-seal-exchange.js';
+export * from './evaluation-closure-seal-exchange.js';
 export * from './challenge.js';
 export * from './identity-error.js';
 export * from './ipex.js';
