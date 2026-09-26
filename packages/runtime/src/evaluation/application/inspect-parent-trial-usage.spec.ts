@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   prepareEvaluationEvidenceEvent,
   prepareEvidenceArtifact,
+  prepareEvaluationProviderUsageReceipt,
   type EvidenceArtifact,
   type EvaluationEvidenceEvent,
 } from '@devrandom/protocol';
@@ -69,23 +70,10 @@ function fixture(
     events.push(prepared.event);
     return prepared.event;
   };
-  const usageEventSaid = missingAcceptedUsage
-    ? said('u')
-    : append({
-        kind: 'UsageDebited',
-        providerRequests: 1,
-        inputTokens: mismatchedAcceptedUsage ? 11 : 10,
-        outputTokens: 2,
-        cacheReadTokens: 3,
-        cacheWriteTokens: 1,
-        spendMicroUsd: 7,
-        elapsedMilliseconds: 0,
-      }).d;
   const responseId = 'response-one';
   const exchange = raw({
     kind: 'ModelExchange',
     requestOrdinal: 0,
-    usageEventSaid,
     message: {
       provider: 'concentrate',
       model: 'deepinfra/deepseek-v4-flash-0731',
@@ -98,11 +86,27 @@ function fixture(
     },
   });
   const exchangeEvent = append({ kind: 'ModelExchange', rawArtifactSaid: exchange });
-  const providerReceipt = raw({
-    kind: 'EvaluationProviderUsage',
+  const providerReport = raw({
+    type: 'response.completed',
+    response: {
+      id: responseId,
+      cost: { total: 0.000007 },
+      usage: {
+        input_tokens: 14,
+        output_tokens: 2,
+        total_tokens: 16,
+        input_tokens_details: { cached_tokens: 3, cache_write_tokens: 1 },
+      },
+    },
+  });
+  append({ kind: 'ArtifactCaptured', artifactSaid: providerReport, custody: 'Public' });
+  const preparedReceipt = prepareEvaluationProviderUsageReceipt({
+    evaluationId: binding.evaluationId,
+    streamId: binding.evidenceStreamId,
+    harnessRevisionSaid: binding.harnessRevisionSaid,
+    phase: binding.phase,
     requestOrdinal: 0,
     modelExchangeEventSaid: exchangeEvent.d,
-    usageEventSaid,
     provider: 'concentrate',
     model: 'deepinfra/deepseek-v4-flash-0731',
     responseId,
@@ -110,9 +114,26 @@ function fixture(
     outputTokens: 2,
     cacheReadTokens: 3,
     cacheWriteTokens: 1,
+    totalTokens: 16,
     spendMicroUsd: 7,
+    providerReportArtifactSaid: providerReport,
+  });
+  if (preparedReceipt.kind !== 'Prepared') throw new Error(preparedReceipt.reason);
+  const providerReceipt = preparedReceipt.artifact.d;
+  artifacts.set(providerReceipt, {
+    artifact: preparedReceipt.artifact,
+    bytes: preparedReceipt.bytes,
   });
   append({ kind: 'ArtifactCaptured', artifactSaid: providerReceipt, custody: 'Public' });
+  const usageEventSaid = missingAcceptedUsage
+    ? said('u')
+    : append({
+        kind: 'ProviderUsageVerified',
+        modelExchangeEventSaid: exchangeEvent.d,
+        receiptArtifactSaid: providerReceipt,
+        providerReportArtifactSaid: providerReport,
+        requestOrdinal: mismatchedAcceptedUsage ? 1 : 0,
+      }).d;
   for (const [budget, amount] of [
     ['providerRequests', 1],
     ['providerInputTokens', 14],
@@ -289,13 +310,11 @@ describe('parent-observed trial usage facts', () => {
       frontier: 'ProviderUsage',
     });
     const tampered = fixture();
-    const captured = tampered.events.find(
-      (event) => event.detail.kind === 'ArtifactCaptured' && event.detail.custody === 'Public',
-    );
-    if (captured?.detail.kind !== 'ArtifactCaptured') throw new Error('receipt fixture missing');
-    const original = tampered.artifacts.get(captured.detail.artifactSaid);
+    const usage = tampered.events.find((event) => event.detail.kind === 'ProviderUsageVerified');
+    if (usage?.detail.kind !== 'ProviderUsageVerified') throw new Error('receipt fixture missing');
+    const original = tampered.artifacts.get(usage.detail.receiptArtifactSaid);
     if (original === undefined) throw new Error('raw receipt fixture missing');
-    tampered.artifacts.set(captured.detail.artifactSaid, {
+    tampered.artifacts.set(usage.detail.receiptArtifactSaid, {
       artifact: original.artifact,
       bytes: new TextEncoder().encode('{"kind":"forged"}'),
     });
@@ -313,7 +332,7 @@ describe('parent-observed trial usage facts', () => {
     });
   });
 
-  it('rejects a SAID-valid accepted usage event with a mismatched provider amount', async () => {
+  it('rejects a SAID-valid accepted usage event with a mismatched request ordinal', async () => {
     const mismatched = fixture('None', false, false, false, true);
     expect(await inspectParentTrialUsage(mismatched.input, mismatched)).toEqual({
       kind: 'Incomplete',

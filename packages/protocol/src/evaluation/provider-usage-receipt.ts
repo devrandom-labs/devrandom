@@ -71,7 +71,10 @@ export type EvaluationProviderUsageReceiptPreparation =
       readonly artifact: EvidenceArtifact;
       readonly bytes: Uint8Array;
     }
-  | { readonly kind: 'Rejected'; readonly reason: 'SchemaInvalid' | 'ArithmeticInvalid' | 'TooLarge' };
+  | {
+      readonly kind: 'Rejected';
+      readonly reason: 'SchemaInvalid' | 'ArithmeticInvalid' | 'TooLarge';
+    };
 export type EvaluationProviderUsageReceiptDecoding =
   | {
       readonly kind: 'Accepted';

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import type { EvaluationExecutionBinding, TrialUsage } from '@devrandom/domain';
 import { decodeEvidenceArtifact, type EvaluationEvidenceEvent } from '@devrandom/protocol';
 
@@ -38,7 +40,13 @@ type Input = {
 };
 
 interface Raw {
+  readonly version?: unknown;
   readonly kind?: unknown;
+  readonly evaluationId?: unknown;
+  readonly streamId?: unknown;
+  readonly harnessRevisionSaid?: unknown;
+  readonly phase?: unknown;
+  readonly providerReportArtifactSaid?: unknown;
   readonly message?: unknown;
   readonly usage?: unknown;
   readonly content?: unknown;
@@ -181,7 +189,7 @@ export async function inspectParentTrialUsage(
     cumulative.set(event.detail.budget, next);
   }
   const models = trial.filter((event) => event.detail.kind === 'ModelExchange');
-  const usageEvents = trial.filter((event) => event.detail.kind === 'UsageDebited');
+  const usageEvents = trial.filter((event) => event.detail.kind === 'ProviderUsageVerified');
   if (
     models.length === 0 ||
     usageEvents.length !== models.length ||
@@ -222,13 +230,11 @@ export async function inspectParentTrialUsage(
     if (
       exchange?.kind !== 'ModelExchange' ||
       usageEvent?.d !== usageEventSaid ||
-      usageEvent.detail.kind !== 'UsageDebited' ||
-      usageEvent.detail.providerRequests !== 1 ||
-      usageEvent.sequence >= event.sequence ||
-      event.previous.kind !== 'Previous' ||
-      event.previous.eventSaid !== usageEventSaid ||
+      usageEvent.detail.kind !== 'ProviderUsageVerified' ||
+      usageEvent.detail.modelExchangeEventSaid !== event.d ||
+      usageEvent.detail.requestOrdinal !== ordinal ||
+      usageEvent.sequence <= event.sequence ||
       exchange.requestOrdinal !== ordinal ||
-      exchange.usageEventSaid !== usageEventSaid ||
       !record(message) ||
       typeof message.provider !== 'string' ||
       message.provider.length === 0 ||
@@ -273,6 +279,7 @@ export async function inspectParentTrialUsage(
       receiptSaid === undefined ||
       receiptCapture === undefined ||
       receiptCapture.sequence <= event.sequence ||
+      receiptCapture.sequence >= usageEvent.sequence ||
       receiptCapture.sequence >= Math.min(...sourceDebits.map((debit) => debit.sequence))
     )
       return { kind: 'Incomplete', frontier: 'ReceiptCustody' };
@@ -284,10 +291,20 @@ export async function inspectParentTrialUsage(
     }
     const inputWithCache = usage.input + usage.cacheRead + usage.cacheWrite;
     if (
-      receipt?.kind !== 'EvaluationProviderUsage' ||
+      receipt?.version !== 1 ||
+      receipt.kind !== 'EvaluationProviderUsageReceipt' ||
+      receipt.evaluationId !== input.binding.evaluationId ||
+      receipt.streamId !== input.binding.evidenceStreamId ||
+      receipt.harnessRevisionSaid !== input.binding.harnessRevisionSaid ||
+      !isDeepStrictEqual(receipt.phase, input.binding.phase) ||
       receipt.modelExchangeEventSaid !== event.d ||
       receipt.requestOrdinal !== ordinal ||
-      receipt.usageEventSaid !== usageEventSaid ||
+      usageEvent.detail.receiptArtifactSaid !== receiptSaid ||
+      usageEvent.detail.providerReportArtifactSaid !== receipt.providerReportArtifactSaid ||
+      !said(receipt.providerReportArtifactSaid) ||
+      captured.get(receipt.providerReportArtifactSaid)?.sequence === undefined ||
+      (captured.get(receipt.providerReportArtifactSaid)?.sequence ?? Number.POSITIVE_INFINITY) >=
+        usageEvent.sequence ||
       receipt.provider !== message.provider ||
       receipt.model !== message.model ||
       receipt.responseId !== message.responseId ||
@@ -295,13 +312,8 @@ export async function inspectParentTrialUsage(
       receipt.outputTokens !== usage.output ||
       receipt.cacheReadTokens !== usage.cacheRead ||
       receipt.cacheWriteTokens !== usage.cacheWrite ||
+      receipt.totalTokens !== usage.totalTokens ||
       !count(receipt.spendMicroUsd) ||
-      usageEvent.detail.inputTokens !== usage.input ||
-      usageEvent.detail.outputTokens !== usage.output ||
-      usageEvent.detail.cacheReadTokens !== usage.cacheRead ||
-      usageEvent.detail.cacheWriteTokens !== usage.cacheWrite ||
-      usageEvent.detail.spendMicroUsd !== receipt.spendMicroUsd ||
-      !count(usageEvent.detail.elapsedMilliseconds) ||
       sourceDebits.some((debit) => {
         const expected =
           debit.detail.budget === 'providerRequests'

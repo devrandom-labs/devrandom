@@ -41251,6 +41251,40 @@
                               "type": "object",
                               "required": [
                                 "kind",
+                                "modelExchangeEventSaid",
+                                "receiptArtifactSaid",
+                                "providerReportArtifactSaid",
+                                "requestOrdinal"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "ProviderUsageVerified"
+                                },
+                                "modelExchangeEventSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "receiptArtifactSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "providerReportArtifactSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "requestOrdinal": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
                                 "budget",
                                 "amount",
                                 "consumed",
@@ -42417,6 +42451,40 @@
                                     "maximum": 9007199254740991
                                   },
                                   "elapsedMilliseconds": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "modelExchangeEventSaid",
+                                  "receiptArtifactSaid",
+                                  "providerReportArtifactSaid",
+                                  "requestOrdinal"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "ProviderUsageVerified"
+                                  },
+                                  "modelExchangeEventSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "receiptArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "providerReportArtifactSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "requestOrdinal": {
                                     "type": "integer",
                                     "minimum": 0,
                                     "maximum": 9007199254740991

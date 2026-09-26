@@ -774,7 +774,10 @@ export class DockerContainedTrialExecution implements TrialExecution {
             }
             const message: AssistantMessage = completion.message;
             const usage = accountableProviderUsage(message, completion.verifiedSpendMicroUsd);
-            const report = inspectConcentrateProviderReport(completion.providerReportBytes, message);
+            const report = inspectConcentrateProviderReport(
+              completion.providerReportBytes,
+              message,
+            );
             if (
               message.provider !== config.model.provider ||
               message.model !== config.model.id ||

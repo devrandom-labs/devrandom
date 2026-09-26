@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import {
   taskBudgetCeilings,
   validateExecutionBinding,
@@ -7,6 +9,7 @@ import {
 import {
   decodeEvidenceArtifact,
   decodeEvaluationEvidenceEvent,
+  decodeEvaluationProviderUsageReceipt,
   prepareEvaluationEvidenceEvent,
   type EvidenceArtifact,
   type EvaluationEvidenceEvent,
@@ -101,7 +104,13 @@ function incomplete(frontier: Frontier): EvaluationBudgetCoveragePreparation {
 }
 
 interface UntrustedMeasurement {
+  readonly version?: unknown;
   readonly kind?: unknown;
+  readonly evaluationId?: unknown;
+  readonly streamId?: unknown;
+  readonly harnessRevisionSaid?: unknown;
+  readonly phase?: unknown;
+  readonly providerReportArtifactSaid?: unknown;
   readonly modelExchangeEventSaid?: unknown;
   readonly proposalEventSaid?: unknown;
   readonly toolCallId?: unknown;
@@ -178,7 +187,7 @@ function sourceMatches(
   if (providerBudgets.some((name) => name === budget))
     return (
       source.detail.kind === 'ModelExchange' &&
-      receipt.kind === 'EvaluationProviderUsage' &&
+      receipt.kind === 'EvaluationProviderUsageReceipt' &&
       receipt.modelExchangeEventSaid === source.d
     );
   if (budget === 'toolProposals')
@@ -520,6 +529,34 @@ export async function prepareEvaluationBudgetCoverage(
     }
     if (budget === 'providerRequests') {
       if (source.detail.kind !== 'ModelExchange') return incomplete('ReceiptAuthority');
+      const witness = events.filter(
+        (candidate) =>
+          candidate.detail.kind === 'ProviderUsageVerified' &&
+          candidate.detail.modelExchangeEventSaid === source.d,
+      );
+      const usageEvent = witness[0];
+      if (
+        witness.length !== 1 ||
+        usageEvent?.detail.kind !== 'ProviderUsageVerified' ||
+        usageEvent.sequence <= source.sequence ||
+        usageEvent.sequence >= event.sequence ||
+        !samePhase(usageEvent, source) ||
+        usageEvent.detail.receiptArtifactSaid !== debit.receiptArtifactSaid ||
+        usageEvent.detail.providerReportArtifactSaid !== receipt.providerReportArtifactSaid ||
+        captured.get(usageEvent.detail.providerReportArtifactSaid) === undefined ||
+        captured.get(usageEvent.detail.receiptArtifactSaid) === undefined
+      )
+        return incomplete('ProviderUsage');
+      const openedReceipt = await dependencies.receipts.openPublic({
+        evaluationId: input.binding.evaluationId,
+        artifactSaid: debit.receiptArtifactSaid,
+      });
+      if (
+        openedReceipt.kind !== 'Opened' ||
+        decodeEvaluationProviderUsageReceipt(openedReceipt.artifact, openedReceipt.bytes).kind !==
+          'Accepted'
+      )
+        return incomplete('ReceiptCustody');
       const providerPhaseKey = phaseKey(source);
       const expectedOrdinal = providerOrdinalByPhase.get(providerPhaseKey) ?? 0;
       let exchange: UntrustedMeasurement | undefined;
@@ -530,7 +567,6 @@ export async function prepareEvaluationBudgetCoverage(
       }
       if (
         exchange?.kind !== 'ModelExchange' ||
-        exchange.usageEventSaid !== receipt.usageEventSaid ||
         exchange.requestOrdinal !== receipt.requestOrdinal ||
         !record(exchange.message) ||
         !record(exchange.message.usage) ||
@@ -556,30 +592,35 @@ export async function prepareEvaluationBudgetCoverage(
             exchange.message.usage.cacheRead +
             exchange.message.usage.cacheWrite ||
         receipt.outputTokens !== exchange.message.usage.output ||
-        !said(receipt.usageEventSaid) ||
-        providerUsage.has(receipt.usageEventSaid)
+        receipt.totalTokens !== exchange.message.usage.totalTokens ||
+        receipt.evaluationId !== source.evaluationId ||
+        receipt.streamId !== source.streamId ||
+        receipt.harnessRevisionSaid !== source.harnessRevisionSaid ||
+        !isDeepStrictEqual(receipt.phase, source.phase) ||
+        usageEvent.detail.requestOrdinal !== receipt.requestOrdinal ||
+        providerUsage.has(usageEvent.d)
       )
         return incomplete('ProviderUsage');
       let verified: Awaited<ReturnType<EvaluationMeasurementReceipts['verifyProviderUsage']>>;
       try {
         verified = await dependencies.receipts.verifyProviderUsage({
-          usageEventSaid: receipt.usageEventSaid,
+          usageEventSaid: usageEvent.d,
         });
       } catch {
         return incomplete('ProviderUsage');
       }
       if (
         verified.kind !== 'Verified' ||
-        verified.usageEventSaid !== receipt.usageEventSaid ||
+        verified.usageEventSaid !== usageEvent.d ||
         verified.responseId !== receipt.responseId ||
         verified.inputTokens !== receipt.inputTokens ||
         verified.outputTokens !== receipt.outputTokens ||
         verified.spendMicroUsd !== receipt.spendMicroUsd
       )
         return incomplete('ProviderUsage');
-      providerUsage.set(receipt.usageEventSaid, source.d);
+      providerUsage.set(usageEvent.d, source.d);
       providerOrdinalByPhase.set(providerPhaseKey, expectedOrdinal + 1);
-      orderedUsage.push(receipt.usageEventSaid);
+      orderedUsage.push(usageEvent.d);
     }
   }
   if (budgets.some((budget) => !seen.has(budget))) return incomplete('MissingDimension');

@@ -132,6 +132,8 @@ function artifactReferences(event: EvaluationEvidenceEvent): readonly string[] {
       return [event.detail.receiptArtifactSaid];
     case 'EvaluationBudgetDebited':
       return [event.detail.receiptArtifactSaid];
+    case 'ProviderUsageVerified':
+      return [event.detail.receiptArtifactSaid, event.detail.providerReportArtifactSaid];
     case 'ArtifactCaptured':
       return [event.detail.artifactSaid];
     case 'SourceRead':

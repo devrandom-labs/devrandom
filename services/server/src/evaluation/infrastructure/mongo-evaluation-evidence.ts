@@ -176,6 +176,8 @@ function referencedArtifacts(event: EvaluationEvidenceEvent): readonly string[] 
     case 'TrialStopped':
     case 'DataWithheld':
       return [];
+    case 'ProviderUsageVerified':
+      return [event.detail.receiptArtifactSaid, event.detail.providerReportArtifactSaid];
     case 'EvaluationBudgetDebited':
       return [event.detail.receiptArtifactSaid];
   }
@@ -232,6 +234,9 @@ export function replayEvaluationBudgetCoverage(input: {
   const seen = new Set<DebitedBudget>();
   const prior = new Map<string, EvaluationEvidenceEvent>();
   const receiptArtifactSaids = new Set<string>();
+  const providerEvents: EvaluationEvidenceEvent[] = [];
+  const providerDebits = new Map<string, { receiptSaid: string; budgets: Set<DebitedBudget> }>();
+  const captured = new Map<string, EvaluationEvidenceEvent>();
   for (const [index, event] of input.events.entries()) {
     const predecessor = input.events[index - 1];
     if (
@@ -251,6 +256,37 @@ export function replayEvaluationBudgetCoverage(input: {
       return { kind: 'Incomplete', reason: 'EventChainInvalid' };
     if (event.detail.kind === 'EvaluationBudgetCovered' && index !== input.events.length - 1)
       return { kind: 'Incomplete', reason: 'MissingCoverage' };
+    if (event.detail.kind === 'ArtifactCaptured' && event.detail.custody === 'Public')
+      captured.set(event.detail.artifactSaid, event);
+    if (event.detail.kind === 'ProviderUsageVerified') {
+      const detail = event.detail;
+      const source = prior.get(detail.modelExchangeEventSaid);
+      const receipt = captured.get(detail.receiptArtifactSaid);
+      const report = captured.get(detail.providerReportArtifactSaid);
+      if (
+        source?.detail.kind !== 'ModelExchange' ||
+        source.sequence >= event.sequence ||
+        source.harnessRevisionSaid !== event.harnessRevisionSaid ||
+        JSON.stringify(source.phase) !== JSON.stringify(event.phase) ||
+        receipt === undefined ||
+        report === undefined ||
+        receipt.sequence <= source.sequence ||
+        report.sequence <= source.sequence ||
+        receipt.sequence >= event.sequence ||
+        report.sequence >= event.sequence ||
+        receipt.harnessRevisionSaid !== source.harnessRevisionSaid ||
+        report.harnessRevisionSaid !== source.harnessRevisionSaid ||
+        !isDeepStrictEqual(receipt.phase, source.phase) ||
+        !isDeepStrictEqual(report.phase, source.phase) ||
+        providerEvents.some(
+          (known) =>
+            known.detail.kind === 'ProviderUsageVerified' &&
+            known.detail.modelExchangeEventSaid === detail.modelExchangeEventSaid,
+        )
+      )
+        return { kind: 'Incomplete', reason: 'ProviderUsageUnlinked' };
+      providerEvents.push(event);
+    }
     if (event.detail.kind === 'EvaluationBudgetDebited') {
       const debit = event.detail;
       // TypeBox's mapped literal union erases this property to `never` in Static.
@@ -274,6 +310,19 @@ export function replayEvaluationBudgetCoverage(input: {
       totals[budget] = next;
       seen.add(budget);
       receiptArtifactSaids.add(debit.receiptArtifactSaid);
+      if (budget.startsWith('provider')) {
+        const previousGroup = providerDebits.get(source.d);
+        if (previousGroup !== undefined && previousGroup.receiptSaid !== debit.receiptArtifactSaid)
+          return { kind: 'Incomplete', reason: 'ProviderUsageUnlinked' };
+        const group = previousGroup ?? {
+          receiptSaid: debit.receiptArtifactSaid,
+          budgets: new Set<DebitedBudget>(),
+        };
+        if (group.budgets.has(budget))
+          return { kind: 'Incomplete', reason: 'ProviderUsageUnlinked' };
+        group.budgets.add(budget);
+        providerDebits.set(source.d, group);
+      }
     }
     prior.set(event.d, event);
   }
@@ -288,6 +337,28 @@ export function replayEvaluationBudgetCoverage(input: {
     return { kind: 'Incomplete', reason: 'ProviderUsageUnlinked' };
   if (debitedBudgets.some((budget) => !seen.has(budget)))
     return { kind: 'Incomplete', reason: 'MissingDimension' };
+  if (
+    providerEvents.length !== providerDebits.size ||
+    !isDeepStrictEqual(
+      coverage.providerUsageEventSaids,
+      providerEvents.map((event) => event.d),
+    ) ||
+    providerEvents.some((event) => {
+      if (event.detail.kind !== 'ProviderUsageVerified') return true;
+      const group = providerDebits.get(event.detail.modelExchangeEventSaid);
+      return (
+        group?.receiptSaid !== event.detail.receiptArtifactSaid ||
+        group.budgets.size !== 4 ||
+        ![
+          'providerRequests',
+          'providerInputTokens',
+          'providerOutputTokens',
+          'providerSpendMicroUsd',
+        ].every((budget) => group.budgets.has(budget as DebitedBudget))
+      );
+    })
+  )
+    return { kind: 'Incomplete', reason: 'ProviderUsageUnlinked' };
   return {
     kind: 'StructurallyConsistent',
     totals,

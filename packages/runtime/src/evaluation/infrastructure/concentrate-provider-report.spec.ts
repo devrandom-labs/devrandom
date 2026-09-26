@@ -38,7 +38,9 @@ describe('exact Concentrate provider report', () => {
   });
 
   it('rejects a substituted response, charge, or malformed frame', () => {
-    expect(inspectConcentrateProviderReport(bytes(frame), { ...message, responseId: 'other' })).toEqual({
+    expect(
+      inspectConcentrateProviderReport(bytes(frame), { ...message, responseId: 'other' }),
+    ).toEqual({
       kind: 'Rejected',
     });
     expect(
@@ -47,7 +49,9 @@ describe('exact Concentrate provider report', () => {
         message,
       ),
     ).toEqual({ kind: 'Rejected' });
-    expect(inspectConcentrateProviderReport(bytes({ ...frame, type: 'response.created' }), message)).toEqual({
+    expect(
+      inspectConcentrateProviderReport(bytes({ ...frame, type: 'response.created' }), message),
+    ).toEqual({
       kind: 'Rejected',
     });
   });

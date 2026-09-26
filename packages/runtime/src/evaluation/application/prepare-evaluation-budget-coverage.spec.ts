@@ -1,5 +1,6 @@
 import {
   prepareEvaluationEvidenceEvent,
+  prepareEvaluationProviderUsageReceipt,
   prepareEvidenceArtifact,
   type EvaluationEvidenceEvent,
   type EvidenceArtifact,
@@ -45,7 +46,6 @@ const reserved = {
   changedWorktreeBytes: 100,
   evidencePlusArtifactsPerRunBytes: 65536,
 };
-const usageEventSaid = said('u');
 
 function event(
   sequence: number,
@@ -99,13 +99,24 @@ function fixture() {
     responseId: 'response-1',
     usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12 },
   };
-  const exchangeRaw = raw({ kind: 'ModelExchange', requestOrdinal: 0, message, usageEventSaid });
+  const exchangeRaw = raw({ kind: 'ModelExchange', requestOrdinal: 0, message });
   const exchange = append({ kind: 'ModelExchange', rawArtifactSaid: exchangeRaw });
-  const providerReceipt = raw({
-    kind: 'EvaluationProviderUsage',
+  const providerReport = raw({
+    type: 'response.completed',
+    response: {
+      id: 'response-1',
+      cost: { total: 0.000007 },
+      usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+    },
+  });
+  append({ kind: 'ArtifactCaptured', artifactSaid: providerReport, custody: 'Public' });
+  const preparedProviderReceipt = prepareEvaluationProviderUsageReceipt({
+    evaluationId: binding.evaluationId,
+    streamId: binding.evidenceStreamId,
+    harnessRevisionSaid: binding.harnessRevisionSaid,
+    phase: binding.phase,
     requestOrdinal: 0,
     modelExchangeEventSaid: exchange.d,
-    usageEventSaid,
     provider: 'concentrate',
     model: 'fixture',
     responseId: 'response-1',
@@ -113,9 +124,24 @@ function fixture() {
     outputTokens: 2,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    totalTokens: 12,
     spendMicroUsd: 7,
+    providerReportArtifactSaid: providerReport,
+  });
+  if (preparedProviderReceipt.kind !== 'Prepared') throw new Error('provider receipt fixture');
+  const providerReceipt = preparedProviderReceipt.artifact.d;
+  artifacts.set(providerReceipt, {
+    artifact: preparedProviderReceipt.artifact,
+    bytes: preparedProviderReceipt.bytes,
   });
   append({ kind: 'ArtifactCaptured', artifactSaid: providerReceipt, custody: 'Public' });
+  const usageEventSaid = append({
+    kind: 'ProviderUsageVerified',
+    modelExchangeEventSaid: exchange.d,
+    receiptArtifactSaid: providerReceipt,
+    providerReportArtifactSaid: providerReport,
+    requestOrdinal: 0,
+  }).d;
   for (const [budget, amount] of [
     ['providerRequests', 1],
     ['providerInputTokens', 10],
@@ -287,6 +313,7 @@ function fixture() {
     wallDebitIndex,
     wallReceipt,
     providerReceipt,
+    usageEventSaid,
     toolReceipt,
     exchange,
     cleanup,
@@ -315,11 +342,13 @@ describe('trusted parent Evaluation budget coverage', () => {
             changedFiles: 1,
             changedWorktreeBytes: 7,
           },
-          providerUsageEventSaids: [usageEventSaid],
+          providerUsageEventSaids: [given.usageEventSaid],
         },
       },
     });
-    expect(given.verifyProviderUsage).toHaveBeenCalledWith({ usageEventSaid });
+    expect(given.verifyProviderUsage).toHaveBeenCalledWith({
+      usageEventSaid: given.usageEventSaid,
+    });
   });
 
   it('fails closed for missing dimensions, nonmonotonic cursors, and chain gaps', async () => {

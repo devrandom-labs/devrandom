@@ -39,7 +39,9 @@ describe('Evaluation provider usage raw receipt', () => {
     expect(
       decodeEvaluationProviderUsageReceipt(
         prepared.artifact,
-        new TextEncoder().encode(JSON.stringify({ ...prepared.receipt, responseId: 'substituted' })),
+        new TextEncoder().encode(
+          JSON.stringify({ ...prepared.receipt, responseId: 'substituted' }),
+        ),
       ),
     ).toMatchObject({ kind: 'Rejected' });
   });

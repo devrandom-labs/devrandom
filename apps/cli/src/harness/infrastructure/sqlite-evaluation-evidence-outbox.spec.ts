@@ -253,6 +253,119 @@ it('rejects missing or substituted raw artifact bytes before staging', () => {
   outbox.close();
 });
 
+it('retains both provider report and receipt bytes through local acknowledgement recording and restart', () => {
+  const stateRoot = root();
+  const outbox = open(stateRoot);
+  const reportBytes = new TextEncoder().encode('{"provider":"concentrate"}');
+  const receiptBytes = new TextEncoder().encode('{"kind":"EvaluationProviderUsageReceipt"}');
+  const report = prepareEvidenceArtifact(reportBytes, 'application/json');
+  const receipt = prepareEvidenceArtifact(receiptBytes, 'application/json');
+  if (report.kind !== 'Prepared' || receipt.kind !== 'Prepared')
+    throw new Error('provider fixture artifact rejected');
+  const trialEvent = (
+    sequence: number,
+    prior: EvaluationEvidenceEvent | undefined,
+    detail: EvaluationEvidenceEvent['detail'],
+  ) => {
+    const prepared = prepareEvaluationEvidenceEvent({
+      evaluationId: binding.evaluationId,
+      streamId: binding.streamId,
+      originRunId: binding.originRunId,
+      taskId: binding.taskId,
+      taskRevisionSaid: binding.taskRevisionSaid,
+      personalAgentAid: binding.personalAgentAid,
+      taskMandateSaid: binding.taskMandateSaid,
+      harnessRevisionSaid: said('h'),
+      phase: { kind: 'Trial', manifestSaid: said('m'), arm: 'H1', repetition: 1, attempt: 1 },
+      sequence,
+      previous:
+        prior === undefined ? { kind: 'Genesis' } : { kind: 'Previous', eventSaid: prior.d },
+      occurredAt: '2026-09-26T05:00:00.000Z',
+      detail,
+    });
+    if (prepared.kind !== 'Prepared') throw new Error(prepared.reason);
+    return prepared.event;
+  };
+  const capturedReport = trialEvent(0, undefined, {
+    kind: 'ArtifactCaptured',
+    artifactSaid: report.artifact.d,
+    custody: 'Public',
+  });
+  expect(
+    outbox.stage({
+      commandId: randomUUID(),
+      fingerprint: `sha256:${'a'.repeat(64)}`,
+      events: [capturedReport],
+      publicArtifacts: [{ artifact: report.artifact, bytes: reportBytes }],
+      protectedArtifacts: [],
+    }).kind,
+  ).toBe('Staged');
+  const verifiedTooSoon = trialEvent(1, capturedReport, {
+    kind: 'ProviderUsageVerified',
+    modelExchangeEventSaid: said('x'),
+    receiptArtifactSaid: receipt.artifact.d,
+    providerReportArtifactSaid: report.artifact.d,
+    requestOrdinal: 0,
+  });
+  expect(
+    outbox.stage({
+      commandId: randomUUID(),
+      fingerprint: `sha256:${'b'.repeat(64)}`,
+      events: [verifiedTooSoon],
+      publicArtifacts: [],
+      protectedArtifacts: [],
+    }),
+  ).toEqual({ kind: 'Rejected' });
+  const capturedReceipt = trialEvent(1, capturedReport, {
+    kind: 'ArtifactCaptured',
+    artifactSaid: receipt.artifact.d,
+    custody: 'Public',
+  });
+  expect(
+    outbox.stage({
+      commandId: randomUUID(),
+      fingerprint: `sha256:${'c'.repeat(64)}`,
+      events: [capturedReceipt],
+      publicArtifacts: [{ artifact: receipt.artifact, bytes: receiptBytes }],
+      protectedArtifacts: [],
+    }).kind,
+  ).toBe('Staged');
+  const verified = trialEvent(2, capturedReceipt, verifiedTooSoon.detail);
+  expect(
+    outbox.stage({
+      commandId: randomUUID(),
+      fingerprint: `sha256:${'d'.repeat(64)}`,
+      events: [verified],
+      publicArtifacts: [],
+      protectedArtifacts: [],
+    }).kind,
+  ).toBe('Staged');
+  for (const [sequence, head] of [capturedReport, capturedReceipt, verified].entries()) {
+    const pending = outbox.pending();
+    expect(pending.kind).toBe('Pending');
+    if (pending.kind !== 'Pending') throw new Error(pending.kind);
+    expect(
+      outbox.acknowledge({
+        version: 1,
+        disposition: 'Accepted',
+        evaluationId: binding.evaluationId,
+        streamId: binding.streamId,
+        batchSaid: pending.upload.batch.d,
+        acceptedThroughSequence: sequence,
+        chainHeadSaid: head.d,
+      }),
+    ).toEqual({ kind: 'Recorded' });
+  }
+  outbox.close();
+  const reopened = open(stateRoot);
+  expect(reopened.position()).toMatchObject({
+    acknowledgedSequence: 2,
+    acknowledgedHeadSaid: verified.d,
+  });
+  expect(reopened.pending()).toEqual({ kind: 'Empty' });
+  reopened.close();
+});
+
 it('rejects a changed owner and refuses to resume a modified durable upload', () => {
   const stateRoot = root();
   const outbox = open(stateRoot);
