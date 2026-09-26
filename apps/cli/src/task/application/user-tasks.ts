@@ -1,3 +1,4 @@
+import type { EvaluationWorkAccessSupply } from '../../work-access/application/evaluation-work-access.js';
 import type {
   RunWorkAccessGrant,
   RunWorkAccessRenewal,
@@ -119,6 +120,8 @@ export type HostedWorkAuthorityAcquisition =
       readonly protectedCredentials: ProtectedCredentials;
       readonly grantExpiresAt: string;
       readonly workAccessRenewal: RunWorkAccessRenewal;
+      readonly evaluationWorkAccess: EvaluationWorkAccessSupply;
+      readonly serverOrigin: string;
     }
   | TaskAuthorityFailure;
 
@@ -195,6 +198,16 @@ export class CurrentTaskAuthority implements TaskAuthority {
       context: (inventory) => access.server.context(inventory),
       protectedCredentials: access.server.protectedCredentials,
       grantExpiresAt: disposition.expiresAt,
+      serverOrigin: this.#serverUrl,
+      evaluationWorkAccess: {
+        initial: access,
+        acquire: async (signal) => {
+          const replacement = await this.#acquireWorkAccess(this.#serverUrl, identity, signal);
+          if (replacement.kind === 'Granted') this.#heldGrants.push(replacement.server);
+          return replacement;
+        },
+        release: (grant) => this.#releaseHeldGrant(grant.server),
+      },
       workAccessRenewal: {
         initialGrant: runWorkAccessGrant(access, () => this.#releaseHeldGrant(access.server)),
         acquire: async (signal) => {

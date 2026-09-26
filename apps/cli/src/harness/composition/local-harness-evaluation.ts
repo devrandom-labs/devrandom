@@ -1,3 +1,4 @@
+import { evaluationWorkAccessHttp } from '../../work-access/composition/evaluation-work-access-http.js';
 import { renewOwnedEvaluationLease } from '../application/renew-owned-evaluation-lease.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -75,7 +76,10 @@ import { ReviewedComparisonPlanFile } from '../../evolution/infrastructure/revie
 import { FilePublicAnalogyReviews } from '../../evolution/infrastructure/file-public-analogy-reviews.js';
 import { FileQualifiedH0Records } from '../../evolution/infrastructure/file-qualified-h0-records.js';
 import { PiResearchProposal } from '../../evolution/infrastructure/pi-research-proposal.js';
-import { prepareResearchCandidates } from '../../evolution/infrastructure/research-candidates.js';
+import {
+  prepareResearchCandidates,
+  researchCandidateInstructions,
+} from '../../evolution/infrastructure/research-candidates.js';
 import {
   decodeReviewedPublicAnalogy,
   ReviewedPublicAnalogyProjection,
@@ -160,12 +164,23 @@ export async function evaluateLocalHarness(
   let researchDeadline: ReturnType<typeof setTimeout> | undefined;
   const abort = new AbortController();
   const signal = AbortSignal.any([input.signal, abort.signal]);
+  let closeTransport: (() => Promise<void>) | undefined;
   try {
     if (signal.aborted) return { kind: 'Interrupted' };
     const read = await new EvaluationPolicyFile().read(input.policyPath);
     if (read.kind !== 'Read') return { kind: 'Blocked', gate: 'Policy' };
     const { policy, profile } = read;
-    const hosted = input.hosted;
+    const transport = evaluationWorkAccessHttp(
+      input.hosted.evaluationWorkAccess,
+      input.hosted.serverOrigin,
+      signal,
+    );
+    closeTransport = transport.close;
+    const hosted = {
+      ...input.hosted,
+      evaluations: transport.evaluations,
+      context: transport.context,
+    };
     const task = input.task;
     if (
       policy.originRunId !== input.originRunId ||
@@ -183,8 +198,8 @@ export async function evaluateLocalHarness(
       originRunId: input.originRunId,
       executionProfileSaid: profile.d,
       expectedActiveRevisionSaid: policy.expectedActiveRevisionSaid,
-      runs: hosted.runs,
-      evidence: hosted.evidence,
+      runs: transport.qualification.runs,
+      evidence: transport.qualification.evidence,
       signal,
     };
     const records = new TaskAuthorizationFile(join(input.stateRoot, 'task-authorizations'));
@@ -709,7 +724,7 @@ export async function evaluateLocalHarness(
     const reviewArtifacts: string[] = [];
     const reviewedSources: ReviewedPublicAnalogy[] = [];
     for (const [ordinal, source] of sources.entries()) {
-      const raw = await hosted.evidence.readArtifact(source.runId, source.rawEvidenceSaid, signal);
+      const raw = await transport.readArtifact(source.runId, source.rawEvidenceSaid, signal);
       if (raw.kind !== 'Read') throw new Error('RawSource');
       const document = await propose(
         'DiagnosticRefiner',
@@ -796,8 +811,7 @@ export async function evaluateLocalHarness(
           hypothesis,
           publicFailure: constructed.window.window,
           baselineInstructions: instructions,
-          instruction:
-            'Return exactly {C1:{configuration:{version:1,arm:"C1",instructionText:one bounded operational reminder}},C2:{configuration:{version:1,arm:"C2"},implementation:{version:1,kind:"RecoveryWorkflow",trigger:"QualifiedRetainedFailure",steps:["RetrieveExperience","ReadExactSource","Replan","FreshPublicVerify"]}},C3:{configuration:{version:1,arm:"C3",formatMarker:"Current",triggerPaths:["src/lib.rs"],priority:["Failure","Contract","Edit"],maximumItems:3,maximumContextBytes:4096},implementation:{version:1,kind:"VersionedFormatContextSelection",algorithm:"ExactPublicHistoryV1"}}}. Generate C1 wording from the evidence, choose bounded C3 ordering/limits consistent with its reviewed algorithm. Never include task source edits, scores, winner, authority, or protected data.',
+          instruction: researchCandidateInstructions,
         }),
       ),
     );
@@ -1380,6 +1394,7 @@ export async function evaluateLocalHarness(
     if (pulse !== undefined) clearInterval(pulse);
     if (researchDeadline !== undefined) clearTimeout(researchDeadline);
     abort.abort();
+    await closeTransport?.();
     outbox?.close();
     if (temporary !== undefined) await rm(temporary, { recursive: true, force: true });
   }
