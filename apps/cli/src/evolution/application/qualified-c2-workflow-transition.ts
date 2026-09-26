@@ -127,7 +127,6 @@ export class QualifiedC2WorkflowTransition implements C2WorkflowTransition {
       reviewed.treatment.kind !== 'ReviewedWorkflow' ||
       reviewed.implementation === undefined ||
       reviewed.replay === undefined ||
-      hypothesis.implicatedComponent !== 'Workflow' ||
       constructed.influence.hypothesisSaid !== hypothesis.d ||
       constructed.influence.review.queryReceiptSaid !== hypothesis.retrievalReceiptSaid ||
       constructed.influence.review.source.rawEvidenceSaid !== hypothesis.source.rawEvidenceSaid ||

@@ -238,7 +238,6 @@ export class ReviewedC3ContextSelection implements C3ContextSelection {
       binding.harnessRevisionSaid !== manifest.revisions.C3 ||
       manifest.executionProfileSaid !== profile.d ||
       manifest.hypothesisSaid !== dependencies.hypothesis.d ||
-      dependencies.hypothesis.implicatedComponent !== 'ContextSelection' ||
       dependencies.hypothesis.sourceInventorySaid !== manifest.sourceInventorySaid ||
       reviewed.treatment.kind !== 'ContextSelection' ||
       reviewed.implementation === undefined ||

@@ -35,6 +35,11 @@ export async function nativeComparisonFixture(
   root: string,
   image: string,
   runtimeDigest = `sha256:${'2'.repeat(64)}`,
+  repository?: {
+    readonly commit: string;
+    readonly tree: string;
+    readonly runtimePromptDigest: string;
+  },
 ) {
   const profile = prepareEvaluationExecutionProfile({
     os: 'linux',
@@ -42,10 +47,10 @@ export async function nativeComparisonFixture(
     imageDigest: image.slice(image.lastIndexOf('@') + 1),
     runtimeDigest,
     toolchainDigest: `sha256:${'3'.repeat(64)}`,
-    sourceGitCommit: '4'.repeat(40),
-    sourceGitTree: '5'.repeat(40),
+    sourceGitCommit: repository?.commit ?? '4'.repeat(40),
+    sourceGitTree: repository?.tree ?? '5'.repeat(40),
     h1InstructionSaid: nativeSaid('i'),
-    h1RuntimePromptDigest: `sha256:${'6'.repeat(64)}`,
+    h1RuntimePromptDigest: repository?.runtimePromptDigest ?? `sha256:${'6'.repeat(64)}`,
     effectiveLimitsReceiptSaid: nativeSaid('l'),
     parentDeathCleanupReceiptSaid: nativeSaid('p'),
     modelProvider: 'concentrate',
