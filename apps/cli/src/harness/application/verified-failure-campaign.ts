@@ -1,3 +1,4 @@
+import { readCalibrationContinuationHistory } from '../../run/application/calibration-continuation-history.js';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
@@ -102,12 +103,26 @@ export class VerifiedFailureCampaign implements RunQualification {
             run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure'))
       )
         return { kind: 'Blocked' };
-      const first = await input.evidence.inspect(runId, { limit: 100 });
+      const history = await readCalibrationContinuationHistory(
+        inspected.run,
+        input.runs,
+        input.evidence,
+      );
+      if (history.kind !== 'Verified') return { kind: 'Blocked' };
+      if (history.predecessorIncarnationId !== undefined) {
+        if (incarnationIds.has(history.predecessorIncarnationId)) return { kind: 'Blocked' };
+        incarnationIds.add(history.predecessorIncarnationId);
+      }
+      const scope =
+        history.predecessorEvents.length === 0
+          ? {}
+          : { evidenceStreamId: history.evidenceStreamId };
+      const first = await input.evidence.inspect(runId, { limit: 100, ...scope });
       if (first.kind !== 'Found') return { kind: 'Blocked' };
       const stream = first.page.stream;
       if (
         stream.runId !== runId ||
-        stream.evidenceStreamId !== run.binding.evidenceStreamId ||
+        stream.evidenceStreamId !== history.evidenceStreamId ||
         stream.seal.kind !== 'Sealed' ||
         stream.checkpoint.kind !== 'Accepted' ||
         stream.cursor.kind !== 'Accepted'
@@ -203,6 +218,7 @@ export class VerifiedFailureCampaign implements RunQualification {
         const continuation = await input.evidence.inspect(runId, {
           limit: 100,
           cursor: page.nextCursor,
+          ...scope,
         });
         if (continuation.kind !== 'Found') return { kind: 'Blocked' };
         page = continuation.page;
@@ -227,6 +243,36 @@ export class VerifiedFailureCampaign implements RunQualification {
       )
         return { kind: 'Blocked' };
       incarnationIds.add(incarnationId);
+      let predecessorProfile: string | undefined;
+      let predecessorWorkerBegan = false;
+      for (const event of history.predecessorEvents) {
+        artifactSaids.push(...evidenceArtifactReferences(event.event));
+        if (event.event.kind === 'RunExecutionProfileBound') {
+          if (
+            predecessorProfile !== undefined ||
+            predecessorWorkerBegan ||
+            event.event.executionProfileSaid !== input.executionProfileSaid ||
+            event.event.worktreeBranch !== worktreeBranch
+          )
+            return { kind: 'Blocked' };
+          predecessorProfile = event.event.profileArtifactSaid;
+        }
+        if (
+          [
+            'ModelRequest',
+            'ModelMessageCompleted',
+            'ToolProposed',
+            'ToolAuthorized',
+            'EffectCompleted',
+            'EffectFailed',
+          ].includes(event.event.kind)
+        ) {
+          if (predecessorProfile === undefined) return { kind: 'Blocked' };
+          predecessorWorkerBegan = true;
+        }
+      }
+      if (history.predecessorEvents.length > 0 && predecessorProfile !== profileArtifactSaid)
+        return { kind: 'Blocked' };
       if (input.evidence.readArtifact === undefined) return { kind: 'Blocked' };
       const profileReading = await input.evidence.readArtifact(
         runId,

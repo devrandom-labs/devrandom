@@ -1,3 +1,4 @@
+import { readCalibrationContinuationHistory } from './calibration-continuation-history.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   preparedCompatibilityFailureCategoriesMatch,
@@ -16,7 +17,11 @@ import type {
   CompatibilityCalibrationRecordReading,
   PreparedCompatibilityCalibrationEntry,
 } from './prepared-compatibility-calibration.js';
-import type { HostedRunTimelines, TaskRunObservationAuthority } from './task-run-observation.js';
+import type {
+  HostedRunStatuses,
+  HostedRunTimelines,
+  TaskRunObservationAuthority,
+} from './task-run-observation.js';
 
 type CalibrationOrdinal = 1 | 2 | 3 | 4 | 5;
 
@@ -107,7 +112,9 @@ function runMatchesAdmission(
     run.evidenceStreamId === admission.run.evidenceStreamId &&
     isDeepStrictEqual(run.purpose, binding.purpose) &&
     isDeepStrictEqual(run.repository, binding.repository) &&
-    (run.lease.kind === 'Unassigned' || run.lease.incarnationId === admission.incarnationId)
+    (run.currentExecution !== undefined ||
+      run.lease.kind === 'Unassigned' ||
+      run.lease.incarnationId === admission.incarnationId)
   );
 }
 
@@ -120,12 +127,22 @@ async function sealedCalibration(
   run: RunProjection,
   admission: StableBaselineRunAdmission,
   evidence: HostedRunTimelines,
+  runs: HostedRunStatuses,
 ): Promise<'Verified' | 'RecoveryRequired' | 'Unavailable'> {
   if (run.lifecycle.kind !== 'Ended') return 'RecoveryRequired';
-  const first = await evidence.inspect(run.runId, { limit: 100 });
+  const history = await readCalibrationContinuationHistory(run, runs, evidence);
+  if (
+    history.kind !== 'Verified' ||
+    (history.predecessorIncarnationId !== undefined &&
+      history.predecessorIncarnationId !== admission.incarnationId)
+  )
+    return 'Unavailable';
+  const scope =
+    history.predecessorEvents.length === 0 ? {} : { evidenceStreamId: history.evidenceStreamId };
+  const first = await evidence.inspect(run.runId, { limit: 100, ...scope });
   if (first.kind !== 'Found') return 'Unavailable';
   const stream = first.page.stream;
-  if (stream.runId !== run.runId || stream.evidenceStreamId !== run.evidenceStreamId)
+  if (stream.runId !== run.runId || stream.evidenceStreamId !== history.evidenceStreamId)
     return 'Unavailable';
   if (
     stream.seal.kind !== 'Sealed' ||
@@ -149,7 +166,7 @@ async function sealedCalibration(
         decodeEvidenceEvent(event).kind !== 'Accepted' ||
         event.sequence !== sequence ||
         event.runId !== run.runId ||
-        event.incarnationId !== admission.incarnationId ||
+        event.incarnationId !== (history.incarnationId ?? admission.incarnationId) ||
         event.taskId !== run.taskId ||
         event.taskRevisionSaid !== run.taskRevisionSaid ||
         event.harnessRevisionSaid !== run.harnessRevisionSaid ||
@@ -188,7 +205,11 @@ async function sealedCalibration(
     if (page.nextCursor === null) break;
     if (page.events.length === 0 || cursors.has(page.nextCursor)) return 'Unavailable';
     cursors.add(page.nextCursor);
-    const next = await evidence.inspect(run.runId, { limit: 100, cursor: page.nextCursor });
+    const next = await evidence.inspect(run.runId, {
+      limit: 100,
+      cursor: page.nextCursor,
+      ...scope,
+    });
     if (next.kind !== 'Found') return 'Unavailable';
     page = next.page;
   }
@@ -320,7 +341,7 @@ export class VerifiedCalibrationCampaignProgress implements CalibrationCampaignP
         return { kind: 'Unavailable' };
       if (slot === 6) return { kind: 'RetainedRunExists', runId: reading.run.runId };
       const run = reading.run;
-      const verified = await sealedCalibration(run, admission, authority.evidence);
+      const verified = await sealedCalibration(run, admission, authority.evidence, authority.runs);
       if (verified === 'Unavailable') return { kind: 'Unavailable' };
       if (verified === 'RecoveryRequired')
         return { kind: 'RecoveryRequired', runId: run.runId, ordinal: slot };

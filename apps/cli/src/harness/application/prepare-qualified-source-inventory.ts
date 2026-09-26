@@ -1,3 +1,4 @@
+import { readCalibrationContinuationHistory } from '../../run/application/calibration-continuation-history.js';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
@@ -109,12 +110,20 @@ async function readCalibration(
       run.lifecycle.outcome.kind !== 'CalibrationExcluded')
   )
     return { kind: 'Blocked', gate: 'Timeline' };
-  const first = await input.evidence.inspect(runId, { limit: 100 });
+  const history = await readCalibrationContinuationHistory(
+    inspected.run,
+    input.runs,
+    input.evidence,
+  );
+  if (history.kind !== 'Verified') return { kind: 'Blocked', gate: 'Timeline' };
+  const scope =
+    history.predecessorEvents.length === 0 ? {} : { evidenceStreamId: history.evidenceStreamId };
+  const first = await input.evidence.inspect(runId, { limit: 100, ...scope });
   if (first.kind !== 'Found') return { kind: 'Blocked', gate: 'Timeline' };
   const stream = first.page.stream;
   if (
     stream.runId !== runId ||
-    stream.evidenceStreamId !== run.binding.evidenceStreamId ||
+    stream.evidenceStreamId !== history.evidenceStreamId ||
     stream.seal.kind !== 'Sealed' ||
     stream.cursor.kind !== 'Accepted' ||
     stream.checkpoint.kind !== 'Accepted' ||
@@ -165,7 +174,11 @@ async function readCalibration(
     if (page.nextCursor === null) break;
     if (cursors.has(page.nextCursor)) return { kind: 'Blocked', gate: 'Timeline' };
     cursors.add(page.nextCursor);
-    const next = await input.evidence.inspect(runId, { limit: 100, cursor: page.nextCursor });
+    const next = await input.evidence.inspect(runId, {
+      limit: 100,
+      cursor: page.nextCursor,
+      ...scope,
+    });
     if (next.kind !== 'Found') return { kind: 'Blocked', gate: 'Timeline' };
     page = next.page;
   }
