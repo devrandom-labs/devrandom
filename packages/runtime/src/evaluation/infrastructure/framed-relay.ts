@@ -9,6 +9,8 @@ export type EvaluationRelayKind =
   | 'ToolOutcome'
   | 'ContextRead'
   | 'ContextResult'
+  | 'WorkflowContext'
+  | 'ProvisionalStop'
   | 'Stopped'
   | 'Stop';
 
@@ -28,6 +30,8 @@ const kinds: ReadonlySet<string> = new Set([
   'ToolOutcome',
   'ContextRead',
   'ContextResult',
+  'WorkflowContext',
+  'ProvisionalStop',
   'Stopped',
   'Stop',
 ]);

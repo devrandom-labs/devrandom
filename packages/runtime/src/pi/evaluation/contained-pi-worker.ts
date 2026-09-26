@@ -39,6 +39,7 @@ interface WorkerStart {
   readonly prompt: string;
   readonly maximumPrompts: number;
   readonly enabledTools: readonly ToolName[];
+  readonly requiresWorkflowContext?: true;
 }
 
 const pathSchema = Type.String({
@@ -138,7 +139,9 @@ function decodeStart(value: unknown): WorkerStart | undefined {
   const input = value as { readonly [key: string]: unknown };
   if (
     Object.keys(input).sort().join(',') !==
-      'enabledTools,maximumPrompts,model,modelProfileSaid,piSessionId,prompt,systemPrompt,thinkingLevel' ||
+      (input.requiresWorkflowContext === true
+        ? 'enabledTools,maximumPrompts,model,modelProfileSaid,piSessionId,prompt,requiresWorkflowContext,systemPrompt,thinkingLevel'
+        : 'enabledTools,maximumPrompts,model,modelProfileSaid,piSessionId,prompt,systemPrompt,thinkingLevel') ||
     typeof input.piSessionId !== 'string' ||
     input.piSessionId.length === 0 ||
     typeof input.modelProfileSaid !== 'string' ||
@@ -323,6 +326,7 @@ export async function runContainedPiWorker(relay: FramedRelay): Promise<void> {
   let turnIndex = -1;
   let proposalIndex = 0;
   const submission = { verified: false };
+  const provisional = { stopped: false };
   const customTools: ToolDefinition[] = start.enabledTools.map((name) =>
     defineTool({
       name,
@@ -341,6 +345,18 @@ export async function runContainedPiWorker(relay: FramedRelay): Promise<void> {
         };
         await relay.send('ToolProposal', proposal);
         const response = await relay.receive();
+        if (name === 'submit_result' && start.requiresWorkflowContext === true) {
+          if (response.kind !== 'ProvisionalStop')
+            throw new Error('C2 submission must stop for parent public verification.');
+          provisional.stopped = true;
+          return {
+            content: [
+              { type: 'text', text: 'Submission proposed for parent public verification.' },
+            ],
+            details: undefined,
+            terminate: true,
+          };
+        }
         if (
           response.kind !== 'ToolOutcome' ||
           typeof response.payload !== 'object' ||
@@ -388,20 +404,41 @@ export async function runContainedPiWorker(relay: FramedRelay): Promise<void> {
     promptDigest: digestRunRuntimePrompt(start.systemPrompt, start.prompt),
   });
   try {
+    let workflowContext = '';
+    if (start.requiresWorkflowContext === true) {
+      const frame = await relay.receive();
+      if (
+        frame.kind !== 'WorkflowContext' ||
+        !isRecord(frame.payload) ||
+        frame.payload.version !== 1 ||
+        frame.payload.kind !== 'ReviewedC2WorkflowContext' ||
+        typeof frame.payload.text !== 'string' ||
+        frame.payload.text.trim().length === 0 ||
+        Buffer.byteLength(frame.payload.text, 'utf8') > 32 * 1024
+      )
+        throw new Error('C2 workflow context missing before first model request.');
+      workflowContext = frame.payload.text;
+    }
     for (
       let promptIndex = 0;
-      promptIndex < start.maximumPrompts && !submission.verified;
+      promptIndex < start.maximumPrompts && !submission.verified && !provisional.stopped;
       promptIndex += 1
     ) {
       await session.prompt(
         promptIndex === 0
-          ? start.prompt
+          ? start.requiresWorkflowContext === true
+            ? `${workflowContext}\n\n${start.prompt}`
+            : start.prompt
           : 'Continue the same task using public feedback. Submit the current work.',
         { expandPromptTemplates: false },
       );
     }
     await relay.send('Stopped', {
-      kind: submission.verified ? 'Submitted' : 'NoSubmission',
+      kind: provisional.stopped
+        ? 'Provisional'
+        : submission.verified
+          ? 'Submitted'
+          : 'NoSubmission',
       piSessionId: start.piSessionId,
       requestCount: requestOrdinal,
     });

@@ -362,6 +362,32 @@ export class DockerEvaluationCompartment {
     if (code !== 0) throw new Error('Contained source mode preparation failed.');
   }
 
+  /** Stop every remaining non-init process before a provisional C2 source capture.
+   * PID 1 is the compartment's inert sleep process; no worker can restart once
+   * the second independent /proc inspection observes only it. */
+  async stopWriters(): Promise<boolean> {
+    if (this.#closed) return false;
+    const script = `const fs=require('node:fs');const self=process.pid;for(const name of fs.readdirSync('/proc')){const pid=Number(name);if(!Number.isInteger(pid)||pid<=1||pid===self)continue;try{process.kill(pid,'SIGKILL')}catch{}}`;
+    const inspect = `const fs=require('node:fs');const self=process.pid;const others=fs.readdirSync('/proc').map(Number).filter(pid=>{if(!Number.isInteger(pid)||pid<=1||pid===self)return false;try{const stat=fs.readFileSync('/proc/'+pid+'/stat','utf8');return stat.slice(stat.lastIndexOf(')')+2)[0]!=='Z'}catch{return false}});if(others.length)process.exit(3)`;
+    try {
+      await runFile('docker', ['exec', '--user', '65534:65534', this.#name, 'node', '-e', script], {
+        timeout: 10_000,
+        maxBuffer: 4096,
+      });
+      await runFile(
+        'docker',
+        ['exec', '--user', '65534:65534', this.#name, 'node', '-e', inspect],
+        {
+          timeout: 10_000,
+          maxBuffer: 4096,
+        },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async close(): Promise<boolean> {
     if (this.#closed) return true;
     this.#closed = true;

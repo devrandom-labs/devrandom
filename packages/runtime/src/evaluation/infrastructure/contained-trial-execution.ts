@@ -9,10 +9,12 @@ import type { AssistantMessage, Model, Api, TranscriptContext } from '@earendil-
 import {
   decodeEvaluationExecutionProfile,
   decodeEvaluationManifest,
+  decodeEvolutionHypothesis,
   prepareEvidenceArtifact,
   prepareEvaluationEvidenceEvent,
   type EvaluationExecutionProfile,
   type EvaluationEvidenceEvent,
+  type EvolutionHypothesis,
 } from '@devrandom/protocol';
 
 import { piToolInput } from '../../pi/evaluation/contained-pi-worker.js';
@@ -32,6 +34,12 @@ import { bindC1TrialBehavior } from '../application/bind-c1-trial-behavior.js';
 import type { CandidateTreatmentCustody } from '../application/candidate-treatment-custody.js';
 import type { ExecutableSuccessorDescriptor } from '../../harness/application/materialize-successor.js';
 import { digestRunRuntimePrompt } from '../../run/run-execution-profile-custody.js';
+import type {
+  C2ProvisionalSubmissionAuthority,
+  C2StoppedSubmissionVerification,
+  C2WorkflowTransition,
+} from '../application/c2-workflow-transition.js';
+import { assessC2PublicSubmission } from '../application/c2-workflow-transition.js';
 
 interface EvidenceCursor {
   readonly nextSequence: number;
@@ -65,6 +73,16 @@ interface ContainedTrialConfiguration {
     readonly candidateCommit: string;
     readonly candidateTree: string;
     readonly custody: CandidateTreatmentCustody;
+  };
+  /** C2 is unavailable unless all three trusted-parent conversations are composed. */
+  readonly c2Workflow?: {
+    readonly hypothesis: EvolutionHypothesis;
+    readonly reviewed: ExecutableSuccessorDescriptor;
+    readonly candidateCommit: string;
+    readonly candidateTree: string;
+    readonly transition: C2WorkflowTransition;
+    readonly submission: C2ProvisionalSubmissionAuthority;
+    readonly verification: C2StoppedSubmissionVerification;
   };
   readonly enabledTools: readonly ToolName[];
   readonly maximumPrompts: number;
@@ -303,7 +321,8 @@ export class DockerContainedTrialExecution implements TrialExecution {
       config.model.id !== config.profile.modelId ||
       config.workerMounts.some((mount) => mount.writable) ||
       (input.slot.arm === 'C1') !== (config.c1Treatment !== undefined) ||
-      input.slot.arm === 'C2' ||
+      (input.slot.arm === 'C2') !== (config.c2Workflow !== undefined) ||
+      (input.slot.arm === 'C2' && !config.enabledTools.includes('submit_result')) ||
       input.slot.arm === 'C3' ||
       !config.workerMounts.some((mount) =>
         config.workerProgram.startsWith(`${mount.containerPath}/`),
@@ -312,6 +331,31 @@ export class DockerContainedTrialExecution implements TrialExecution {
     )
       return { kind: 'Invalid', reason: 'ProfileDrift' };
     if (!(await runtimeMatches(config))) return { kind: 'Invalid', reason: 'ProfileDrift' };
+    if (input.slot.arm === 'C2') {
+      const c2 = config.c2Workflow;
+      if (
+        c2 === undefined ||
+        decodeEvolutionHypothesis(c2.hypothesis).kind !== 'Accepted' ||
+        c2.hypothesis.d !== input.manifest.hypothesisSaid ||
+        c2.hypothesis.sourceInventorySaid !== input.manifest.sourceInventorySaid ||
+        c2.hypothesis.taskId !== input.manifest.taskId ||
+        c2.hypothesis.taskRevisionSaid !== input.manifest.taskRevisionSaid ||
+        c2.hypothesis.originRunId !== input.manifest.originRunId ||
+        c2.reviewed.binding.arm !== 'C2' ||
+        c2.reviewed.binding.h0Said !== c2.hypothesis.d ||
+        c2.reviewed.binding.sourceInventorySaid !== input.manifest.sourceInventorySaid ||
+        c2.reviewed.binding.executionProfileSaid !== config.profile.d ||
+        c2.reviewed.successorRevisionSaid !== input.reviewedBehaviorSaid ||
+        c2.reviewed.treatment.kind !== 'ReviewedWorkflow' ||
+        c2.reviewed.implementation === undefined ||
+        c2.reviewed.replay === undefined ||
+        digestRunRuntimePrompt(config.systemPrompt, config.prompt) !==
+          config.profile.h1RuntimePromptDigest ||
+        !/^[a-f0-9]{40}$/u.test(c2.candidateCommit) ||
+        !/^[a-f0-9]{40}$/u.test(c2.candidateTree)
+      )
+        return { kind: 'Invalid', reason: 'ProfileDrift' };
+    }
     const trialStarted = performance.now();
     const clean = await config.source.open(input.cleanSourceSaid);
     if (clean === undefined) return { kind: 'Invalid', reason: 'CaptureFailed' };
@@ -539,6 +583,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
           prompt: config.prompt,
           maximumPrompts: config.maximumPrompts,
           enabledTools: config.enabledTools,
+          ...(input.slot.arm === 'C2' ? { requiresWorkflowContext: true } : {}),
         });
         const ready = await relay.receive();
         if (
@@ -559,9 +604,80 @@ export class DockerContainedTrialExecution implements TrialExecution {
           });
           await append({ kind: 'ArtifactCaptured', artifactSaid: startSaid, custody: 'Public' });
         }
+        const c2 = config.c2Workflow;
+        if (c2 !== undefined) {
+          const prepared = await c2.transition.prepare({
+            binding,
+            manifest: input.manifest,
+            slot: input.slot,
+            successorRevisionSaid: input.reviewedBehaviorSaid,
+            candidateCommit: c2.candidateCommit,
+            candidateTree: c2.candidateTree,
+            signal: input.signal,
+          });
+          if (
+            prepared.kind !== 'Prepared' ||
+            prepared.manifestSaid !== input.manifest.d ||
+            prepared.successorRevisionSaid !== input.reviewedBehaviorSaid ||
+            prepared.hypothesisSaid !== c2.hypothesis.d ||
+            prepared.sourceInventorySaid !== input.manifest.sourceInventorySaid ||
+            prepared.failureWindowSaid !== c2.hypothesis.publicReplay.failureWindowSaid ||
+            prepared.queryReceiptSaid !== c2.hypothesis.retrievalReceiptSaid ||
+            prepared.sourceEvidenceSaid !== c2.hypothesis.source.rawEvidenceSaid ||
+            prepared.withSourceChoiceSaid !==
+              c2.hypothesis.publicReplay.predictedSourceChoiceSaid ||
+            prepared.withSourceAction !== c2.hypothesis.publicReplay.predictedAction ||
+            (prepared.withSourceChoiceSaid === prepared.withoutSourceChoiceSaid &&
+              prepared.withSourceAction === prepared.withoutSourceAction) ||
+            ![prepared.readReceiptSaid, prepared.withoutSourceChoiceSaid].every(isSaid) ||
+            typeof prepared.withoutSourceAction !== 'string' ||
+            prepared.withoutSourceAction.length === 0 ||
+            typeof prepared.contextText !== 'string' ||
+            prepared.contextText.trim().length === 0 ||
+            Buffer.byteLength(prepared.contextText, 'utf8') > 32 * 1024
+          )
+            throw new Error('C2 qualified workflow transition unavailable.');
+          const contextReceiptSaid = await raw({
+            version: 1,
+            kind: 'C2WorkflowContextBound',
+            evaluationId: binding.evaluationId,
+            manifestSaid: input.manifest.d,
+            slot: input.slot,
+            successorRevisionSaid: input.reviewedBehaviorSaid,
+            hypothesisSaid: prepared.hypothesisSaid,
+            failureWindowSaid: prepared.failureWindowSaid,
+            sourceInventorySaid: prepared.sourceInventorySaid,
+            queryReceiptSaid: prepared.queryReceiptSaid,
+            readReceiptSaid: prepared.readReceiptSaid,
+            sourceEvidenceSaid: prepared.sourceEvidenceSaid,
+            withSourceChoiceSaid: prepared.withSourceChoiceSaid,
+            withoutSourceChoiceSaid: prepared.withoutSourceChoiceSaid,
+            withSourceAction: prepared.withSourceAction,
+            withoutSourceAction: prepared.withoutSourceAction,
+            contextText: prepared.contextText,
+          });
+          await append({
+            kind: 'ArtifactCaptured',
+            artifactSaid: contextReceiptSaid,
+            custody: 'Public',
+          });
+          await relay.send('WorkflowContext', {
+            version: 1,
+            kind: 'ReviewedC2WorkflowContext',
+            text: prepared.contextText,
+          });
+        }
+        let provisional:
+          | {
+              readonly eventSaid: string;
+              readonly artifactSaids: readonly string[];
+            }
+          | undefined;
         for (;;) {
           if (interrupted(input.signal)) throw new Error('Evaluation trial interrupted.');
           const frame = await relay.receive();
+          if (provisional !== undefined && frame.kind !== 'Stopped')
+            throw new Error('C2 worker continued after provisional submission.');
           if (frame.kind === 'ModelRequest') {
             const body = frame.payload;
             if (
@@ -694,6 +810,40 @@ export class DockerContainedTrialExecution implements TrialExecution {
               toolCallId: proposal.toolCallId,
               inputArtifactSaid: proposalArtifact,
             });
+            if (input.slot.arm === 'C2' && expected.name === 'submit_result') {
+              if (
+                proposal.input.kind !== 'SubmitResult' ||
+                c2 === undefined ||
+                expectedCalls.length !== 0
+              )
+                throw new Error('C2 provisional submission invalid.');
+              const authorized = await c2.submission.authorize({
+                binding,
+                proposal,
+                signal: input.signal,
+              });
+              if (authorized.kind !== 'Authorized')
+                throw new Error('C2 provisional submission was not authorized.');
+              const authorizationReceiptSaid = await raw({
+                kind: 'C2ProvisionalSubmissionAuthorized',
+                proposalEventSaid: proposedEvent,
+              });
+              await append({
+                kind: 'ArtifactCaptured',
+                artifactSaid: authorizationReceiptSaid,
+                custody: 'Public',
+              });
+              await debit('toolProposals', 1, authorizationReceiptSaid, proposedEvent);
+              provisional = {
+                eventSaid: proposedEvent,
+                artifactSaids: proposal.input.artifactSaids,
+              };
+              await relay.send('ProvisionalStop', {
+                proposalEventSaid: proposedEvent,
+              });
+              proposalIndex += 1;
+              continue;
+            }
             const started = performance.now();
             const outcome = await gateway.propose(binding, proposal, input.signal);
             const measured = measuredToolElapsed(started, performance.now());
@@ -782,7 +932,9 @@ export class DockerContainedTrialExecution implements TrialExecution {
             if (
               !isRecord(frame.payload) ||
               frame.payload.piSessionId !== sessionId ||
-              !['Submitted', 'NoSubmission'].includes(String(frame.payload.kind)) ||
+              (provisional === undefined
+                ? !['Submitted', 'NoSubmission'].includes(String(frame.payload.kind))
+                : frame.payload.kind !== 'Provisional') ||
               frame.payload.requestCount !== requestOrdinal ||
               expectedCalls.length !== 0
             )
@@ -793,6 +945,10 @@ export class DockerContainedTrialExecution implements TrialExecution {
         }
         if ((await exited) !== 0 || workerError.length > config.profile.limits.outputBytes)
           throw new Error('Evaluation worker did not stop cleanly.');
+        if (c2 !== undefined && provisional === undefined)
+          throw new Error('C2 worker did not propose a public-gated submission.');
+        if (provisional !== undefined && !(await compartment.stopWriters()))
+          throw new Error('C2 source writers survived provisional stop.');
         if (!(await runtimeMatches(config)))
           return {
             kind: 'Invalid',
@@ -841,6 +997,53 @@ export class DockerContainedTrialExecution implements TrialExecution {
           sourceReceipt,
           stoppedSourceEvent,
         );
+        if (provisional !== undefined) {
+          if (c2 === undefined) throw new Error('C2 public verification unavailable.');
+          const verification = await c2.verification.verify({
+            binding,
+            manifest: input.manifest,
+            slot: input.slot,
+            successorRevisionSaid: input.reviewedBehaviorSaid,
+            proposedArtifactSaids: provisional.artifactSaids,
+            proposalEventSaid: provisional.eventSaid,
+            capturedSourceSaid: captured.sourceSaid,
+            signal: input.signal,
+          });
+          const publicGate = assessC2PublicSubmission(
+            { capturedSourceSaid: captured.sourceSaid, proposalEventSaid: provisional.eventSaid },
+            verification,
+          );
+          if (
+            publicGate.kind === 'Invalid' ||
+            (await storeRawBytes(publicGate.bytes)) !== publicGate.receiptSaid
+          )
+            throw new Error('C2 fresh public verification unavailable or unbound.');
+          await append({
+            kind: 'ArtifactCaptured',
+            artifactSaid: publicGate.receiptSaid,
+            custody: 'Public',
+          });
+          if (publicGate.kind === 'Negative') {
+            await append({
+              kind: 'ToolAuthorization',
+              proposalEventSaid: provisional.eventSaid,
+              disposition: 'Denied',
+              receiptArtifactSaid: publicGate.receiptSaid,
+            });
+          } else {
+            const authorizationEventSaid = await append({
+              kind: 'ToolAuthorization',
+              proposalEventSaid: provisional.eventSaid,
+              disposition: 'Allowed',
+              receiptArtifactSaid: publicGate.receiptSaid,
+            });
+            await append({
+              kind: 'EffectObserved',
+              authorizationEventSaid,
+              receiptArtifactSaid: publicGate.receiptSaid,
+            });
+          }
+        }
         const cleanupConfirmed = await compartment.close();
         compartment = undefined;
         if (!cleanupConfirmed)
