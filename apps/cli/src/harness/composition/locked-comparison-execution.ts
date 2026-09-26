@@ -426,7 +426,7 @@ export async function executeLockedComparison(
       artifacts: evidence.rawArtifacts,
       protectedCases: input.custody,
     });
-    const pendingProtectedMeasurements: FinalizationNativeMeasurement[] = [];
+    const pendingGradingMeasurements: FinalizationNativeMeasurement[] = [];
     const recordGrading = async (receipt: FinalizationNativeMeasurement) => {
       await capturePending();
       const cleanup = await reading.openPublic({
@@ -473,15 +473,15 @@ export async function executeLockedComparison(
       observation,
       nowMicroseconds: () => Math.floor(performance.now() * 1000),
       record: async (receipt) => {
-        if (receipt.operation !== 'ProtectedObservation') return recordGrading(receipt);
-        // Ciphertext must follow the head inspected before protected observation.
-        // Persist accounting bytes now, but advance its events only after that exact ACK.
+        // The stopped trial prefix permits only public captures before ciphertext ACK.
+        // Retain every native receipt immediately and charge the in-memory F allowance,
+        // but append grading debits only after that exact protected acknowledgement.
         const stored = await evidence.rawArtifacts.record({
           bytes: Buffer.from(JSON.stringify(receipt)),
           mediaType: 'application/json',
         });
         if (stored.kind !== 'Stored') return false;
-        pendingProtectedMeasurements.push(receipt);
+        pendingGradingMeasurements.push(receipt);
         return true;
       },
     });
@@ -525,7 +525,7 @@ export async function executeLockedComparison(
         },
       });
       if (retained.kind !== 'Retained') throw new Error(`ProtectedGrading:${retained.frontier}`);
-      for (const measurement of pendingProtectedMeasurements.splice(0)) {
+      for (const measurement of pendingGradingMeasurements.splice(0)) {
         if (!(await recordGrading(measurement))) throw new Error('ProtectedGradingAccounting');
       }
       await capturePending();

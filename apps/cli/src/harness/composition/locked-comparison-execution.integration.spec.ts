@@ -442,6 +442,18 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           }),
         ).toBe(true);
         expect(raw.some((text) => text.includes('"operation":"ProtectedObservation"'))).toBe(false);
+        const stopped = events.findLastIndex((event) => event.detail.kind === 'TrialStopped');
+        expect(stopped).toBeGreaterThan(0);
+        // Native F receipts are retained while the stopped prefix stays immutable:
+        // no build/public/protected grading debit precedes the exact ciphertext ACK.
+        expect(
+          events
+            .slice(stopped + 1)
+            .every(
+              (event) =>
+                event.detail.kind === 'ArtifactCaptured' && event.detail.custody === 'Public',
+            ),
+        ).toBe(true);
         rejectCiphertext = false;
         expect(await executeLockedComparison(input)).toEqual({
           kind: 'RecoveryRequired',
