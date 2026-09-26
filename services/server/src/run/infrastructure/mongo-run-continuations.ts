@@ -312,6 +312,9 @@ export class MongoRunContinuations implements RunContinuationCommitments {
       taskMandateSaid: run.binding.taskMandateSaid,
       fromRunVersion: run.version,
       predecessor: {
+        ...(run.currentExecution === undefined
+          ? {}
+          : { segmentSaid: run.currentExecution.segmentSaid }),
         incarnationId: stream.binding.incarnationId,
         evidenceStreamId: predecessorStreamId,
         checkpointSaid: checkpoint.d,

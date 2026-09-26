@@ -22,6 +22,7 @@ export function sealedRunPredecessorFixture(
     readonly leaseAt: string;
     readonly at: string;
     readonly completionConditionIds?: readonly string[];
+    readonly outputArtifactSaids?: readonly string[];
   },
 ) {
   const base = options?.run ?? runFixture();
@@ -103,7 +104,7 @@ export function sealedRunPredecessorFixture(
         baseTree: initial.binding.repository.tree,
         changedFiles: [],
       },
-      outputArtifactSaids: [],
+      outputArtifactSaids: [...(options?.outputArtifactSaids ?? [])],
       verifierReceipts: (options?.completionConditionIds ?? []).map((completionConditionId) => {
         const receipt = preparePublicVerifierReceipt({
           version: 1,
