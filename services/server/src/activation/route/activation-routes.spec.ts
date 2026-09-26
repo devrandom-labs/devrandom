@@ -44,6 +44,64 @@ function command() {
 }
 
 describe('activation public HTTP boundary', () => {
+  it("reads only the owner's committed active pointer for recovery", async () => {
+    const taskId = command().taskId;
+    const pointer = {
+      version: 1 as const,
+      kind: 'Committed' as const,
+      taskId,
+      taskRevisionSaid: said('t'),
+      harnessLineageId: '33333333-3333-4333-8333-333333333333',
+      activeRevisionSaid: said('h'),
+      pointerVersion: 2,
+      commandId: '11111111-1111-4111-8111-111111111111',
+      decisionReceiptSaid: said('r'),
+      disposition: 'Retained' as const,
+    };
+    const readCurrent = vi.fn(() => Promise.resolve({ kind: 'Read' as const, pointer }));
+    const server = Fastify();
+    server.register(
+      activationRoutes(
+        Object.assign(
+          {
+            access: {
+              authorize: ({ bearerSecret }: { readonly bearerSecret: string }) =>
+                Promise.resolve(
+                  bearerSecret === 'a'.repeat(43)
+                    ? { kind: 'Authorized' as const, ownerAid: said('o') }
+                    : { kind: 'Denied' as const },
+                ),
+            },
+            activation: { commit: () => Promise.resolve({ kind: 'Unavailable' as const }) },
+            now: () => '2026-09-26T10:00:00.000Z',
+            newCorrelationId: () => 'correlation',
+          },
+          { reading: { readCurrent } },
+        ),
+      ),
+    );
+    try {
+      const url = `/api/tasks/${taskId}/activation`;
+      const accepted = await server.inject({
+        method: 'GET',
+        url,
+        headers: { authorization: `Bearer ${'a'.repeat(43)}` },
+      });
+      expect(accepted.statusCode).toBe(200);
+      expect(accepted.json()).toEqual(pointer);
+      expect(readCurrent).toHaveBeenCalledWith({ ownerAid: said('o'), taskId });
+      const denied = await server.inject({
+        method: 'GET',
+        url,
+        headers: { authorization: `Bearer ${'b'.repeat(43)}` },
+      });
+      expect(denied.statusCode).toBe(403);
+      expect(readCurrent).toHaveBeenCalledOnce();
+    } finally {
+      await server.close();
+    }
+  });
+
   it('requires dedicated scope and exact Task binding before calling commit', async () => {
     const input = command();
     const commit = vi.fn(() => Promise.resolve({ kind: 'Conflict' as const }));
@@ -55,6 +113,7 @@ describe('activation public HTTP boundary', () => {
       activationRoutes({
         access: { authorize },
         activation: { commit },
+        reading: { readCurrent: () => Promise.resolve({ kind: 'Unavailable' }) },
         now: () => '2026-09-26T10:00:00.000Z',
         newCorrelationId: () => 'correlation',
       }),

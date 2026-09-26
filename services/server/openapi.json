@@ -44853,6 +44853,239 @@
       }
     },
     "/api/tasks/{taskId}/activation": {
+      "get": {
+        "operationId": "readActiveHarnessPointer",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "in": "path",
+            "name": "taskId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer [A-Za-z0-9_-]{43}$"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "taskId",
+                        "taskRevisionSaid",
+                        "harnessLineageId",
+                        "activeRevisionSaid",
+                        "kind",
+                        "pointerVersion"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "taskId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "taskRevisionSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "harnessLineageId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "activeRevisionSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "Initial"
+                        },
+                        "pointerVersion": {
+                          "type": "number",
+                          "const": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "taskId",
+                        "taskRevisionSaid",
+                        "harnessLineageId",
+                        "activeRevisionSaid",
+                        "kind",
+                        "pointerVersion",
+                        "commandId",
+                        "decisionReceiptSaid",
+                        "disposition"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "taskId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "taskRevisionSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "harnessLineageId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "activeRevisionSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "Committed"
+                        },
+                        "pointerVersion": {
+                          "type": "integer",
+                          "minimum": 2,
+                          "maximum": 9007199254740991
+                        },
+                        "commandId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "decisionReceiptSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "disposition": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Activated"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Retained"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "operationId": "commitActivation",
         "requestBody": {

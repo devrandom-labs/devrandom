@@ -17,6 +17,7 @@ import {
 } from '../../harness/test/harness-command-fixture.js';
 import { activationCollectionNames, MongoActivationCommits } from './mongo-activation-commits.js';
 import { commitActivation } from '../application/commit-activation.js';
+import { readCurrentActivation } from '../application/read-current-activation.js';
 import { activationRoutes } from '../route/activation-routes.js';
 
 const mongoUri = process.env.DEVRANDOM_MONGODB_URI;
@@ -62,6 +63,14 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
   });
 
   it('keeps H1 active while receipt is pending, then commits one append-only transition', async () => {
+    expect(await storage.inspectCurrent({ ownerAid, taskId: harnessTask.taskId })).toMatchObject({
+      kind: 'Initial',
+      pointer: {
+        kind: 'Initial',
+        activeRevisionSaid: harnessCommand.revision.d,
+        pointerVersion: 1,
+      },
+    });
     const selection = preparePromotionSelectionRecord({
       taskId: harnessTask.taskId,
       taskRevisionSaid: harnessTask.revisionSaid,
@@ -108,6 +117,10 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
       activeRevisionSaid: command.expectedIncumbentRevisionSaid,
       pendingCommandId: command.commandId,
     });
+    expect(await storage.inspectCurrent({ ownerAid, taskId: command.taskId })).toMatchObject({
+      kind: 'Initial',
+      pointer: { activeRevisionSaid: command.expectedIncumbentRevisionSaid, pointerVersion: 1 },
+    });
     expect(await storage.inspect({ ownerAid, command })).toEqual({ kind: 'Pending' });
     expect(
       await storage.finalize({ ...input, recipientAid: said('X'), receiptSaid: said('R') }),
@@ -127,6 +140,14 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
     expect(finalized).toMatchObject({
       kind: 'Committed',
       receipt: {
+        activeRevisionSaid: command.expectedIncumbentRevisionSaid,
+        pointerVersion: 2,
+        decisionReceiptSaid: said('R'),
+      },
+    });
+    expect(await storage.inspectCurrent({ ownerAid, taskId: command.taskId })).toMatchObject({
+      kind: 'Committed',
+      pointer: {
         activeRevisionSaid: command.expectedIncumbentRevisionSaid,
         pointerVersion: 2,
         decisionReceiptSaid: said('R'),
@@ -204,7 +225,13 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
     const server = Fastify();
     server.register(
       activationRoutes({
-        access: { authorize: () => Promise.resolve({ kind: 'Authorized', ownerAid }) },
+        access: {
+          authorize: ({ bearerSecret }) =>
+            Promise.resolve({
+              kind: 'Authorized',
+              ownerAid: bearerSecret === 'b'.repeat(43) ? said('x') : ownerAid,
+            }),
+        },
         activation: {
           commit: (input) =>
             commitActivation(input, {
@@ -219,6 +246,16 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
               storage,
               receipts: {
                 sign: () => Promise.resolve({ kind: 'Signed', receiptSaid: said('R') }),
+                inspect: () => Promise.resolve('Verified'),
+              },
+            }),
+        },
+        reading: {
+          readCurrent: (input) =>
+            readCurrentActivation(input, {
+              source: storage,
+              receipts: {
+                sign: () => Promise.resolve({ kind: 'Unavailable' }),
                 inspect: () => Promise.resolve('Verified'),
               },
             }),
@@ -248,6 +285,24 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
         pointerVersion: 3,
         decisionReceiptSaid: said('R'),
       });
+      const current = await server.inject({
+        method: 'GET',
+        url: request.url,
+        headers: request.headers,
+      });
+      expect(current.statusCode).toBe(200);
+      expect(current.json()).toMatchObject({
+        kind: 'Committed',
+        activeRevisionSaid: command.expectedIncumbentRevisionSaid,
+        pointerVersion: 3,
+        decisionReceiptSaid: said('R'),
+      });
+      const wrongOwner = await server.inject({
+        method: 'GET',
+        url: request.url,
+        headers: { authorization: `Bearer ${'b'.repeat(43)}` },
+      });
+      expect(wrongOwner.statusCode).toBe(409);
       expect(
         await database
           .collection(activationCollectionNames.transitions)

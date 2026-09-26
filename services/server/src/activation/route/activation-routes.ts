@@ -1,11 +1,13 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply } from 'fastify';
 import {
+  activeHarnessPointerSchema,
   activationCommitCommandSchema,
   activationCommitReceiptSchema,
   workAccessAuthorizationHeadersSchema,
   type ActivationCommitCommand,
   type ActivationCommitReceipt,
+  type ActiveHarnessPointer,
 } from '@devrandom/protocol';
 import Type from 'typebox';
 import { Check, Errors } from 'typebox/value';
@@ -45,6 +47,15 @@ export interface ActivationRoutesConfiguration {
       readonly ownerAid: string;
       readonly command: ActivationCommitCommand;
     }): Promise<ActivationCommitReceipt>;
+  };
+  readonly reading: {
+    readCurrent(input: {
+      readonly ownerAid: string;
+      readonly taskId: string;
+    }): Promise<
+      | { readonly kind: 'Read'; readonly pointer: ActiveHarnessPointer }
+      | { readonly kind: 'Absent' | 'Conflict' | 'Unavailable' }
+    >;
   };
   now(): string;
   newCorrelationId(): string;
@@ -99,6 +110,42 @@ export function activationRoutes(
           code,
           correlationId: configuration.newCorrelationId(),
         });
+
+    server.get(
+      '/api/tasks/:taskId/activation',
+      {
+        schema: {
+          operationId: 'readActiveHarnessPointer',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: taskParameters,
+          response: {
+            200: activeHarnessPointerSchema,
+            403: problem,
+            409: problem,
+            503: problem,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = await configuration.access.authorize({
+          bearerSecret: request.headers.authorization.slice('Bearer '.length),
+          scope: 'activation:commit',
+          observedAt: configuration.now(),
+        });
+        if (access.kind !== 'Authorized')
+          return fail(reply, access.kind === 'Unavailable' ? 503 : 403, 'ActivationAccessDenied');
+        const observed = await configuration.reading.readCurrent({
+          ownerAid: access.ownerAid,
+          taskId: request.params.taskId,
+        });
+        if (observed.kind === 'Read') return reply.code(200).send(observed.pointer);
+        return fail(
+          reply,
+          observed.kind === 'Unavailable' ? 503 : 409,
+          `ActivePointer${observed.kind}`,
+        );
+      },
+    );
 
     server.put(
       '/api/tasks/:taskId/activation',

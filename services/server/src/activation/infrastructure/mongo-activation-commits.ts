@@ -3,10 +3,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { MongoServerError, type Collection, type Db, type MongoClient } from 'mongodb';
 
 import {
+  activeHarnessPointerSchema,
   decodeActivationCommitCommand,
   type ActivationCommitCommand,
   type ActivationCommitReceipt,
 } from '@devrandom/protocol';
+import Value from 'typebox/value';
 
 import {
   decodeHarnessDocument,
@@ -14,6 +16,7 @@ import {
 } from '../../harness/infrastructure/harness-document.js';
 import { harnessRevisionsCollectionName } from '../../harness/infrastructure/mongo-harness-revisions.js';
 import type { ActivationCommitStorage } from '../application/commit-activation.js';
+import type { CurrentActivationSource } from '../application/read-current-activation.js';
 
 export const activationCollectionNames = Object.freeze({
   pointers: 'activationPointers',
@@ -62,7 +65,7 @@ function duplicate(error: unknown): boolean {
 class ActivationConflict extends Error {}
 
 /** Version-only pointer plus append-only transitions; pending decisions cannot route a successor. */
-export class MongoActivationCommits implements ActivationCommitStorage {
+export class MongoActivationCommits implements ActivationCommitStorage, CurrentActivationSource {
   readonly #client: MongoClient;
   readonly #pointers: Collection<ActivationPointerDocument>;
   readonly #decisions: Collection<ActivationDecisionDocument>;
@@ -75,6 +78,105 @@ export class MongoActivationCommits implements ActivationCommitStorage {
     this.#decisions = database.collection(activationCollectionNames.decisions);
     this.#transitions = database.collection(activationCollectionNames.transitions);
     this.#harnesses = database.collection(harnessRevisionsCollectionName);
+  }
+
+  async inspectCurrent(
+    input: Parameters<CurrentActivationSource['inspectCurrent']>[0],
+  ): ReturnType<CurrentActivationSource['inspectCurrent']> {
+    const { ownerAid, taskId } = input;
+    try {
+      const pointer = await this.#pointers.findOne({ _id: taskId, ownerAid });
+      if (pointer === null || pointer.version === 1) {
+        if ((await this.#transitions.findOne({ ownerAid, taskId })) !== null)
+          return { kind: 'Conflict' };
+        const matches = await this.#harnesses
+          .find({ ownerAid, taskId, 'activation.kind': 'InitialSpecializationAccepted' })
+          .limit(2)
+          .toArray();
+        if (matches.length === 0) return { kind: 'Absent' };
+        if (matches.length !== 1) return { kind: 'Conflict' };
+        const initial = matches[0];
+        if (initial === undefined) return { kind: 'Conflict' };
+        const decoded = decodeHarnessDocument(initial);
+        if (decoded.activation.kind !== 'InitialSpecializationAccepted')
+          return { kind: 'Conflict' };
+        if (
+          pointer !== null &&
+          (pointer.taskRevisionSaid !== initial.taskRevisionSaid ||
+            pointer.harnessLineageId !== initial.harnessLineageId ||
+            pointer.activeRevisionSaid !== initial._id ||
+            pointer.version !== 1)
+        )
+          return { kind: 'Conflict' };
+        const observed = {
+          version: 1 as const,
+          kind: 'Initial' as const,
+          taskId,
+          taskRevisionSaid: initial.taskRevisionSaid,
+          harnessLineageId: initial.harnessLineageId,
+          activeRevisionSaid: initial._id,
+          pointerVersion: 1 as const,
+        };
+        return Value.Check(activeHarnessPointerSchema, observed)
+          ? { kind: 'Initial', pointer: observed }
+          : { kind: 'Conflict' };
+      }
+      if (!Number.isSafeInteger(pointer.version) || pointer.version < 2)
+        return { kind: 'Conflict' };
+      const transition = await this.#transitions.findOne({
+        _id: `${taskId}:${String(pointer.version)}`,
+        ownerAid,
+        taskId,
+      });
+      if (transition === null) return { kind: 'Conflict' };
+      const decision = await this.#decisions.findOne({
+        _id: transition.commandId,
+        ownerAid,
+        state: 'Committed',
+      });
+      if (decision === null || decision.receipt === undefined) return { kind: 'Conflict' };
+      const { command, receipt } = decision;
+      if (
+        decodeActivationCommitCommand(command).kind !== 'Accepted' ||
+        command.taskId !== taskId ||
+        command.taskRevisionSaid !== pointer.taskRevisionSaid ||
+        command.harnessLineageId !== pointer.harnessLineageId ||
+        command.expectedIncumbentRevisionSaid !== transition.previousRevisionSaid ||
+        command.expectedPointerVersion + 1 !== pointer.version ||
+        decision.nextPointerVersion !== pointer.version ||
+        decision.targetRevisionSaid !== pointer.activeRevisionSaid ||
+        transition.activeRevisionSaid !== pointer.activeRevisionSaid ||
+        transition.pointerVersion !== pointer.version ||
+        transition.receiptSaid !== receipt.decisionReceiptSaid ||
+        receipt.activeRevisionSaid !== pointer.activeRevisionSaid ||
+        receipt.pointerVersion !== pointer.version ||
+        receipt.kind !== 'Committed'
+      )
+        return { kind: 'Conflict' };
+      const observed = {
+        version: 1 as const,
+        kind: 'Committed' as const,
+        taskId,
+        taskRevisionSaid: pointer.taskRevisionSaid,
+        harnessLineageId: pointer.harnessLineageId,
+        activeRevisionSaid: pointer.activeRevisionSaid,
+        pointerVersion: pointer.version,
+        commandId: command.commandId,
+        decisionReceiptSaid: receipt.decisionReceiptSaid,
+        disposition: receipt.disposition,
+      };
+      if (!Value.Check(activeHarnessPointerSchema, observed)) return { kind: 'Conflict' };
+      const unchanged = await this.#pointers.findOne({ _id: taskId, ownerAid });
+      if (
+        unchanged === null ||
+        unchanged.version !== pointer.version ||
+        unchanged.activeRevisionSaid !== pointer.activeRevisionSaid
+      )
+        return { kind: 'Conflict' };
+      return { kind: 'Committed', pointer: observed, command, recipientAid: decision.recipientAid };
+    } catch {
+      return { kind: 'Unavailable' };
+    }
   }
 
   async inspect(

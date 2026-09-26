@@ -220,6 +220,7 @@ function unavailableActivationRoutes(): ActivationRoutesConfiguration {
   return {
     access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
     activation: { commit: () => Promise.resolve({ kind: 'Unavailable' }) },
+    reading: { readCurrent: () => Promise.resolve({ kind: 'Unavailable' }) },
     now: () => new Date().toISOString(),
     newCorrelationId: randomUUID,
   };

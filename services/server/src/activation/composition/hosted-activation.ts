@@ -14,6 +14,7 @@ import type {
   CurrentPromotionMandateInput,
 } from '../../mandate/application/current-promotion-mandate.js';
 import { commitActivation } from '../application/commit-activation.js';
+import { readCurrentActivation } from '../application/read-current-activation.js';
 import { issuerActivationReceipts } from '../infrastructure/issuer-activation-receipts.js';
 import { KeriaActivationAuthority } from '../infrastructure/keria-activation-authority.js';
 import { MongoActivationCommits } from '../infrastructure/mongo-activation-commits.js';
@@ -49,6 +50,9 @@ export function composeHostedActivation(input: {
     access: workAccessHostedEvaluationAuthorizer(input.attempts),
     activation: {
       commit: (request) => commitActivation(request, { authority, storage, receipts }),
+    },
+    reading: {
+      readCurrent: (request) => readCurrentActivation(request, { source: storage, receipts }),
     },
     now,
     newCorrelationId: randomUUID,
