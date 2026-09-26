@@ -24,6 +24,10 @@ import {
   type IssuerEvidenceSealExchange,
 } from './evidence-seal-exchange.js';
 import {
+  signifyIssuerEvaluationClosureSealExchange,
+  type IssuerEvaluationClosureSealExchange,
+} from './evaluation-closure-seal-exchange.js';
+import {
   signifyIssuerCurrentUserCredentialVerification,
   type IssuerCurrentUserCredentialVerification,
 } from './credential.js';
@@ -123,6 +127,7 @@ export interface VerifiedIssuerInfrastructure {
   readonly mandateAdmission: MandateAdmission;
   readonly runAdmissionExchange: IssuerRunAdmissionExchange;
   readonly evidenceSealExchange: IssuerEvidenceSealExchange;
+  readonly evaluationClosureSealExchange: IssuerEvaluationClosureSealExchange;
   readonly readiness: VerifiedIssuerReadiness;
 }
 
@@ -608,6 +613,7 @@ export async function connectVerifiedIssuerInfrastructure(
       verified.identity.issuerAid,
     ),
     evidenceSealExchange: signifyIssuerEvidenceSealExchange(verified.client),
+    evaluationClosureSealExchange: signifyIssuerEvaluationClosureSealExchange(verified.client),
     readiness: signifyIssuerReadiness(verified.client, verified.identity.issuerAid),
   };
 }

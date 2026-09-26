@@ -506,6 +506,8 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       tasks,
       presentations: mandatePresentations,
       currentTaskMandate,
+      issuerAid: result.issuer.identity.issuerAid,
+      closureExchanges: result.infrastructure.evaluationClosureSealExchange,
     });
     hostedWorkMongo = hostedWorkCandidate;
     hostedWorkCandidate = undefined;

@@ -117,6 +117,9 @@ function verifiedInfrastructure(
     evidenceSealExchange: {
       inspect: () => Promise.resolve({ kind: 'Pending' }),
     },
+    evaluationClosureSealExchange: {
+      inspect: () => Promise.resolve({ kind: 'Pending' }),
+    },
     readiness: { verify: () => Promise.resolve() },
   };
 }
@@ -162,6 +165,7 @@ describe('issuer startup application', () => {
       expect(result.issuer.profile).toEqual(profile);
       expect(result.issuer.identity).toEqual(verifiedIdentity());
       expect(typeof result.infrastructure.evidenceSealExchange.inspect).toBe('function');
+      expect(typeof result.infrastructure.evaluationClosureSealExchange.inspect).toBe('function');
     }
     expect(connectIssuerInfrastructure).toHaveBeenCalledWith(
       expect.objectContaining({ issuerAlias: 'devrandom-issuer' }),

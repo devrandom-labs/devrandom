@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify from 'fastify';
 import { MongoClient } from 'mongodb';
+import { issuerAid, personalAgentAid } from '@devrandom/identity';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   prepareEvaluationExecutionProfile,
+  prepareEvaluationClosure,
   prepareEvaluationSourceInventory,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -18,6 +20,7 @@ import type { CurrentTaskMandateAuthorization } from '../../mandate/application/
 import { MongoEvaluationBootstrap } from '../infrastructure/mongo-evaluation-bootstrap.js';
 import {
   evaluationCollectionNames,
+  type EvaluationDocument,
   type EvaluationPreparationDocument,
 } from '../infrastructure/mongo-evaluation-reservations.js';
 import { evaluationRoutes } from '../route/evaluation-routes.js';
@@ -27,6 +30,8 @@ const mongoUri = process.env.DEVRANDOM_MONGODB_URI;
 const describeMongo = mongoUri === undefined ? describe.skip : describe;
 const said = (letter: string): string => `E${letter.repeat(43)}`;
 const ownerAid = said('o');
+const agentAid = personalAgentAid('EERMVxqeHfFo_eIvyzBXaKdT1EyobZdSs1QXuFyYLjmz');
+const issuer = issuerAid('EBcIURLpxmVwahksgrsGW6_dUw0zBhyEHYFk17eWrZfk');
 const taskId = randomUUID();
 const sourceInventorySaid = said('i');
 const corpusSaid = said('c');
@@ -49,6 +54,8 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
   const server = Fastify().withTypeProvider<TypeBoxTypeProvider>();
   let address: string;
   let currentSource = false;
+  let sealAvailable = false;
+  let lastClosureInspection: unknown;
 
   beforeAll(async () => {
     await client.connect();
@@ -121,7 +128,7 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
                         admittedAt: new Date().toISOString(),
                       },
                       acceptedReference: {
-                        issueeAid: said('a'),
+                        issueeAid: agentAid,
                         registryId: said('z'),
                         taskId,
                         taskRevisionSaid: said('t'),
@@ -152,6 +159,17 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
               : { kind: 'TaskNotFound' as const },
           ),
       },
+      issuerAid: issuer,
+      closureExchanges: {
+        inspect: (expected) => {
+          lastClosureInspection = expected;
+          return Promise.resolve(
+            sealAvailable
+              ? { kind: 'Verified' as const, ...expected }
+              : { kind: 'Pending' as const },
+          );
+        },
+      },
     });
     server.register(evaluationRoutes(composed.evaluation));
     server.register(evidenceReadRoutes(composed.evidenceReading));
@@ -179,7 +197,7 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
         retainedCheckpointSaid: said('p'),
         retainedSealSaid: said('s'),
         expectedActiveRevisionSaid: said('h'),
-        personalAgentAid: said('a'),
+        personalAgentAid: agentAid,
         taskMandateSaid: said('m'),
         policySaid: said('l'),
         executionProfileSaid: said('e'),
@@ -313,7 +331,7 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
           retainedCheckpointSaid: said('p'),
           retainedSealSaid: said('s'),
           expectedActiveRevisionSaid: said('h'),
-          personalAgentAid: said('a'),
+          personalAgentAid: agentAid,
           taskMandateSaid: said('m'),
           policySaid: said('l'),
           executionProfileSaid: profile.profile.d,
@@ -328,6 +346,177 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
       ).toBe(0);
     } finally {
       currentSource = false;
+    }
+  });
+
+  it('requires issuer KERIA seal custody before even checking closure evidence completeness', async () => {
+    const inventory = prepareEvaluationSourceInventory({
+      taskId,
+      taskRevisionSaid: said('t'),
+      ownerAid,
+      repositoryResourceSaid: said('r'),
+      corpusSaid,
+      experienceMandateSaid: said('m'),
+      sources: [
+        {
+          episodeSaid: said('x'),
+          rawEvidenceSaid: said('y'),
+          ownerAid,
+          repositoryResourceSaid: said('r'),
+          corpusSaid,
+          disclosure: 'AuthorizedAnalogy',
+        },
+      ],
+    });
+    if (inventory.kind !== 'Prepared') throw new Error(inventory.reason);
+    const profile = prepareEvaluationExecutionProfile({
+      os: 'linux',
+      architecture: 'x86_64',
+      imageDigest: `sha256:${'1'.repeat(64)}`,
+      runtimeDigest: `sha256:${'2'.repeat(64)}`,
+      toolchainDigest: `sha256:${'3'.repeat(64)}`,
+      sourceGitCommit: 'a'.repeat(40),
+      sourceGitTree: 'b'.repeat(40),
+      h1InstructionSaid: said('i'),
+      h1RuntimePromptDigest: `sha256:${'4'.repeat(64)}`,
+      effectiveLimitsReceiptSaid: said('l'),
+      parentDeathCleanupReceiptSaid: said('p'),
+      modelProvider: 'test',
+      modelId: 'test',
+      thinkingLevel: 'off',
+      maximumOutputTokens: 100,
+      limits: {
+        cpuCount: 1,
+        memoryBytes: 128 * 1024 * 1024,
+        processCount: 16,
+        scratchBytes: 1024 * 1024,
+        outputBytes: 1024,
+        wallTimeSeconds: 45,
+      },
+      containment: {
+        nonRoot: true,
+        readOnlyRuntime: true,
+        networkDisabled: true,
+        privilegesDropped: true,
+        restrictedIpc: true,
+        parentDeathCleanup: true,
+      },
+    });
+    if (profile.kind !== 'Prepared') throw new Error(profile.reason);
+    const evaluationId = randomUUID();
+    const evidenceStreamId = randomUUID();
+    const originRunId = randomUUID();
+    const closure = prepareEvaluationClosure({
+      evaluationId,
+      evidenceStreamId,
+      originRunId,
+      manifestSaid: said('M'),
+      acceptedEventCount: 1,
+      acceptedHeadSaid: said('h'),
+      observationSaids: Array.from({ length: 18 }, (_, index) =>
+        said(String.fromCharCode(65 + index)),
+      ),
+      measurementSaids: Array.from({ length: 15 }, (_, index) =>
+        said(String.fromCharCode(97 + index)),
+      ),
+      sharedAuditSaid: said('s'),
+      armAuditSaids: {
+        H1: said('1'),
+        C1: said('2'),
+        C2: said('3'),
+        C3: said('4'),
+        H1TaskSearch: said('5'),
+      },
+      protectedCustodySaid: said('p'),
+      agentSealSaid: said('g'),
+    });
+    if (closure.kind !== 'Prepared') throw new Error(closure.reason);
+    const preparationCommandId = randomUUID();
+    await database
+      .collection<EvaluationPreparationDocument>(evaluationCollectionNames.preparations)
+      .insertOne({
+        _id: preparationCommandId,
+        ownerAid,
+        command: {
+          version: 1,
+          commandId: preparationCommandId,
+          fingerprint: `sha256:${'f'.repeat(64)}`,
+          taskId,
+          taskRevisionSaid: said('t'),
+          sourceInventory: inventory.inventory,
+          executionProfile: profile.profile,
+        },
+        sourceInventory: inventory.inventory,
+        executionProfile: profile.profile,
+        acceptedAt: new Date(),
+      });
+    const admittedCommandId = randomUUID();
+    await database.collection<EvaluationDocument>(evaluationCollectionNames.evaluations).insertOne({
+      _id: evaluationId,
+      ownerAid,
+      command: {
+        version: 1,
+        commandId: admittedCommandId,
+        fingerprint: `sha256:${'e'.repeat(64)}`,
+        taskId,
+        taskRevisionSaid: said('t'),
+        originRunId,
+        retainedCheckpointSaid: said('p'),
+        retainedSealSaid: said('s'),
+        expectedActiveRevisionSaid: said('h'),
+        personalAgentAid: agentAid,
+        taskMandateSaid: said('m'),
+        policySaid: said('l'),
+        executionProfileSaid: profile.profile.d,
+        sourceInventorySaid: inventory.inventory.d,
+        allocation: { diagnosis: budget, perEntry: budget, finalization: budget },
+      },
+      reserved: budget,
+      reservationSaid: said('v'),
+      evidenceStreamId,
+      version: 1,
+      lease: {
+        evaluationId,
+        leaseId: randomUUID(),
+        version: 1,
+        serverTime: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+      },
+      acceptedThroughSequence: 0,
+      chainHeadSaid: said('h'),
+      acceptedBytes: 0,
+      acceptedAt: new Date(),
+    });
+    currentSource = true;
+    const closureCommandId = randomUUID();
+    const close = () =>
+      fetch(`${address}/api/evaluations/${evaluationId}/closure`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${'s'.repeat(43)}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          version: 1,
+          commandId: closureCommandId,
+          fingerprint: `sha256:${'f'.repeat(64)}`,
+          expectedEvaluationVersion: 1,
+          closure: closure.closure,
+        }),
+      });
+    try {
+      const pending = await close();
+      expect(pending.status).toBe(403);
+      expect(await pending.json()).toMatchObject({ code: 'EvaluationClosureDenied' });
+      expect(lastClosureInspection).toMatchObject({
+        exchangeSaid: closure.closure.agentSealSaid,
+        sourceAid: agentAid,
+        recipientAid: issuer,
+      });
+      sealAvailable = true;
+      const verified = await close();
+      expect(verified.status).toBe(422);
+      expect(await verified.json()).toMatchObject({ code: 'EvaluationClosureIncomplete' });
+    } finally {
+      currentSource = false;
+      sealAvailable = false;
     }
   });
 });

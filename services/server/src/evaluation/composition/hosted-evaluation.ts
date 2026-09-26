@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Db, MongoClient } from 'mongodb';
+import type { IssuerAid, IssuerEvaluationClosureSealExchange } from '@devrandom/identity';
 
 import type { WorkAccessAttempts } from '../../access/application/work-access-attempts.js';
 import { workAccessHostedEvaluationAuthorizer } from '../../access/infrastructure/work-access-hosted-evaluation-authorizer.js';
@@ -30,6 +31,7 @@ import { renewHostedEvaluationLease } from '../application/renew-evaluation-leas
 import { CurrentEvaluationEligibility } from '../infrastructure/current-evaluation-eligibility.js';
 import { CurrentEvaluationSourceScopes } from '../infrastructure/current-evaluation-source-scopes.js';
 import { MongoEvaluationEvidence } from '../infrastructure/mongo-evaluation-evidence.js';
+import { KeriaEvaluationClosureAuthority } from '../infrastructure/keria-closure-authority.js';
 import {
   evaluationCollectionNames,
   MongoEvaluationPreparations,
@@ -54,6 +56,8 @@ export function composeHostedEvaluation(input: {
   readonly currentTaskMandate: {
     authorize(input: CurrentTaskMandateInput): Promise<CurrentTaskMandateAuthorization>;
   };
+  readonly issuerAid: IssuerAid;
+  readonly closureExchanges: IssuerEvaluationClosureSealExchange;
   readonly experience?: AnalogousExperience;
   readonly experienceReceipts?: ExperienceQueryReceiptReading;
 }): HostedEvaluationComposition {
@@ -67,6 +71,11 @@ export function composeHostedEvaluation(input: {
   const preparations = new MongoEvaluationPreparations(input.database);
   const reservations = new MongoEvaluationReservations(input.client, input.database);
   const evidence = new MongoEvaluationEvidence(input.client, input.database);
+  const closureAuthority = new KeriaEvaluationClosureAuthority(input.database, {
+    scopes: sources,
+    exchanges: input.closureExchanges,
+    issuerAid: input.issuerAid,
+  });
   const reading = new MongoEvidenceReading(input.database);
   const eligibility = new CurrentEvaluationEligibility(input.database, sources);
   const evaluations = input.database.collection<EvaluationDocument>(
@@ -150,10 +159,7 @@ export function composeHostedEvaluation(input: {
         },
         close: (request) =>
           closeEvaluation(request, {
-            authority: {
-              // agentSealSaid is content binding, not a verified agent signature.
-              verify: () => Promise.resolve({ kind: 'Denied' }),
-            },
+            authority: closureAuthority,
             closures: evidence,
           }),
       },
