@@ -141,15 +141,13 @@ integration('same calibration Run Mongo continuation', () => {
       },
       harnessCommandFingerprint(harness),
     );
-    await db
-      .collection<HarnessDocument>(harnessRevisionsCollectionName)
-      .insertOne({
-        ...harnessDocument,
-        activation: {
-          ...run.binding.initialSpecialization,
-          acceptedAt: new Date(run.binding.initialSpecialization.acceptedAt),
-        },
-      });
+    await db.collection<HarnessDocument>(harnessRevisionsCollectionName).insertOne({
+      ...harnessDocument,
+      activation: {
+        ...run.binding.initialSpecialization,
+        acceptedAt: new Date(run.binding.initialSpecialization.acceptedAt),
+      },
+    });
     expect(
       await new MongoActivationCommits(client, db).inspectCurrent({
         ownerAid: run.binding.ownerAid,
