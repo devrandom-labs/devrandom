@@ -125,7 +125,7 @@ async function prepare(directory: string): Promise<number> {
   return report.status === 'Passed' ? 0 : 1;
 }
 
-async function present(directory: string, stageId?: string): Promise<number> {
+export async function presentRecordedProofs(directory: string, stageId?: string): Promise<number> {
   const { readSimulationProofReport } = await import('./simulation-proof-report.js');
   const pointer: unknown = JSON.parse(await readFile(join(directory, 'latest.json'), 'utf8'));
   if (
@@ -164,7 +164,7 @@ if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)
       command === 'prepare'
         ? prepare(resolve(output))
         : command === 'present'
-          ? present(resolve(output), stageId)
+          ? presentRecordedProofs(resolve(output), stageId)
           : Promise.reject(new Error(usage));
     void operation
       .then((code) => {
