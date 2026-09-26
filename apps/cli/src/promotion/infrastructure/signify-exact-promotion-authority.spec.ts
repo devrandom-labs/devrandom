@@ -227,3 +227,34 @@ it('requires explicit exact M and closure confirmation before accessing custody'
   ).toEqual({ kind: 'PendingUserConfirmation' });
   expect(f.inspectCredential).not.toHaveBeenCalled();
 });
+
+it('rejects expired authority and a revoked Task Mandate even when exact-M promotion authority remains current', async () => {
+  const f = fixture();
+  expect(
+    await new SignifyExactPromotionAuthority({
+      ...f.options,
+      now: () => f.options.task.revision.expiresAt,
+    }).verify(f.input),
+  ).toEqual({ kind: 'Invalid' });
+  const inspect = f.inspectCredential.getMockImplementation();
+  if (inspect === undefined) throw new Error('credential fixture missing');
+  f.inspectCredential.mockImplementation(async (request) => {
+    const reply = await inspect(request);
+    return reply.kind === 'TaskMandate'
+      ? {
+          kind: 'TaskMandate',
+          value: {
+            ...reply.value,
+            credential: {
+              ...reply.value.credential,
+              telState: { kind: 'Revoked', revokedAt: '2026-09-24T18:30:00.000Z' },
+            },
+          },
+        }
+      : reply;
+  });
+  expect(await new SignifyExactPromotionAuthority(f.options).verify(f.input)).toEqual({
+    kind: 'Invalid',
+  });
+  expect(f.inspectCredential).toHaveBeenCalledTimes(4);
+});

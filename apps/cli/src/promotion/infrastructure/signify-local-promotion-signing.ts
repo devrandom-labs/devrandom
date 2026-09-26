@@ -16,6 +16,7 @@ import {
   decodeEvaluationManifest,
   preparePromotionSelectionRecord,
   type GovernorPromotionDecisionPayload,
+  type PromotionProposalPayload,
 } from '@devrandom/protocol';
 import type {
   AgentPromotionSigning,
@@ -115,16 +116,14 @@ export function signifyLocalPromotionSigning(input: SignifyLocalPromotionSigning
   readonly agent: AgentPromotionSigning;
   readonly governor: GovernorPromotionSigning;
 } {
-  const deliveredProposals = new Set<string>();
+  const deliveredProposals = new Map<string, PromotionProposalPayload>();
+  const distinctPrincipals =
+    new Set<string>([input.ownerAid, input.agentAid, input.governorAid, input.issuerAid]).size ===
+    4;
   return {
     agent: {
       async sign(payload) {
-        if (
-          String(input.agentAid) === String(input.governorAid) ||
-          String(input.agentAid) === String(input.issuerAid) ||
-          String(input.governorAid) === String(input.issuerAid)
-        )
-          return { kind: 'Unavailable' };
+        if (!distinctPrincipals) return { kind: 'Unavailable' };
         try {
           const stable = {
             kind: 'Proposal' as const,
@@ -137,7 +136,7 @@ export function signifyLocalPromotionSigning(input: SignifyLocalPromotionSigning
           const prepared = await input.exchanges.prepare(stable);
           const delivered = await input.exchanges.deliver({ ...stable, ...prepared });
           if (delivered.exchangeSaid !== prepared.exchangeSaid) return { kind: 'Unavailable' };
-          deliveredProposals.add(delivered.exchangeSaid);
+          deliveredProposals.set(delivered.exchangeSaid, structuredClone(payload));
           return {
             kind: 'Verified',
             exchangeSaid: delivered.exchangeSaid,
@@ -152,10 +151,20 @@ export function signifyLocalPromotionSigning(input: SignifyLocalPromotionSigning
     governor: {
       async sign({ decision, mandate, evidence }) {
         if (
-          String(input.agentAid) === String(input.governorAid) ||
-          String(input.agentAid) === String(input.issuerAid) ||
-          String(input.governorAid) === String(input.issuerAid) ||
-          !deliveredProposals.has(decision.agentProposalExchangeSaid) ||
+          !distinctPrincipals ||
+          !isDeepStrictEqual(deliveredProposals.get(decision.agentProposalExchangeSaid), {
+            version: 1,
+            kind: 'PromotionProposal',
+            taskId: decision.taskId,
+            taskRevisionSaid: decision.taskRevisionSaid,
+            harnessLineageId: decision.harnessLineageId,
+            expectedIncumbentRevisionSaid: decision.expectedIncumbentRevisionSaid,
+            expectedPointerVersion: decision.expectedPointerVersion,
+            evaluationManifestSaid: decision.evaluationManifestSaid,
+            evaluationClosureSaid: decision.evaluationClosureSaid,
+            disposition: decision.disposition,
+            hypothesisSaid: evidence.hypothesisSaid,
+          }) ||
           mandate.credential.issuerAid !== input.ownerAid ||
           mandate.credential.issueeAid !== input.governorAid ||
           mandate.credential.credentialSaid !== decision.exactPromotionMandateSaid ||

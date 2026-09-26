@@ -1,3 +1,5 @@
+import { generateKeyPairSync, sign, verify as verifySignature } from 'node:crypto';
+
 import {
   comparisonSlots,
   type CurrentExactPromotionMandate,
@@ -15,6 +17,7 @@ import {
 import {
   prepareEvaluationClosure,
   prepareEvaluationManifest,
+  prepareEvidenceArtifact,
   preparePromotionSelectionRecord,
   type GovernorPromotionDecisionPayload,
   type PromotionProposalPayload,
@@ -205,11 +208,97 @@ function fixture() {
 }
 
 describe('Signify local promotion signing', () => {
-  it('binds separate native personal-agent and Governor exchanges to exact evidence and authority', async () => {
+  it.each(['agent', 'governor'] as const)(
+    'refuses to use the task owner as the %s signing principal',
+    async (principal) => {
+      const { mandate, proposal } = fixture();
+      const prepare = vi.fn<LocalPromotionExchanges['prepare']>();
+      const signers = signifyLocalPromotionSigning({
+        exchanges: { prepare, deliver: vi.fn<LocalPromotionExchanges['deliver']>() },
+        agentAid: principal === 'agent' ? personalAgentAid(owner) : agent,
+        governorAid: principal === 'governor' ? governorAid(owner) : governor,
+        issuerAid: issuer,
+        ownerAid: owner,
+        authority: { verify: () => Promise.resolve({ kind: 'Current', mandate }) },
+        confirm: () => Promise.resolve('Confirmed'),
+        now: () => 123,
+      });
+      expect(await signers.agent.sign(proposal)).toEqual({ kind: 'Unavailable' });
+      expect(prepare).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['hypothesis', 'closure', 'pointer', 'disposition'] as const)(
+    'refuses to countersign a delivered proposal with a different %s binding',
+    async (substitution) => {
+      const { evidence, mandate, proposal, decision } = fixture();
+      const prepare = vi.fn(
+        (input: StablePromotionExchange): Promise<PreparedPromotionExchange> => {
+          const prepared = prepareEvidenceArtifact(
+            Buffer.from(JSON.stringify(input)),
+            'application/json',
+          );
+          if (prepared.kind !== 'Prepared') throw new Error('exchange fixture rejected');
+          return Promise.resolve({ exchangeSaid: prepared.artifact.d });
+        },
+      );
+      const confirm = vi.fn<LocalGovernorPromotionConfirmation['confirm']>(() =>
+        Promise.resolve('Confirmed'),
+      );
+      const signers = signifyLocalPromotionSigning({
+        exchanges: {
+          prepare,
+          deliver: (input) => Promise.resolve({ exchangeSaid: input.exchangeSaid }),
+        },
+        agentAid: agent,
+        governorAid: governor,
+        issuerAid: issuer,
+        ownerAid: owner,
+        authority: { verify: () => Promise.resolve({ kind: 'Current', mandate }) },
+        confirm,
+        now: () => 123,
+      });
+      const substituted: PromotionProposalPayload = {
+        ...proposal,
+        ...(substitution === 'hypothesis' ? { hypothesisSaid: said('x') } : {}),
+        ...(substitution === 'closure' ? { evaluationClosureSaid: said('x') } : {}),
+        ...(substitution === 'pointer' ? { expectedPointerVersion: 2 } : {}),
+        ...(substitution === 'disposition'
+          ? { disposition: { kind: 'RetainIncumbent' as const, selectionEvidenceSaid: said('x') } }
+          : {}),
+      };
+      const delivered = await signers.agent.sign(substituted);
+      if (delivered.kind !== 'Verified') throw new Error('proposal delivery fixture rejected');
+      // Changing the caller's object after delivery cannot rewrite what was signed.
+      Object.assign(substituted, proposal);
+      prepare.mockClear();
+      expect(
+        await signers.governor.sign({
+          decision: { ...decision, agentProposalExchangeSaid: delivered.exchangeSaid },
+          mandate,
+          evidence,
+        }),
+      ).toEqual({
+        kind: 'Rejected',
+      });
+      expect(prepare).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
+    },
+  );
+
+  it('binds separate personal-agent and Governor keys to exact evidence with an Ed25519 exchange fixture', async () => {
     const { evidence, mandate, proposal, decision } = fixture();
-    const prepare = vi.fn((input: StablePromotionExchange): Promise<PreparedPromotionExchange> =>
-      Promise.resolve({ exchangeSaid: input.kind === 'Proposal' ? said('P') : said('G') }),
-    );
+    const agentKey = generateKeyPairSync('ed25519');
+    const governorKey = generateKeyPairSync('ed25519');
+    const signed = new Map<string, { bytes: Buffer; signature: Buffer }>();
+    // Native cryptography with disposable keys; not live KERIA EXN/TEL acceptance.
+    const prepare = vi.fn((input: StablePromotionExchange): Promise<PreparedPromotionExchange> => {
+      const exchangeSaid = input.kind === 'Proposal' ? said('P') : said('G');
+      const bytes = Buffer.from(JSON.stringify(input));
+      const key = input.senderAlias === 'devrandom-personal-agent' ? agentKey : governorKey;
+      signed.set(exchangeSaid, { bytes, signature: sign(null, bytes, key.privateKey) });
+      return Promise.resolve({ exchangeSaid });
+    });
     const deliver = vi.fn(
       (
         input: StablePromotionExchange & PreparedPromotionExchange,
@@ -254,6 +343,32 @@ describe('Signify local promotion signing', () => {
     expect(verify).toHaveBeenCalledTimes(1);
     expect(verify).toHaveBeenCalledWith(expect.objectContaining({ ownerAid: owner }));
     expect(prepare.mock.calls.every(([input]) => input.recipientAid === issuer)).toBe(true);
+    const agentSignature = signed.get(said('P'));
+    const governorSignature = signed.get(said('G'));
+    if (agentSignature === undefined || governorSignature === undefined)
+      throw new Error('separate signatures missing');
+    expect(
+      verifySignature(null, agentSignature.bytes, agentKey.publicKey, agentSignature.signature),
+    ).toBe(true);
+    expect(
+      verifySignature(
+        null,
+        governorSignature.bytes,
+        governorKey.publicKey,
+        governorSignature.signature,
+      ),
+    ).toBe(true);
+    expect(
+      verifySignature(
+        null,
+        governorSignature.bytes,
+        agentKey.publicKey,
+        governorSignature.signature,
+      ),
+    ).toBe(false);
+    expect(
+      verifySignature(null, agentSignature.bytes, governorKey.publicKey, agentSignature.signature),
+    ).toBe(false);
   });
 
   it('denies a changed decision, missing user confirmation, or stale exact-M authority before Governor signature', async () => {

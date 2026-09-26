@@ -4,6 +4,7 @@ import {
   prepareEvaluationManifest,
   prepareEvaluationVerifierBundle,
   prepareEvidenceArtifact,
+  prepareProtectedEvaluationArtifact,
   prepareTrialObservationEvidence,
 } from '@devrandom/protocol';
 import { AesGcmProtectedCaseCustody } from '@devrandom/runtime';
@@ -254,4 +255,60 @@ it('regrades the exact ACKed ciphertext after reopening the locked oracle and re
       },
     ),
   ).toEqual({ kind: 'Incomplete' });
+});
+
+it('rejects re-addressed ciphertext tampering, a foreign custody key, and an independently valid replacement evaluator', async () => {
+  const found = await fixture();
+  const input = { manifest: found.manifest, verifier: found.bundle, trial: found.trial };
+  const ports = {
+    custody: found.custody,
+    ciphertext: { protectedArtifact: () => ({ kind: 'Found' as const, artifact: found.actual }) },
+  };
+  expect(await regradeProtectedCesrObservation(input, ports)).toEqual({
+    kind: 'Verified',
+    verdict: 'Pass',
+  });
+  // A fresh valid SAID cannot repair an invalid AES-GCM authentication tag.
+  const ciphertext = Buffer.from(found.actual.ciphertext, 'base64url');
+  ciphertext[0] = (ciphertext[0] ?? 0) ^ 1;
+  const forged = prepareProtectedEvaluationArtifact({
+    ...Object.fromEntries(
+      Object.entries(found.actual).filter(([key]) => !['version', 'd', 'kind'].includes(key)),
+    ),
+    ciphertext: ciphertext.toString('base64url'),
+  });
+  if (forged.kind !== 'Prepared') throw new Error('tampering fixture rejected');
+  expect(forged.artifact.d).not.toBe(found.actual.d);
+  expect(
+    await regradeProtectedCesrObservation(
+      { ...input, trial: { ...found.trial, protectedObservationSaid: forged.artifact.d } },
+      {
+        ...ports,
+        ciphertext: { protectedArtifact: () => ({ kind: 'Found', artifact: forged.artifact }) },
+      },
+    ),
+  ).toEqual({ kind: 'Incomplete' });
+  expect(
+    await regradeProtectedCesrObservation(input, {
+      ...ports,
+      custody: new AesGcmProtectedCaseCustody(randomBytes(32)),
+    }),
+  ).toEqual({ kind: 'Incomplete' });
+
+  const substituted = prepareEvaluationVerifierBundle({
+    ...Object.fromEntries(
+      Object.entries(found.bundle).filter(([key]) => !['version', 'd', 'kind'].includes(key)),
+    ),
+    oracleAdapterDigest: `sha256:${'e'.repeat(64)}`,
+  });
+  if (substituted.kind !== 'Prepared') throw new Error('replacement evaluator fixture rejected');
+  expect(substituted.bundle.d).not.toBe(found.bundle.d);
+  expect(
+    await regradeProtectedCesrObservation({ ...input, verifier: substituted.bundle }, ports),
+  ).toEqual({ kind: 'Incomplete' });
+  // Every rejection leaves the original protected evidence independently usable.
+  expect(await regradeProtectedCesrObservation(input, ports)).toEqual({
+    kind: 'Verified',
+    verdict: 'Pass',
+  });
 });
