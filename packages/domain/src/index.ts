@@ -14,6 +14,16 @@ export * from './harness/initial-specialization.js';
 export * from './mandate/mandate-verification.js';
 export * from './promotion/exact-mandate.js';
 export * from './promotion/selection.js';
+export {
+  assessTamperAuditScope,
+  tamperAuditObligations,
+  tamperLifecycleRoles,
+  type TamperAuditScope,
+  type TamperAuditScopeAssessment,
+  type TamperLifecycleRole,
+  type VerifiedAttemptCoverage,
+  type VerifiedObligationProof,
+} from './tamper-audit/assessment.js';
 export * from './task/authority.js';
 export * from './task/task.js';
 export * from './run/execution.js';

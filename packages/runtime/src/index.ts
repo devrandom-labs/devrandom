@@ -149,5 +149,6 @@ export {
 } from './tool-gateway/tool-gateway.js';
 export { ToolProposalBudgetLedger } from './tool-gateway/tool-proposal-budget.js';
 export type * from './evaluation/application/evaluation-conversations.js';
+export { AesGcmProtectedCaseCustody } from './evaluation/infrastructure/aes-gcm-protected-case-custody.js';
 export type * from './context/application/experience-conversations.js';
 export * from './evaluation/application/run-protected-trial.js';
