@@ -4,6 +4,7 @@ export * from './evaluation/evidence-event.js';
 export * from './evaluation/evidence-batch.js';
 export * from './evaluation/closure.js';
 export * from './evaluation/closure-evidence-index.js';
+export * from './evaluation/comparison-evidence.js';
 export * from './evaluation/closure-seal.js';
 export * from './evaluation/source-inventory.js';
 export * from './evaluation/protected-artifact.js';
