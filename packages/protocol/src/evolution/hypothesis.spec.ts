@@ -26,8 +26,16 @@ function input() {
     },
     implicatedComponent: 'Workflow' as const,
     predictedCorrection: 'Require a fresh public compatibility receipt after the focused edit.',
-    publicReplayAssertion:
-      'The recovery workflow calls the disclosed public verifier on current source bytes.',
+    publicReplay: {
+      failureWindowSaid: said('l'),
+      configurationSaid: said('m'),
+      nonTreatmentInputsSaid: said('n'),
+      failureQuery: 'CESR compatibility failure after marker change',
+      predictedAction: 'Select compatibility recovery and request fresh public verification.',
+      predictedSourceChoiceSaid: said('o'),
+      assertion:
+        'The recovery workflow calls the disclosed public verifier on current source bytes.',
+    },
     falsifier:
       'The public verifier was already called on the final source, or the source does not change the recovery choice.',
     regressionRisks: ['Extra tool calls can exhaust the Task budget.'],
@@ -57,6 +65,12 @@ describe('evolution hypothesis', () => {
       reason: 'SchemaInvalid',
     });
     expect(prepareEvolutionHypothesis({ ...input(), rejectedExplanations: [] })).toEqual({
+      kind: 'Rejected',
+      reason: 'SchemaInvalid',
+    });
+    expect(
+      prepareEvolutionHypothesis({ ...input(), publicReplay: { assertion: 'verify' } }),
+    ).toEqual({
       kind: 'Rejected',
       reason: 'SchemaInvalid',
     });

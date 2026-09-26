@@ -33,7 +33,18 @@ export const evolutionHypothesisInputSchema = Type.Object(
       Type.Literal('ContextSelection'),
     ]),
     predictedCorrection: claim,
-    publicReplayAssertion: claim,
+    publicReplay: Type.Object(
+      {
+        failureWindowSaid: said,
+        configurationSaid: said,
+        nonTreatmentInputsSaid: said,
+        failureQuery: Type.String({ minLength: 1, maxLength: 1_024 }),
+        predictedAction: claim,
+        predictedSourceChoiceSaid: said,
+        assertion: claim,
+      },
+      { additionalProperties: false },
+    ),
     falsifier: claim,
     regressionRisks: Type.Array(claim, { minItems: 1, maxItems: 8 }),
     rejectedExplanations: Type.Array(claim, { minItems: 1, maxItems: 8 }),
@@ -73,7 +84,9 @@ function evidenceConflict(input: EvolutionHypothesisInput): boolean {
 function emptyClaim(input: EvolutionHypothesisInput): boolean {
   return [
     input.predictedCorrection,
-    input.publicReplayAssertion,
+    input.publicReplay.failureQuery,
+    input.publicReplay.predictedAction,
+    input.publicReplay.assertion,
     input.falsifier,
     ...input.regressionRisks,
     ...input.rejectedExplanations,
