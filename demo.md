@@ -3,7 +3,7 @@
 Run these commands in your normal zsh terminal. They invoke the built product CLI.
 Identity and Task creation are real; opening this guide starts no model or paid Run.
 
-## What is complete — September 26, 5:24 PM Eastern
+## What is complete — September 26, 5:40 PM Eastern
 
 | Part | Verified result |
 | --- | --- |
@@ -12,12 +12,15 @@ Identity and Task creation are real; opening this guide starts no model or paid 
 | Task management | Real Task creation, listing, and inspection passed using a separate rehearsal identity. |
 | Registration repairs | Corrected the schema service address and mixed-credential reconciliation that caused the silent wait and rejected issuance. |
 | Integration | Distinct changes from all 86 worktrees are integrated into `main`; obsolete duplicate patches were excluded. |
-| Checks | Latest `just check` passed: 2,484 tests, builds, CLI/server/site smoke checks, four pitch browser tests, and the Darwin Nix check. External integration tests run separately; 151 suite cases were skipped. |
+| Signed continuation receipts | Fixed HTTP serialization to preserve signed JSON field order and SAID verification; real HTTP regressions passed. |
+| Checks | Latest `just check` passed: 2,486 tests, builds, CLI/server/site smoke checks, four pitch browser tests, and the Darwin Nix check. External integration tests run separately; 151 suite cases were skipped. |
 
 The live evolution campaign is **not complete**. Its first calibration Run has
-a sealed checkpoint after `ContextLimitReached`. Same-H1 continuation and
-continuation-aware budget verification are implemented and passed dedicated MongoDB
-tests; the corrected live recovery is being deployed and has not yet succeeded.
+a sealed checkpoint after `ContextLimitReached`. The server admitted its same-H1
+continuation, but the CLI rejected the receipt because HTTP serialization changed
+signed field order. No successor model execution began. That transport fix is
+committed; recovery of the admitted-but-unstarted continuation is being verified.
+Continuation-aware budget verification passed dedicated MongoDB tests.
 
 The complete native comparison fixture ran 18 coding rollouts and produced 15
 measurements. Its honest result was **retain H1 / no eligible improvement**.
