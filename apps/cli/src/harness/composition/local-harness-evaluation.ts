@@ -87,6 +87,7 @@ import {
   type ReviewedPublicAnalogy,
 } from '../../evolution/application/review-public-analogy.js';
 import { progressQualifiedH0 } from '../../evolution/application/progress-qualified-h0.js';
+import { retrieveIndexedExperience } from '../../evolution/application/retrieve-indexed-experience.js';
 import { constructQualifiedEvolutionHypothesis } from '../../evolution/application/construct-qualified-hypothesis.js';
 import { observeSuccessorPublicReplay } from '../../evolution/application/observe-successor-public-replay.js';
 import { ParentSuccessorBehaviorReplay } from '../../evolution/infrastructure/parent-successor-behavior-replay.js';
@@ -780,7 +781,17 @@ export async function evaluateLocalHarness(
         reviews,
         commands,
         hosted: hosted.evaluations,
-        context: { open: (inventory) => hosted.context(inventory) },
+        context: {
+          open: (inventory) => {
+            const context = hosted.context(inventory);
+            return {
+              ...context,
+              retrieval: {
+                retrieve: (query) => retrieveIndexedExperience(query, context.retrieval, signal),
+              },
+            };
+          },
+        },
         records: h0Records,
       },
     );
