@@ -157,6 +157,8 @@ export function evaluationWorkAccessHttp(
   type Server = EvaluationWorkAccessSupply['initial']['server'];
   const inspectRun: ReturnType<Server['runs']>['inspect'] = (...args) =>
     access.request((grant) => grant.server.runs().inspect(...args));
+  const readSuccessorSegment: ReturnType<Server['runs']>['readSuccessorSegment'] = (...args) =>
+    access.request((grant) => grant.server.runs().readSuccessorSegment(...args));
   const inspectEvidence: ReturnType<Server['evidence']>['inspect'] = (...args) =>
     access.request((grant) => grant.server.evidence().inspect(...args));
   const readVerifierReceipt: ReturnType<Server['evidence']>['readVerifierReceipt'] = (...args) =>
@@ -175,7 +177,7 @@ export function evaluationWorkAccessHttp(
     readArtifact,
     context,
     qualification: {
-      runs: { inspect: inspectRun },
+      runs: { inspect: inspectRun, readSuccessorSegment },
       evidence: { inspect: inspectEvidence, readArtifact, readVerifierReceipt },
     },
     close: () => access.close(),
