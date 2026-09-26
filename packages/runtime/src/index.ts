@@ -171,5 +171,6 @@ export * from './evaluation/application/observe-protected-trial-artifact.js';
 export * from './evaluation/application/prepare-comparison-measurements.js';
 export * from './evaluation/application/prepare-evaluation-budget-coverage.js';
 export * from './evaluation/application/prepare-measured-trial-observation.js';
+export * from './evaluation/application/seal-cesr-comparison-cases.js';
 export { FileEvaluationCaseInventory } from './evaluation/infrastructure/file-evaluation-case-inventory.js';
 export * from './harness/application/materialize-successor.js';
