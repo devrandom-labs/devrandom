@@ -1,4 +1,10 @@
-import { promotionEvidenceClasses, type TaskEvaluationCapability } from '@devrandom/domain';
+import {
+  promotionEvidenceClasses,
+  promotionRequiredChecks,
+  promotionRequiredMetrics,
+  promotionRiskLimit,
+  type TaskEvaluationCapability,
+} from '@devrandom/domain';
 import type {
   StablePromotionMandateIssuance,
   StableTaskMandateIssuance,
@@ -18,7 +24,12 @@ export type MandateIssuancePlan<Issuance> =
   | { readonly kind: 'Prepared'; readonly issuance: Issuance }
   | {
       readonly kind: 'Rejected';
-      readonly reason: 'OwnerMismatch' | 'IssuanceTimeInvalid' | 'TaskDeadlineElapsed';
+      readonly reason:
+        | 'OwnerMismatch'
+        | 'IssuanceTimeInvalid'
+        | 'TaskDeadlineElapsed'
+        | 'TaskVersionUnsupported'
+        | 'ManifestSaidInvalid';
     };
 
 interface MandateResourceClaims {
@@ -129,6 +140,32 @@ export function preparePromotionMandateIssuance(
           : {}),
         notBefore: resource.claims.notBefore,
         expiresAt: resource.claims.expiresAt,
+      },
+    },
+  };
+}
+
+/** Post-H0 authority is a separate exact-M credential; the initial v2 mandate stays historical. */
+export function prepareExactPromotionMandateIssuance(
+  input: MandateIssuancePlanInput & { readonly evaluationManifestSaid: string },
+): MandateIssuancePlan<StablePromotionMandateIssuance> {
+  if (input.task.revision.version !== 2)
+    return { kind: 'Rejected', reason: 'TaskVersionUnsupported' };
+  if (!/^[A-Z][A-Za-z0-9_-]{43}$/u.test(input.evaluationManifestSaid))
+    return { kind: 'Rejected', reason: 'ManifestSaidInvalid' };
+  const base = preparePromotionMandateIssuance(input);
+  if (base.kind !== 'Prepared') return base;
+  return {
+    kind: 'Prepared',
+    issuance: {
+      ...base.issuance,
+      claims: {
+        ...base.issuance.claims,
+        experience: input.task.revision.constraints.experience,
+        evaluationManifestSaid: input.evaluationManifestSaid,
+        requiredMetrics: promotionRequiredMetrics,
+        requiredChecks: promotionRequiredChecks,
+        riskLimit: promotionRiskLimit,
       },
     },
   };

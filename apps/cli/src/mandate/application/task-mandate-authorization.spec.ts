@@ -18,10 +18,21 @@ import {
   type StableMandateGrant,
   type StableMandateIssuance,
 } from '@devrandom/identity';
-import { promotionMandateSchemaSaid, taskMandateSchemaSaid } from '@devrandom/protocol';
+import {
+  prepareTaskCommandV2,
+  promotionMandateSchemaSaid,
+  promotionMandateV2SchemaSaid,
+  promotionMandateV3SchemaSaid,
+  taskMandateSchemaSaid,
+  taskMandateV2SchemaSaid,
+} from '@devrandom/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
-import { taskProjectionFixture } from '../../../test/task-source-fixture.js';
+import {
+  preparedRepositoryFixture,
+  taskProjectionFixture,
+  taskSourceFixture,
+} from '../../../test/task-source-fixture.js';
 import type { LocalGovernanceProfile } from '../domain/local-governance.js';
 import type { TaskAuthorization } from '../domain/task-authorization.js';
 import type { HostedMandatePresentations } from './hosted-mandate-presentations.js';
@@ -37,11 +48,14 @@ const governor = governorAid('EBcIURLpxmVwahksgrsGW6_dUw0zBhyEHYFk17eWrZfk');
 const registry = credentialRegistryId('EBdHrbtS_iH9Oe9IH-3UDsHYNuWpwrtnkDzO5fKrITyK');
 const taskCredential = credentialSaid('EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
 const promotionCredential = credentialSaid('EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB');
+const exactPromotionCredential = credentialSaid(`E${'A'.repeat(42)}H`);
 const grantSaids = [
   ipexGrantSaid('ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'),
   ipexGrantSaid('EDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD'),
   ipexGrantSaid('EFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'),
   ipexGrantSaid('EGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG'),
+  ipexGrantSaid(`E${'A'.repeat(42)}I`),
+  ipexGrantSaid(`E${'A'.repeat(42)}J`),
 ] as const;
 const issuedAt = Date.parse('2026-09-24T18:15:00.000Z');
 const grantExpiresAt = '2026-09-24T21:00:00.000Z';
@@ -84,7 +98,11 @@ function inspection(issuance: StableMandateIssuance, said: string): MandateInspe
       return {
         kind: 'TaskMandate',
         value: {
-          credential: evidence(issuance, said, taskMandateSchemaSaid),
+          credential: evidence(
+            issuance,
+            said,
+            'experience' in issuance.claims ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
+          ),
           ...issuance.claims,
         },
       };
@@ -92,7 +110,15 @@ function inspection(issuance: StableMandateIssuance, said: string): MandateInspe
       return {
         kind: 'PromotionMandate',
         value: {
-          credential: evidence(issuance, said, promotionMandateSchemaSaid),
+          credential: evidence(
+            issuance,
+            said,
+            'evaluationManifestSaid' in issuance.claims
+              ? promotionMandateV3SchemaSaid
+              : 'experience' in issuance.claims
+                ? promotionMandateV2SchemaSaid
+                : promotionMandateSchemaSaid,
+          ),
           ...issuance.claims,
         },
       };
@@ -129,7 +155,11 @@ function custodyFixture() {
   let holdFirstObservation = true;
 
   function saidFor(issuance: StableMandateIssuance) {
-    return issuance.kind === 'TaskMandate' ? taskCredential : promotionCredential;
+    return issuance.kind === 'TaskMandate'
+      ? taskCredential
+      : 'evaluationManifestSaid' in issuance.claims
+        ? exactPromotionCredential
+        : promotionCredential;
   }
 
   function foundInspection(said: string): MandateInspection {
@@ -244,6 +274,88 @@ function presentationsFixture(): HostedMandatePresentations {
 }
 
 describe('Task mandate authorization', () => {
+  it('issues and confirms a separate exact-M v3 Promotion Mandate after the v2 Task authority', async () => {
+    const source = taskSourceFixture();
+    const prepared = prepareTaskCommandV2(
+      {
+        ...source,
+        version: 2,
+        constraints: {
+          ...source.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience: {
+            corpusSaid: 'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            repositoryResourceSaid: 'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+            disclosure: 'AuthorizedAnalogy',
+          },
+        },
+        requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
+      },
+      '97e16745-4b76-4de3-9ae5-a183496e73e8',
+      preparedRepositoryFixture,
+    );
+    if (prepared.kind !== 'Prepared') throw new Error('v2 Task fixture rejected');
+    const task = {
+      ...taskProjectionFixture(),
+      revision: prepared.command.revision,
+      revisionSaid: prepared.command.revision.d,
+    };
+    const fixture = custodyFixture();
+    fixture.releaseFirstObservation();
+    const initialRecords = new MemoryTaskAuthorizationRecords();
+    const initialInput = {
+      userAlias: 'devrandom-user',
+      task,
+      governance,
+      issuerAid: server,
+      workAccessExpiresAt: grantExpiresAt,
+    };
+    const initial = await new TaskMandateAuthorization({
+      records: initialRecords,
+      custody: fixture.custody,
+      presentations: presentationsFixture(),
+      now: () => issuedAt,
+      wait: () => Promise.resolve(),
+      maximumObservations: 20,
+    }).authorize(initialInput);
+    expect(initial.kind).toBe('Ready');
+    if (initial.kind !== 'Ready') return;
+    const exactRecords = new MemoryTaskAuthorizationRecords();
+    const manifestSaid = 'ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+    const exactInput = {
+      ...initialInput,
+      exactPromotionManifestSaid: manifestSaid,
+      initialReadyAuthorization: initial.authorization,
+    };
+    const exact = new TaskMandateAuthorization({
+      records: exactRecords,
+      custody: fixture.custody,
+      presentations: presentationsFixture(),
+      now: () => issuedAt,
+      wait: () => Promise.resolve(),
+      maximumObservations: 20,
+    });
+    const result = await exact.authorize(exactInput);
+    expect(result.kind).toBe('Ready');
+    if (result.kind !== 'Ready') return;
+    expect(result.authorization.stage.promotionMandate.credential.credentialSaid).toBe(
+      exactPromotionCredential,
+    );
+    expect(fixture.submittedIssuances).toHaveLength(3);
+    expect(fixture.submittedIssuances[2]).toMatchObject({
+      kind: 'PromotionMandate',
+      claims: { evaluationManifestSaid: manifestSaid },
+    });
+    expect(fixture.submittedGrants).toHaveLength(6);
+    await expect(exact.authorize(exactInput)).resolves.toMatchObject({ kind: 'Ready' });
+    expect(fixture.submittedIssuances).toHaveLength(3);
+    await expect(
+      exact.authorize({
+        ...exactInput,
+        exactPromotionManifestSaid: 'EDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
+      }),
+    ).resolves.toMatchObject({ kind: 'MandateInvalid' });
+  });
   it('checkpoints every stable protocol identity and resumes without duplicate authority', async () => {
     const records = new MemoryTaskAuthorizationRecords();
     const fixture = custodyFixture();

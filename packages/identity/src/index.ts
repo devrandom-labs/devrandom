@@ -6,6 +6,7 @@ export * from './evidence-seal-exchange.js';
 export * from './evaluation-closure-seal-exchange.js';
 export * from './promotion-exchange-inspection.js';
 export * from './activation-receipt-exchange.js';
+export * from './local-promotion-exchanges.js';
 export * from './challenge.js';
 export * from './identity-error.js';
 export * from './ipex.js';

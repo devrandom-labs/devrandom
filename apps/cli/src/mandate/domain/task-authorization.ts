@@ -305,6 +305,29 @@ export function beginTaskAuthorization(
   };
 }
 
+/** Begin the post-M exact promotion phase from an already admitted Task Mandate. */
+export function beginExactPromotionAuthorization(
+  initial: ReadyTaskAuthorization,
+  issuedAt: number,
+): TaskAuthorizationBeginning {
+  if (!validBinding(initial.binding)) return { kind: 'Rejected', reason: 'BindingInvalid' };
+  if (!validEpochMilliseconds(issuedAt) || issuedAt < initial.stage.taskMandate.credential.issuedAt)
+    return { kind: 'Rejected', reason: 'TimestampInvalid' };
+  return {
+    kind: 'Begun',
+    authorization: {
+      version: 1,
+      revision: 0,
+      binding: initial.binding,
+      stage: {
+        kind: 'PromotionMandate',
+        taskMandate: initial.stage.taskMandate,
+        progress: { kind: 'IssuancePrepared', issuedAt },
+      },
+    },
+  };
+}
+
 export function advanceTaskAuthorization(
   current: TaskAuthorization,
   advancement: TaskAuthorizationAdvancement,

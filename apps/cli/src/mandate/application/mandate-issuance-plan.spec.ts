@@ -1,4 +1,10 @@
-import { promotionEvidenceClasses, taskEvaluationBudgetCeilings } from '@devrandom/domain';
+import {
+  promotionEvidenceClasses,
+  promotionRequiredChecks,
+  promotionRequiredMetrics,
+  promotionRiskLimit,
+  taskEvaluationBudgetCeilings,
+} from '@devrandom/domain';
 import { prepareTaskCommandV2 } from '@devrandom/protocol';
 import {
   agentAid,
@@ -18,6 +24,7 @@ import {
 import type { LocalGovernanceProfile } from '../domain/local-governance.js';
 import {
   preparePromotionMandateIssuance,
+  prepareExactPromotionMandateIssuance,
   prepareTaskMandateIssuance,
 } from './mandate-issuance-plan.js';
 
@@ -38,6 +45,60 @@ const governance = {
 } satisfies LocalGovernanceProfile;
 
 describe('mandate issuance planning', () => {
+  it('binds a post-M exact promotion credential to v2 Task and all locked selection obligations', () => {
+    const source = taskSourceFixture();
+    const prepared = prepareTaskCommandV2(
+      {
+        ...source,
+        version: 2,
+        constraints: {
+          ...source.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience: {
+            corpusSaid: 'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            repositoryResourceSaid: 'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+            disclosure: 'AuthorizedAnalogy',
+          },
+        },
+        requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
+        budgets: { ...taskEvaluationBudgetCeilings },
+      },
+      '97e16745-4b76-4de3-9ae5-a183496e73e8',
+      preparedRepositoryFixture,
+    );
+    if (prepared.kind !== 'Prepared') throw new Error('v2 Task fixture rejected');
+    const task = {
+      ...taskProjectionFixture(),
+      revision: prepared.command.revision,
+      revisionSaid: prepared.command.revision.d,
+    };
+    const evaluationManifestSaid = 'ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+    const result = prepareExactPromotionMandateIssuance({
+      userAlias: 'devrandom-user',
+      governance,
+      task,
+      issuedAt: Date.parse('2026-09-24T18:15:00.000Z'),
+      evaluationManifestSaid,
+    });
+    expect(result.kind).toBe('Prepared');
+    if (result.kind !== 'Prepared') return;
+    expect(result.issuance.claims).toMatchObject({
+      evaluationManifestSaid,
+      requiredMetrics: promotionRequiredMetrics,
+      requiredChecks: promotionRequiredChecks,
+      riskLimit: promotionRiskLimit,
+      experience: task.revision.constraints.experience,
+    });
+    expect(
+      prepareExactPromotionMandateIssuance({
+        userAlias: 'devrandom-user',
+        governance,
+        task: taskProjectionFixture(),
+        issuedAt: Date.parse('2026-09-24T18:15:00.000Z'),
+        evaluationManifestSaid,
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'TaskVersionUnsupported' });
+  });
   it('binds PRD03 task memory to the exact corpus and repository in a versioned Task Mandate', () => {
     const source = taskSourceFixture();
     const experience = {

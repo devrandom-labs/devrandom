@@ -1,8 +1,11 @@
 import {
   verifyPromotionMandate,
+  verifyExactPromotionMandate,
   verifyTaskMandate,
+  type PromotionMandateInspection,
+  type ExactPromotionMandateClaims,
+  type ExactPromotionMandateInvalidity,
   type CurrentTaskMandate,
-  type MandateInvalidity,
   type MandateTask,
 } from '@devrandom/domain';
 import {
@@ -20,15 +23,19 @@ import {
 import {
   promotionMandateSchemaSaid,
   promotionMandateV2SchemaSaid,
+  promotionMandateV3SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
   type MandatePresentationProblem,
   type TaskProjection,
 } from '@devrandom/protocol';
+import Type from 'typebox';
+import Value from 'typebox/value';
 
 import type { LocalGovernanceProfile } from '../domain/local-governance.js';
 import {
   advanceTaskAuthorization,
+  beginExactPromotionAuthorization,
   beginTaskAuthorization,
   type MandateProtocolProgress,
   type ReadyTaskAuthorization,
@@ -40,6 +47,7 @@ import {
 import type { HostedMandatePresentations } from './hosted-mandate-presentations.js';
 import {
   preparePromotionMandateIssuance,
+  prepareExactPromotionMandateIssuance,
   prepareTaskMandateIssuance,
   type MandateIssuancePlan,
 } from './mandate-issuance-plan.js';
@@ -60,6 +68,33 @@ export interface TaskMandateAuthorizationInput {
   readonly governance: LocalGovernanceProfile;
   readonly issuerAid: IssuerAid;
   readonly workAccessExpiresAt: string;
+  /** Present only for a separate post-M exact promotion authorization record. */
+  readonly exactPromotionManifestSaid?: string;
+  readonly initialReadyAuthorization?: ReadyTaskAuthorization;
+}
+
+const said = Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' });
+const exactClaims = Type.Object(
+  {
+    evaluationManifestSaid: said,
+    requiredMetrics: Type.Array(Type.String()),
+    requiredChecks: Type.Array(Type.String()),
+    riskLimit: Type.Object(
+      {
+        maximumUnsafeEffects: Type.Integer({ minimum: 0 }),
+        maximumDisqualifyingAttempts: Type.Integer({ minimum: 0 }),
+        minimumAdditionalSuccessesOverEachControl: Type.Integer({ minimum: 0 }),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: true },
+);
+
+function hasExactClaims(
+  value: PromotionMandateInspection,
+): value is PromotionMandateInspection & ExactPromotionMandateClaims {
+  return Value.Check(exactClaims, value);
 }
 
 export interface TaskMandateAuthorizationDependencies {
@@ -71,7 +106,8 @@ export interface TaskMandateAuthorizationDependencies {
   readonly maximumObservations: number;
 }
 
-type MandateInspectionInvalidity = MandateInvalidity | { readonly kind: 'MandateKindMismatch' };
+type MandateInspectionInvalidity =
+  ExactPromotionMandateInvalidity | { readonly kind: 'MandateKindMismatch' };
 
 export type TaskMandateAuthorizationOutcome =
   | { readonly kind: 'Ready'; readonly authorization: ReadyTaskAuthorization }
@@ -137,7 +173,16 @@ export class TaskMandateAuthorization {
     }
     let authorization = await this.#dependencies.records.read(input.task.taskId);
     if (authorization === undefined) {
-      const beginning = beginTaskAuthorization(binding(input), this.#dependencies.now());
+      const beginning =
+        input.exactPromotionManifestSaid === undefined
+          ? beginTaskAuthorization(binding(input), this.#dependencies.now())
+          : input.initialReadyAuthorization !== undefined &&
+              sameBinding(input.initialReadyAuthorization.binding, binding(input))
+            ? beginExactPromotionAuthorization(
+                input.initialReadyAuthorization,
+                this.#dependencies.now(),
+              )
+            : { kind: 'Rejected' as const, reason: 'BindingInvalid' as const };
       if (beginning.kind === 'Rejected') {
         return { kind: 'BindingRejected' };
       }
@@ -146,6 +191,11 @@ export class TaskMandateAuthorization {
     } else if (!sameBinding(authorization.binding, binding(input))) {
       return { kind: 'BindingRejected' };
     }
+    if (
+      input.exactPromotionManifestSaid !== undefined &&
+      authorization.stage.kind === 'TaskMandate'
+    )
+      return { kind: 'BindingRejected' };
     await this.#dependencies.custody.prepareSchemas();
 
     let observationCount = 0;
@@ -749,24 +799,35 @@ export class TaskMandateAuthorization {
     if (currentTask.kind === 'Invalid') {
       return { kind: 'Invalid', invalidity: currentTask.invalidity };
     }
-    const verified = verifyPromotionMandate(
-      {
-        credential: {
-          issuerAid: input.governance.userAid,
-          issueeAid: input.governance.governorAid,
-          registryId: input.governance.mandateRegistryId,
-          schemaSaid:
-            input.task.revision.version === 2
+    const expectation = {
+      credential: {
+        issuerAid: input.governance.userAid,
+        issueeAid: input.governance.governorAid,
+        registryId: input.governance.mandateRegistryId,
+        schemaSaid:
+          input.exactPromotionManifestSaid !== undefined
+            ? promotionMandateV3SchemaSaid
+            : input.task.revision.version === 2
               ? promotionMandateV2SchemaSaid
               : promotionMandateSchemaSaid,
-          credentialSaid: inspection.value.credential.credentialSaid,
-        },
-        task,
-        taskMandate: currentTask.mandate,
-        observedAt,
+        credentialSaid: inspection.value.credential.credentialSaid,
       },
-      inspection.value,
-    );
+      task,
+      taskMandate: currentTask.mandate,
+      observedAt,
+    };
+    const verified =
+      input.exactPromotionManifestSaid === undefined
+        ? verifyPromotionMandate(expectation, inspection.value)
+        : hasExactClaims(inspection.value)
+          ? verifyExactPromotionMandate(
+              { ...expectation, evaluationManifestSaid: input.exactPromotionManifestSaid },
+              inspection.value,
+            )
+          : {
+              kind: 'Invalid' as const,
+              invalidity: { kind: 'EvaluationManifestMismatch' as const },
+            };
     return verified.kind === 'Current'
       ? { kind: 'Verified' }
       : { kind: 'Invalid', invalidity: verified.invalidity };
@@ -828,7 +889,12 @@ function mandateIssuancePlan(
   };
   return mandateKind === 'TaskMandate'
     ? prepareTaskMandateIssuance(planInput)
-    : preparePromotionMandateIssuance(planInput);
+    : input.exactPromotionManifestSaid === undefined
+      ? preparePromotionMandateIssuance(planInput)
+      : prepareExactPromotionMandateIssuance({
+          ...planInput,
+          evaluationManifestSaid: input.exactPromotionManifestSaid,
+        });
 }
 
 function protocolIssuedAt(progress: MandateProtocolProgress): number {
