@@ -14,7 +14,7 @@ import {
   type EvidenceStreamDocument,
 } from './evidence-stream-document.js';
 
-/** Reads only an artifact bound to the requested owner's current Run and evidence stream. */
+/** Reads exact Run-scoped bytes while verifying their original recording provenance. */
 export class MongoRunArtifactReading implements RunArtifactReading {
   readonly #runs: Collection<RunDocument>;
   readonly #streams: Collection<EvidenceStreamDocument>;
@@ -33,15 +33,23 @@ export class MongoRunArtifactReading implements RunArtifactReading {
       const run = decodeRunDocument(locatedRun).run;
       if (run.binding.runId !== input.runId || run.binding.ownerAid !== input.ownerAid)
         return { kind: 'Unavailable' } as const;
+      const locatedArtifact = await this.#artifacts.findOne({
+        _id: evidenceArtifactDocumentId(input.runId, input.artifactSaid),
+        ownerAid: input.ownerAid,
+        runId: input.runId,
+        'artifact.d': input.artifactSaid,
+      });
+      if (locatedArtifact === null) return { kind: 'NotFound' } as const;
+      const raw = decodeEvidenceArtifactDocument(locatedArtifact);
       const locatedStream = await this.#streams.findOne({
-        _id: run.binding.evidenceStreamId,
+        _id: raw.evidenceStreamId,
         'binding.runId': input.runId,
         'binding.ownerAid': input.ownerAid,
       });
-      if (locatedStream === null) return { kind: 'NotFound' } as const;
+      if (locatedStream === null) return { kind: 'Unavailable' } as const;
       const stream = decodeEvidenceStreamDocument(locatedStream);
       if (
-        stream.binding.streamId !== run.binding.evidenceStreamId ||
+        stream.binding.streamId !== raw.evidenceStreamId ||
         stream.binding.runId !== input.runId ||
         stream.binding.ownerAid !== input.ownerAid ||
         stream.binding.taskId !== run.binding.taskId ||
@@ -50,15 +58,6 @@ export class MongoRunArtifactReading implements RunArtifactReading {
         stream.binding.taskMandateSaid !== run.binding.taskMandateSaid
       )
         return { kind: 'Unavailable' } as const;
-      const locatedArtifact = await this.#artifacts.findOne({
-        _id: evidenceArtifactDocumentId(input.runId, input.artifactSaid),
-        ownerAid: input.ownerAid,
-        runId: input.runId,
-        evidenceStreamId: stream.binding.streamId,
-        'artifact.d': input.artifactSaid,
-      });
-      if (locatedArtifact === null) return { kind: 'NotFound' } as const;
-      const raw = decodeEvidenceArtifactDocument(locatedArtifact);
       if (
         raw.ownerAid !== input.ownerAid ||
         raw.runId !== input.runId ||

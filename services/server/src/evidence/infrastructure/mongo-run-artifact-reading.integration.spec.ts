@@ -5,18 +5,27 @@ import Fastify from 'fastify';
 import { Binary, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { acquireFirstRunLease } from '@devrandom/domain';
+import { acquireFirstRunLease, continueRun, createEvidenceStream } from '@devrandom/domain';
 import { prepareEvidenceArtifact } from '@devrandom/protocol';
 
 import { runCommandFingerprint, runFixture, runOwnerAid } from '../../run/test/run-fixture.js';
 import { MongoRunBootstrap } from '../../run/infrastructure/mongo-run-bootstrap.js';
 import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
-import { encodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
+import {
+  decodeRunDocument,
+  encodeRunDocument,
+  type RunDocument,
+} from '../../run/infrastructure/run-document.js';
 import { evidenceRoutes } from '../route/evidence-routes.js';
 import { evidenceCollectionNames } from './evidence-storage-contract.js';
 import { MongoEvidenceArtifacts } from './mongo-evidence-artifacts.js';
 import { MongoEvidenceBootstrap } from './mongo-evidence-bootstrap.js';
 import { MongoRunArtifactReading } from './mongo-run-artifact-reading.js';
+import {
+  decodeEvidenceStreamDocument,
+  encodeEvidenceStreamDocument,
+  type EvidenceStreamDocument,
+} from './evidence-stream-document.js';
 
 const uri = process.env.DEVRANDOM_MONGODB_URI;
 const describeMongo = uri === undefined ? describe.skip : describe;
@@ -121,6 +130,114 @@ describeMongo('listening Run artifact exact-read boundary', () => {
     );
     expect(absent.status).toBe(404);
 
+    const originalDocument = await database
+      .collection<RunDocument>(runsCollectionName)
+      .findOne({ _id: runFixture().binding.runId });
+    const originalStreamDocument = await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .findOne({ _id: runFixture().binding.evidenceStreamId });
+    if (originalDocument === null || originalStreamDocument === null)
+      throw new Error('original custody fixture');
+    const original = decodeRunDocument(originalDocument).run;
+    const originalStream = decodeEvidenceStreamDocument(originalStreamDocument);
+    if (original.lease.kind !== 'Held') throw new Error('held fixture');
+    const checkpointSaid = `E${'c'.repeat(43)}`;
+    const successorId = randomUUID();
+    const successorStreamId = randomUUID();
+    const successorHarness = `E${'v'.repeat(43)}`;
+    const continued = continueRun(
+      {
+        ...original,
+        lifecycle: {
+          kind: 'Active',
+          phase: { kind: 'Blocked', reason: 'CheckpointPause', checkpointSaid },
+        },
+      },
+      {
+        expectedRunVersion: original.version,
+        serverTime: '2026-09-24T20:01:00.000Z',
+        predecessor: {
+          incarnationId: original.lease.incarnationId,
+          evidenceStreamId: original.binding.evidenceStreamId,
+          checkpointSaid,
+        },
+        successor: {
+          segmentSaid: `E${'s'.repeat(43)}`,
+          incarnationId: successorId,
+          evidenceStreamId: successorStreamId,
+          harnessRevisionSaid: successorHarness,
+        },
+        activation: {
+          pointerVersion: 2,
+          activeRevisionSaid: successorHarness,
+          decisionReceiptSaid: `E${'d'.repeat(43)}`,
+        },
+        effects: 'Settled',
+      },
+    );
+    if (continued.kind !== 'Admitted') throw new Error('successor fixture');
+    const nextStream = createEvidenceStream({
+      ...originalStream.binding,
+      streamId: successorStreamId,
+      incarnationId: successorId,
+      harnessRevisionSaid: successorHarness,
+      combinedByteCeiling:
+        originalStream.binding.combinedByteCeiling -
+        originalStream.acceptedArtifactBytes -
+        originalStream.acceptedEvidenceBytes,
+    });
+    if (nextStream.kind !== 'Created') throw new Error('successor stream fixture');
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .insertOne(encodeEvidenceStreamDocument(nextStream.stream));
+    await database
+      .collection<RunDocument>(runsCollectionName)
+      .replaceOne(
+        { _id: original.binding.runId },
+        encodeRunDocument(continued.run, runCommandFingerprint),
+      );
+    const successorBytes = new TextEncoder().encode('new successor raw receipt');
+    const successorArtifact = prepareEvidenceArtifact(successorBytes, 'text/plain; charset=utf-8');
+    if (successorArtifact.kind !== 'Prepared') throw new Error('successor artifact');
+    const successorUrl = `${address}/api/runs/${original.binding.runId}/artifacts/${successorArtifact.artifact.d}`;
+    expect(
+      (
+        await fetch(successorUrl, {
+          method: 'PUT',
+          headers: {
+            authorization: `Bearer ${ownerBearer}`,
+            'content-type': 'text/plain; charset=utf-8',
+          },
+          body: successorBytes,
+        })
+      ).status,
+    ).toBe(201);
+    const successorRead = await fetch(successorUrl, {
+      headers: { authorization: `Bearer ${ownerBearer}` },
+    });
+    expect(successorRead.status).toBe(200);
+    expect(new Uint8Array(await successorRead.arrayBuffer())).toEqual(successorBytes);
+    expect((await fetch(url, { headers: { authorization: `Bearer ${ownerBearer}` } })).status).toBe(
+      200,
+    );
+    expect(
+      (await fetch(successorUrl, { headers: { authorization: `Bearer ${foreignBearer}` } })).status,
+    ).toBe(404);
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .updateOne(
+        { _id: successorStreamId },
+        { $set: { 'binding.taskRevisionSaid': `E${'z'.repeat(43)}` } },
+      );
+    expect(
+      (await fetch(successorUrl, { headers: { authorization: `Bearer ${ownerBearer}` } })).status,
+    ).toBe(503);
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .updateOne(
+        { _id: successorStreamId },
+        { $set: { 'binding.taskRevisionSaid': original.binding.taskRevisionSaid } },
+      );
     await database
       .collection(evidenceCollectionNames.artifacts)
       .updateOne(

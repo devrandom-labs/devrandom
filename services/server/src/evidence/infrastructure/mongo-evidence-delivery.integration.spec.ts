@@ -5,7 +5,14 @@ import Fastify from 'fastify';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { acquireFirstRunLease, createRun, openTask, type Run } from '@devrandom/domain';
+import {
+  acquireFirstRunLease,
+  continueCalibrationRun,
+  createEvidenceStream,
+  createRun,
+  openTask,
+  type Run,
+} from '@devrandom/domain';
 import {
   evidenceArtifactReferences,
   evidenceBatchCommandFingerprint,
@@ -52,6 +59,7 @@ import { taskCommandFixture } from '../../task/test/task-command-fixture.js';
 import { evidenceCollectionNames, evidenceUsageDocumentId } from './evidence-storage-contract.js';
 import {
   decodeEvidenceStreamDocument,
+  encodeEvidenceStreamDocument,
   type EvidenceStreamDocument,
 } from './evidence-stream-document.js';
 import type { EvidenceUsageDocument } from './evidence-usage-document.js';
@@ -138,7 +146,7 @@ function batch(run: Run, events: readonly EvidenceEvent[]) {
   const prepared = prepareEvidenceBatch({
     version: 1,
     runId: run.binding.runId,
-    evidenceStreamId: run.binding.evidenceStreamId,
+    evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
     events: [...events],
   });
   if (prepared.kind !== 'Prepared') {
@@ -285,6 +293,173 @@ describeMongo('Mongo evidence delivery transaction', () => {
         }),
       ).resolves.toMatchObject({ kind: 'EvidenceBatchAccepted' });
     }
+    const first = runs[0];
+    if (first === undefined || first.lease.kind !== 'Held') throw new Error('first Run fixture');
+    const checkpointSaid = `E${'c'.repeat(43)}`;
+    const continued = continueCalibrationRun(
+      {
+        ...first,
+        lifecycle: {
+          kind: 'Active',
+          phase: { kind: 'Blocked', reason: 'ContextLimitReached', checkpointSaid },
+        },
+      },
+      {
+        expectedRunVersion: first.version,
+        serverTime: '2026-09-24T20:02:00.000Z',
+        predecessor: {
+          incarnationId: first.lease.incarnationId,
+          evidenceStreamId: first.binding.evidenceStreamId,
+          checkpointSaid,
+        },
+        successor: {
+          segmentSaid: `E${'s'.repeat(43)}`,
+          incarnationId: randomUUID(),
+          evidenceStreamId: randomUUID(),
+          harnessRevisionSaid: first.binding.initialHarnessRevisionSaid,
+        },
+        baseline: {
+          pointerVersion: 1,
+          harnessRevisionSaid: first.binding.initialHarnessRevisionSaid,
+        },
+        effects: 'Settled',
+      },
+    );
+    if (continued.kind !== 'Admitted') throw new Error('successor fixture');
+    const successor = continued.run;
+    await database
+      .collection<RunDocument>(runsCollectionName)
+      .replaceOne(
+        { _id: first.binding.runId },
+        encodeRunDocument(successor, `sha256:${'c'.repeat(64)}`),
+      );
+    const originalStreamDocument = await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .findOne({ _id: first.binding.evidenceStreamId });
+    if (
+      originalStreamDocument === null ||
+      successor.lease.kind !== 'Held' ||
+      successor.currentExecution === undefined
+    )
+      throw new Error('stream fixture');
+    const originalStream = decodeEvidenceStreamDocument(originalStreamDocument);
+    const successorStream = createEvidenceStream({
+      ...originalStream.binding,
+      streamId: successor.currentExecution.evidenceStreamId,
+      incarnationId: successor.lease.incarnationId,
+      combinedByteCeiling:
+        originalStream.binding.combinedByteCeiling -
+        originalStream.acceptedArtifactBytes -
+        originalStream.acceptedEvidenceBytes,
+    });
+    if (successorStream.kind !== 'Created') throw new Error('successor stream fixture');
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .insertOne(encodeEvidenceStreamDocument(successorStream.stream));
+    const artifactRowsBefore = await database
+      .collection(evidenceCollectionNames.artifacts)
+      .find({ runId: first.binding.runId })
+      .toArray();
+    const usageBefore = await database
+      .collection<EvidenceUsageDocument>(evidenceCollectionNames.usage)
+      .findOne({ _id: evidenceUsageDocumentId });
+    expect(
+      await artifacts.admit({
+        ownerAid,
+        runId: first.binding.runId,
+        artifact: prepared.artifact,
+        bytes,
+        receivedAt: '2026-09-24T20:02:01.000Z',
+      }),
+    ).toMatchObject({ kind: 'EvidenceArtifactAlreadyStored' });
+    expect(
+      await database
+        .collection<EvidenceUsageDocument>(evidenceCollectionNames.usage)
+        .findOne({ _id: evidenceUsageDocumentId }),
+    ).toEqual(usageBefore);
+    const restarted = event(
+      successor,
+      0,
+      { kind: 'Genesis' },
+      { kind: 'RunStarted', fromRunVersion: successor.version },
+      '2026-09-24T20:02:01.000Z',
+    );
+    const incarnation = event(
+      successor,
+      1,
+      { kind: 'Previous', eventSaid: restarted.d },
+      { kind: 'IncarnationStarted' },
+      '2026-09-24T20:02:02.000Z',
+    );
+    const startup = batch(successor, [restarted, incarnation]);
+    expect(
+      await batches.accept({
+        ownerAid,
+        expectedRunVersion: successor.version,
+        commandFingerprint: evidenceBatchCommandFingerprint(startup),
+        body: startup,
+        receivedAt: '2026-09-24T20:02:03.000Z',
+      }),
+    ).toMatchObject({ kind: 'EvidenceBatchAccepted' });
+    const profile = event(
+      successor,
+      2,
+      { kind: 'Previous', eventSaid: incarnation.d },
+      {
+        kind: 'RunExecutionProfileBound',
+        executionProfileSaid: `E${'p'.repeat(43)}`,
+        profileArtifactSaid: prepared.artifact.d,
+        worktreeBranch: `devrandom/run/${first.binding.runId}`,
+      },
+      '2026-09-24T20:02:04.000Z',
+    );
+    const profileBody = batch(successor, [profile]);
+    const profileInput = {
+      ownerAid,
+      expectedRunVersion: successor.version,
+      commandFingerprint: evidenceBatchCommandFingerprint(profileBody),
+      body: profileBody,
+      receivedAt: '2026-09-24T20:03:00.000Z',
+    };
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .updateOne(
+        { _id: first.binding.evidenceStreamId },
+        { $set: { 'binding.taskRevisionSaid': `E${'z'.repeat(43)}` } },
+      );
+    expect(await batches.accept(profileInput)).toMatchObject({
+      kind: 'EvidenceBatchRejected',
+      reason: 'EventBindingMismatch',
+    });
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .updateOne(
+        { _id: first.binding.evidenceStreamId },
+        { $set: { 'binding.taskRevisionSaid': first.binding.taskRevisionSaid } },
+      );
+    await database
+      .collection(evidenceCollectionNames.artifacts)
+      .updateOne(
+        { runId: first.binding.runId, 'artifact.d': prepared.artifact.d },
+        { $set: { ownerAid: `E${'z'.repeat(43)}` } },
+      );
+    expect(await batches.accept(profileInput)).toMatchObject({
+      kind: 'EvidenceBatchRejected',
+      reason: 'EventBindingMismatch',
+    });
+    await database
+      .collection(evidenceCollectionNames.artifacts)
+      .updateOne(
+        { runId: first.binding.runId, 'artifact.d': prepared.artifact.d },
+        { $set: { ownerAid } },
+      );
+    expect(await batches.accept(profileInput)).toMatchObject({ kind: 'EvidenceBatchAccepted' });
+    expect(
+      await database
+        .collection(evidenceCollectionNames.artifacts)
+        .find({ runId: first.binding.runId })
+        .toArray(),
+    ).toEqual(artifactRowsBefore);
     await expect(
       database.collection(evidenceCollectionNames.artifacts).countDocuments({
         'artifact.d': prepared.artifact.d,

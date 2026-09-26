@@ -370,15 +370,30 @@ export class MongoEvidenceBatches implements EvidenceBatches {
     if (documents.length !== references.length) {
       return false;
     }
-    return documents.every((document) => {
+    // Artifacts are content-addressed within a Run; the recording stream is
+    // immutable provenance, not exclusive ownership by one incarnation.
+    for (const document of documents) {
       const artifact = decodeEvidenceArtifactDocument(document);
-      return (
-        artifact.ownerAid === ownerAid &&
-        artifact.runId === run.binding.runId &&
-        artifact.evidenceStreamId ===
-          (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId)
+      if (artifact.ownerAid !== ownerAid || artifact.runId !== run.binding.runId) return false;
+      const source = await this.#streams.findOne(
+        {
+          _id: artifact.evidenceStreamId,
+          'binding.runId': run.binding.runId,
+          'binding.ownerAid': ownerAid,
+        },
+        { session },
       );
-    });
+      if (source === null) return false;
+      const provenance = decodeEvidenceStreamDocument(source).binding;
+      if (
+        provenance.taskId !== run.binding.taskId ||
+        provenance.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+        provenance.personalAgentAid !== run.binding.personalAgentAid ||
+        provenance.taskMandateSaid !== run.binding.taskMandateSaid
+      )
+        return false;
+    }
+    return true;
   }
 
   async #checkpointIsConsistent(
