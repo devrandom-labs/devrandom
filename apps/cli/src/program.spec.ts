@@ -718,6 +718,26 @@ describe('devrandom command', () => {
     },
   );
 
+  it.each([
+    { kind: 'CalibrationRecoveryRequired', runId: 'original-run', ordinal: 1 },
+    { kind: 'CalibrationCampaignClosed', runId: 'original-run', ordinal: 2, reason: 'H1Passed' },
+    { kind: 'RetainedRunAlreadyAdmitted', runId: 'original-run' },
+  ] as const)('reports persisted campaign disposition $kind', async (outcome) => {
+    const fixture = commandFixture();
+    const runtime = processFixture();
+    await createProgram(
+      {
+        ...fixture.commands,
+        tasks: { ...fixture.commands.tasks, run: () => Promise.resolve(outcome) },
+      },
+      runtime.process,
+    ).parseAsync(['node', 'devrandom', 'task', 'run', 'repair-parser']);
+    expect(runtime.errors.join('')).toContain(outcome.kind);
+    expect(runtime.errors.join('')).toContain('Run ID: original-run');
+    expect(runtime.exitCodes).toEqual([6]);
+    expect(runtime.output).toEqual([]);
+  });
+
   it('reports a numeric context preflight without disclosing Run content', async () => {
     const decoded = decodeRunProjection(runProjectionFixture());
     if (decoded.kind !== 'Accepted') throw new Error('fixture Run must decode');

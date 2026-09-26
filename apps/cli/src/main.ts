@@ -50,8 +50,11 @@ import { SignifyLocalMandateAuthority } from './mandate/infrastructure/signify-l
 import { TaskAuthorizationFile } from './mandate/infrastructure/task-authorization-file.js';
 import { BaselineRunAdmission } from './run/application/baseline-run-admission.js';
 import { TaskRunObservations } from './run/application/task-run-observation.js';
+import { VerifiedCalibrationCampaignProgress } from './run/application/calibration-campaign-progress.js';
+import { FileCalibrationCampaignRecords } from './run/infrastructure/file-calibration-campaign-records.js';
 import { BaselineRunSupervisorComposition } from './run/composition/baseline-run-supervisor.js';
 import { LinuxRunSupervisorComposition } from './run/composition/linux-run-supervisor.js';
+import { TerminalCalibrationComposition } from './run/composition/terminal-calibration.js';
 import { GitLinuxH1PreLease } from './run/infrastructure/git-linux-h1-prelease.js';
 import {
   loadLinuxH1ProfileBundle,
@@ -69,7 +72,10 @@ import {
   type SourceInventoryCommandOutcome,
 } from './program.js';
 import { CurrentTaskAuthority, UserTasks } from './task/application/user-tasks.js';
-import { TaskRunExecution } from './task/application/task-run-execution.js';
+import {
+  TaskRunExecution,
+  type TaskRunExecutionOutcome,
+} from './task/application/task-run-execution.js';
 import { TaskRunPreparation } from './task/application/task-run-preparation.js';
 import { GitTaskRepository } from './task/infrastructure/git-task-repository.js';
 import { JsonTaskFile } from './task/infrastructure/task-file.js';
@@ -350,6 +356,12 @@ function taskRunExecution(): TaskRunExecution {
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
   };
   return new TaskRunExecution({
+    history: new VerifiedCalibrationCampaignProgress({
+      authority: currentTaskAuthority(),
+      admissions: new RunAdmissionFile(join(configuration.stateDirectory, 'run-admissions')),
+      records: new FileCalibrationCampaignRecords(configuration.stateDirectory),
+      now: () => Date.now(),
+    }),
     campaigns: {
       acquire: (taskLabel) =>
         new PreparedCompatibilityCampaignFile(
@@ -376,6 +388,60 @@ function taskRunExecution(): TaskRunExecution {
             },
           }),
   });
+}
+
+async function runTask(label: string, signal: AbortSignal): Promise<TaskRunExecutionOutcome> {
+  const outcome = await taskRunExecution().run(label, signal);
+  if (outcome.kind !== 'CalibrationRecoveryRequired' || signal.aborted) return outcome;
+  const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+  const authority = await currentTaskAuthority().acquireHostedWork();
+  if (authority.kind !== 'Authorized') return outcome;
+  const inspected = await authority.tasks.inspect(label);
+  if (inspected.kind !== 'Inspected') return outcome;
+  const hosted = await authority.runs.inspect(outcome.runId);
+  if (hosted.kind !== 'Found') return outcome;
+  const harness = await new BaselineHarnessAdmissionFile(
+    join(configuration.stateDirectory, 'harness-admissions'),
+  ).readAccepted({
+    taskId: inspected.task.taskId,
+    taskRevisionSaid: inspected.task.revisionSaid,
+    harnessSaid: hosted.run.harnessRevisionSaid,
+  });
+  if (harness.kind !== 'Read') return outcome;
+  const mandates = await new AuthorizedLocalTaskMandates({
+    local: currentLocalMandates(),
+    records: new TaskAuthorizationFile(join(configuration.stateDirectory, 'task-authorizations')),
+    issuerAid: configuration.issuerAid,
+    userAlias: devrandomUserAlias,
+    now: () => Date.now(),
+    wait: (milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+    maximumObservations: 300,
+  }).prepare({
+    user: authority.user,
+    task: inspected.task,
+    presentations: authority.presentations,
+    grantExpiresAt: authority.grantExpiresAt,
+  });
+  if (mandates.kind !== 'Prepared') return outcome;
+  const reconciled = await new TerminalCalibrationComposition({
+    stateRoot: configuration.stateDirectory,
+    issuerAid: configuration.issuerAid,
+    now: () => new Date().toISOString(),
+    wait: (milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+  }).reconcile(
+    {
+      user: authority.user,
+      task: inspected.task,
+      harness: harness.projection.revision,
+      mandates,
+      protectedCredentials: authority.protectedCredentials,
+      runId: outcome.runId,
+      runs: authority.runs,
+      evidence: authority.evidence,
+    },
+    signal,
+  );
+  return reconciled.kind === 'Reconciled' ? taskRunExecution().run(label, signal) : outcome;
 }
 
 function taskRunObservations(): TaskRunObservations {
@@ -446,7 +512,7 @@ const commands: DevrandomCommands = {
     create: (path) => userTasks().create(path),
     list: () => userTasks().list(),
     inspect: (label) => userTasks().inspect(label),
-    run: (label, signal) => taskRunExecution().run(label, signal),
+    run: (label, signal) => runTask(label, signal),
     status: (label) => taskRunObservations().status(label),
     watch: (label, signal) => taskRunObservations().watch(label, signal),
   },

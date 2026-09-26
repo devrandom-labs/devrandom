@@ -683,6 +683,24 @@ function renderTaskRunExecution(outcome: TaskRunExecutionOutcome): RenderedComma
   switch (outcome.kind) {
     case 'CalibrationCampaignUnavailable':
       return { destination: 'stderr', exitCode: 5, text: 'Calibration campaign unavailable.' };
+    case 'CalibrationRecoveryRequired':
+      return {
+        destination: 'stderr',
+        exitCode: 6,
+        text: `CalibrationRecoveryRequired: ordinal ${String(outcome.ordinal)} requires sealed terminal evidence.\nRun ID: ${outcome.runId}`,
+      };
+    case 'CalibrationCampaignClosed':
+      return {
+        destination: 'stderr',
+        exitCode: 6,
+        text: `CalibrationCampaignClosed: ordinal ${String(outcome.ordinal)}, ${outcome.reason}.\nRun ID: ${outcome.runId}`,
+      };
+    case 'RetainedRunAlreadyAdmitted':
+      return {
+        destination: 'stderr',
+        exitCode: 6,
+        text: `RetainedRunAlreadyAdmitted: inspect the existing Run.\nRun ID: ${outcome.runId}`,
+      };
     case 'CalibrationRunUnsettled':
       return {
         destination: 'stderr',

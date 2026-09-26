@@ -30,7 +30,9 @@ describe('baseline Harness admission file', () => {
       taskRevisionSaid: command.revision.task.revisionSaid,
       harnessSaid: command.revision.d,
     };
+    await expect(file.readAccepted(binding)).resolves.toEqual({ kind: 'NotFound' });
     const first = await file.acquire(binding);
+    await expect(file.readAccepted(binding)).resolves.toEqual({ kind: 'NotAccepted' });
     expect(first).toMatchObject({ kind: 'Acquired' });
     if (first.kind !== 'Acquired') {
       throw new Error('admission identity fixture must be acquired');
@@ -46,6 +48,15 @@ describe('baseline Harness admission file', () => {
     await expect(file.acknowledge(binding, projection)).resolves.toEqual({
       kind: 'Acknowledged',
     });
+    await expect(
+      new BaselineHarnessAdmissionFile(directory).readAccepted(binding),
+    ).resolves.toEqual({
+      kind: 'Read',
+      projection,
+    });
+    await expect(
+      file.readAccepted({ ...binding, harnessSaid: command.revision.authority.taskMandateSaid }),
+    ).resolves.toEqual({ kind: 'BindingConflict' });
     await expect(new BaselineHarnessAdmissionFile(directory).acquire(binding)).resolves.toEqual(
       first,
     );

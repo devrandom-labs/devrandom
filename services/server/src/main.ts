@@ -75,6 +75,7 @@ import { MongoEvidenceRunContexts } from './evidence/infrastructure/mongo-eviden
 import { MongoEvidenceSealContexts } from './evidence/infrastructure/mongo-evidence-seal-contexts.js';
 import { MongoEvidenceSeals } from './evidence/infrastructure/mongo-evidence-seals.js';
 import { MongoEvidenceTimelines } from './evidence/infrastructure/mongo-evidence-timelines.js';
+import { MongoTerminalCalibrationEvidence } from './evidence/infrastructure/mongo-terminal-calibration-evidence.js';
 import { workAccessEvidenceAuthorizer } from './evidence/infrastructure/work-access-evidence-authorizer.js';
 import type { EvidenceRoutesConfiguration } from './evidence/route/evidence-routes.js';
 import { composeHostedEvaluation } from './evaluation/composition/hosted-evaluation.js';
@@ -555,6 +556,12 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       },
     });
     hostedWorkMongo = hostedWorkCandidate;
+    const terminalCalibration = {
+      access: workAccessEvidenceAuthorizer(attempts),
+      reconciliation: new MongoTerminalCalibrationEvidence(hostedWorkCandidate, hostedDatabase),
+      now: () => new Date().toISOString(),
+      newCorrelationId: randomUUID,
+    };
     hostedWorkCandidate = undefined;
     hostedWork = {
       kind: 'Available',
@@ -564,6 +571,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       harness: harnessRoutesConfiguration,
       runs: runRoutesConfiguration,
       evidence: evidenceRoutesConfiguration,
+      terminalCalibration,
       ...hostedEvaluation,
       activation: hostedActivation,
     };

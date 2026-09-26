@@ -24,6 +24,10 @@ import {
   type EvidenceRoutesConfiguration,
 } from './evidence/route/evidence-routes.js';
 import {
+  terminalCalibrationRoutes,
+  type TerminalCalibrationRoutesConfiguration,
+} from './evidence/route/terminal-calibration-routes.js';
+import {
   evidenceReadRoutes,
   type EvidenceReadRoutesConfiguration,
 } from './evidence/route/evidence-read-routes.js';
@@ -63,6 +67,7 @@ export type HostedWorkCapabilities =
       readonly harness: HarnessRoutesConfiguration;
       readonly runs: RunRoutesConfiguration;
       readonly evidence: EvidenceRoutesConfiguration;
+      readonly terminalCalibration?: TerminalCalibrationRoutesConfiguration;
       readonly evaluation?: EvaluationRoutesConfiguration;
       readonly evidenceReading?: EvidenceReadRoutesConfiguration;
       readonly experience?: ExperienceRoutesConfiguration;
@@ -195,6 +200,18 @@ function unavailableEvaluationRoutes(): EvaluationRoutesConfiguration {
   };
 }
 
+function unavailableTerminalCalibrationRoutes(): TerminalCalibrationRoutesConfiguration {
+  return {
+    access: unavailableEvidenceRoutes().access,
+    reconciliation: {
+      reconcile: () =>
+        Promise.resolve({ kind: 'DependencyUnavailable', dependency: 'HostedMongoDB' }),
+    },
+    now: () => new Date().toISOString(),
+    newCorrelationId: randomUUID,
+  };
+}
+
 function unavailableEvidenceReadRoutes(): EvidenceReadRoutesConfiguration {
   return {
     access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
@@ -292,6 +309,13 @@ export function buildDevrandomServer(
       hostedWork.kind === 'Available' && hostedWork.evaluation !== undefined
         ? hostedWork.evaluation
         : unavailableEvaluationRoutes(),
+    ),
+  );
+  void server.register(
+    terminalCalibrationRoutes(
+      hostedWork.kind === 'Available' && hostedWork.terminalCalibration !== undefined
+        ? hostedWork.terminalCalibration
+        : unavailableTerminalCalibrationRoutes(),
     ),
   );
   void server.register(

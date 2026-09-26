@@ -111,6 +111,7 @@ test-mongodb-integration: _require-nix
       services/server/src/run/infrastructure/mongo-runs.integration.spec.ts \
       services/server/src/evidence/infrastructure/mongo-evidence-bootstrap.integration.spec.ts \
       services/server/src/evidence/infrastructure/mongo-evidence-delivery.integration.spec.ts \
+      services/server/src/evidence/infrastructure/mongo-terminal-calibration-evidence.integration.spec.ts \
       services/server/src/evidence/infrastructure/mongo-evidence-reading.integration.spec.ts \
       services/server/src/evidence/infrastructure/mongo-run-artifact-reading.integration.spec.ts \
       services/server/src/evaluation/infrastructure/mongo-evaluation-evidence.integration.spec.ts \

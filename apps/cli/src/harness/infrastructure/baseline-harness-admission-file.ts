@@ -55,6 +55,31 @@ export class BaselineHarnessAdmissionFile implements BaselineHarnessAdmissions {
     this.#directory = directory;
   }
 
+  async readAccepted(
+    binding: BaselineHarnessAdmissionBinding,
+  ): Promise<
+    | { kind: 'Read'; projection: Type.Static<typeof baselineHarnessProjectionSchema> }
+    | { kind: 'NotFound' | 'NotAccepted' | 'BindingConflict' | 'Unavailable' }
+  > {
+    if (!Value.Check(bindingSchema, binding)) {
+      return { kind: 'BindingConflict' };
+    }
+    try {
+      const admission = await this.#read(binding.taskId);
+      if (admission === undefined) {
+        return { kind: 'NotFound' };
+      }
+      if (!sameBinding(admission.binding, binding)) {
+        return { kind: 'BindingConflict' };
+      }
+      return admission.disposition.kind === 'Accepted'
+        ? { kind: 'Read', projection: admission.disposition.projection }
+        : { kind: 'NotAccepted' };
+    } catch {
+      return { kind: 'Unavailable' };
+    }
+  }
+
   async acquire(
     binding: BaselineHarnessAdmissionBinding,
   ): Promise<BaselineHarnessAdmissionAcquisition> {
