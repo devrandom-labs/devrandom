@@ -98,6 +98,7 @@ function manifest(verifierSaid: string, protectedSaid: string, finalSaid: string
     revisions: { H1: said('h'), C1: said('i'), C2: said('j'), C3: said('k') },
     executionProfileSaid: said('l'),
     sourceInventorySaid: said('m'),
+    hypothesisSaid: said('H'),
     verifierSaid,
     protectedCaseArtifactSaid: protectedSaid,
     finalCaseArtifactSaid: finalSaid,

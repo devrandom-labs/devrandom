@@ -24,6 +24,7 @@ function input() {
     revisions: { H1: said('h'), C1: said('i'), C2: said('j'), C3: said('k') },
     executionProfileSaid: said('l'),
     sourceInventorySaid: said('m'),
+    hypothesisSaid: said('q'),
     verifierSaid: said('n'),
     protectedCaseArtifactSaid: said('o'),
     finalCaseArtifactSaid: said('p'),
@@ -88,6 +89,7 @@ describe('frozen evaluation manifest and acyclic Harness association', () => {
     expect(binding.binding.evaluationManifestSaid).toBe(prepared.manifest.d);
     expect(binding.binding.harnessRevisionSaid).toBe(input().revisions.C2);
     expect(prepared.manifest.revisions.C2).toBe(input().revisions.C2);
+    expect(prepared.manifest.hypothesisSaid).toBe(input().hypothesisSaid);
   });
 
   it('rejects substituted artifacts and a re-signed incomplete schedule', () => {
@@ -96,6 +98,10 @@ describe('frozen evaluation manifest and acyclic Harness association', () => {
     expect(
       decodeEvaluationManifest({ ...prepared.manifest, executionProfileSaid: said('z') }),
     ).toEqual({ kind: 'Rejected', reason: 'SaidMismatch' });
+    expect(decodeEvaluationManifest({ ...prepared.manifest, hypothesisSaid: said('z') })).toEqual({
+      kind: 'Rejected',
+      reason: 'SaidMismatch',
+    });
     const changed: unknown = Saider.saidify({
       ...prepared.manifest,
       d: '',
@@ -109,6 +115,7 @@ describe('frozen evaluation manifest and acyclic Harness association', () => {
     for (const changed of [
       { ...original, revisions: { ...original.revisions, C1: original.revisions.H1 } },
       { ...original, finalCaseArtifactSaid: original.protectedCaseArtifactSaid },
+      { ...original, hypothesisSaid: undefined },
       { ...original, hiddenAnswers: ['accept'] },
       { ...original, publicConditionIds: ['cesr-current', 'cesr-current'] },
     ])

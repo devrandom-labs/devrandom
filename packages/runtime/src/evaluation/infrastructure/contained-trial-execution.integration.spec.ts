@@ -168,6 +168,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             revisions: { H1: said('h'), C1: said('j'), C2: said('k'), C3: said('n') },
             executionProfileSaid: profile.profile.d,
             sourceInventorySaid: said('m'),
+            hypothesisSaid: said('H'),
             verifierSaid: said('v'),
             protectedCaseArtifactSaid: said('o'),
             finalCaseArtifactSaid: said('p'),

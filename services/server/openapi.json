@@ -39117,6 +39117,7 @@
                       "revisions",
                       "executionProfileSaid",
                       "sourceInventorySaid",
+                      "hypothesisSaid",
                       "verifierSaid",
                       "protectedCaseArtifactSaid",
                       "finalCaseArtifactSaid",
@@ -39206,6 +39207,10 @@
                         "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
                       },
                       "sourceInventorySaid": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      },
+                      "hypothesisSaid": {
                         "type": "string",
                         "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
                       },

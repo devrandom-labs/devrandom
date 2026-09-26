@@ -35,6 +35,7 @@ function fixture() {
     revisions: { H1: said('h'), C1: said('i'), C2: said('j'), C3: said('k') },
     executionProfileSaid: said('e'),
     sourceInventorySaid: said('v'),
+    hypothesisSaid: said('H'),
     verifierSaid: said('z'),
     protectedCaseArtifactSaid: said('q'),
     finalCaseArtifactSaid: said('f'),

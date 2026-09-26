@@ -41,6 +41,7 @@ export const evaluationManifestInputSchema = Type.Object(
     ),
     executionProfileSaid: said,
     sourceInventorySaid: said,
+    hypothesisSaid: said,
     verifierSaid: said,
     protectedCaseArtifactSaid: said,
     finalCaseArtifactSaid: said,

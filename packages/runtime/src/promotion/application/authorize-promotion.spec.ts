@@ -67,6 +67,7 @@ function verifiedEvidence(controlSuccesses = 0): VerifiedPromotionEvidence {
     revisions: { H1: said('h'), C1: said('i'), C2: said('j'), C3: said('k') },
     executionProfileSaid: said('l'),
     sourceInventorySaid: said('m'),
+    hypothesisSaid: said('H'),
     verifierSaid: said('v'),
     protectedCaseArtifactSaid: said('x'),
     finalCaseArtifactSaid: said('y'),

@@ -103,6 +103,7 @@ function fixture(
     revisions: { H1: said('h'), C1: said('j'), C2: said('k'), C3: said('l') },
     executionProfileSaid: said('e'),
     sourceInventorySaid: said('i'),
+    hypothesisSaid: said('H'),
     verifierSaid: preparedBundle.bundle.d,
     protectedCaseArtifactSaid: protectedCase.stimulus.d,
     finalCaseArtifactSaid: terminalCase.stimulus.d,

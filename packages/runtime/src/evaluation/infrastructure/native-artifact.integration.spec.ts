@@ -399,6 +399,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         revisions: { H1: said('h'), C1: said('j'), C2: said('k'), C3: said('l') },
         executionProfileSaid: prepared.profile.d,
         sourceInventorySaid: said('i'),
+        hypothesisSaid: said('H'),
         verifierSaid: bundlePreparation.bundle.d,
         protectedCaseArtifactSaid: sealedStimulus.artifact.d,
         finalCaseArtifactSaid: terminalStimulus.artifact.d,
