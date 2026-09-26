@@ -9,9 +9,14 @@ import { ProtectedCredentials } from '@devrandom/domain';
 
 import { taskProjectionFixture } from '../../../test/task-source-fixture.js';
 import { GitHarnessInspection } from './git-harness-inspection.js';
+import { HostHarnessExecutionInventory } from './host-harness-execution-inventory.js';
 
 const executeFile = promisify(execFile);
 const directories: string[] = [];
+
+function hostInspection(path: string): GitHarnessInspection {
+  return new GitHarnessInspection(path, new HostHarnessExecutionInventory(path));
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -66,7 +71,7 @@ describe('Git H1 inspection', () => {
         await executeFile('git', ['rev-parse', 'HEAD^{tree}'], { cwd: fixture.path })
       ).stdout.trim();
       const task = taskProjectionFixture();
-      const outcome = await new GitHarnessInspection(fixture.path).inspect(
+      const outcome = await hostInspection(fixture.path).inspect(
         {
           ...task,
           revision: {
@@ -91,7 +96,7 @@ describe('Git H1 inspection', () => {
     });
     await executeFile('git', ['config', 'core.fsmonitor', hook], { cwd: fixture.path });
 
-    const outcome = await new GitHarnessInspection(fixture.path).inspect(
+    const outcome = await hostInspection(fixture.path).inspect(
       {
         ...task,
         revision: {
@@ -117,11 +122,8 @@ describe('Git H1 inspection', () => {
       },
     };
 
-    const first = await new GitHarnessInspection(fixture.path).inspect(
-      boundTask,
-      new ProtectedCredentials(),
-    );
-    const second = await new GitHarnessInspection(fixture.path).inspect(
+    const first = await hostInspection(fixture.path).inspect(boundTask, new ProtectedCredentials());
+    const second = await hostInspection(fixture.path).inspect(
       boundTask,
       new ProtectedCredentials(),
     );
@@ -149,6 +151,116 @@ describe('Git H1 inspection', () => {
     expect(first.snapshot.commandExecutables[0]?.executableRealpath).toMatch(/^\//u);
   });
 
+  it('binds a supplied Linux execution inventory instead of host OS and command paths', async () => {
+    const fixture = await repository();
+    const task = taskProjectionFixture();
+    const boundTask = {
+      ...task,
+      revision: {
+        ...task.revision,
+        repository: { objectFormat: 'sha1' as const, commit: fixture.commit, tree: fixture.tree },
+      },
+    };
+    const inventory = {
+      inspect: () =>
+        Promise.resolve({
+          kind: 'Inspected' as const,
+          environmentCompatibility: {
+            operatingSystem: 'linux' as const,
+            architecture: 'arm64' as const,
+            nodeVersion: '22.0.0',
+            gitVersion: '2.48.0',
+            piSdkVersion: '0.87.1',
+            xstateVersion: '5.33.2',
+          },
+          commandExecutables: [
+            {
+              commandId: 'public-test',
+              executableRealpath:
+                '/usr/local/rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu/bin/cargo',
+            },
+          ],
+        }),
+    };
+    const outcome = await new GitHarnessInspection(fixture.path, inventory).inspect(
+      boundTask,
+      new ProtectedCredentials(),
+    );
+    expect(outcome).toMatchObject({
+      kind: 'Inspected',
+      snapshot: {
+        environmentCompatibility: { operatingSystem: 'linux', architecture: 'arm64' },
+        commandExecutables: [
+          {
+            commandId: 'public-test',
+            executableRealpath:
+              '/usr/local/rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu/bin/cargo',
+          },
+        ],
+      },
+    });
+    await expect(
+      new GitHarnessInspection(fixture.path, inventory).inspect(
+        boundTask,
+        new ProtectedCredentials(['1.98.1-aarch64']),
+      ),
+    ).resolves.toEqual({ kind: 'Rejected', reason: 'SecretDetected' });
+  });
+
+  it('rejects a repository change made while the execution inventory is probed', async () => {
+    const fixture = await repository();
+    const task = taskProjectionFixture();
+    const boundTask = {
+      ...task,
+      revision: {
+        ...task.revision,
+        repository: { objectFormat: 'sha1' as const, commit: fixture.commit, tree: fixture.tree },
+      },
+    };
+    const host = new HostHarnessExecutionInventory(fixture.path);
+    const inventory = {
+      inspect: async (inspectedTask: typeof boundTask) => {
+        const observed = await host.inspect(inspectedTask);
+        await writeFile(join(fixture.path, 'AGENTS.md'), '# Modified during probe\n');
+        return observed;
+      },
+    };
+    await expect(
+      new GitHarnessInspection(fixture.path, inventory).inspect(
+        boundTask,
+        new ProtectedCredentials(),
+      ),
+    ).resolves.toEqual({ kind: 'Rejected', reason: 'WorktreeDirty' });
+  });
+
+  it('rejects a new clean commit made while the execution inventory is probed', async () => {
+    const fixture = await repository();
+    const task = taskProjectionFixture();
+    const boundTask = {
+      ...task,
+      revision: {
+        ...task.revision,
+        repository: { objectFormat: 'sha1' as const, commit: fixture.commit, tree: fixture.tree },
+      },
+    };
+    const host = new HostHarnessExecutionInventory(fixture.path);
+    const inventory = {
+      inspect: async (inspectedTask: typeof boundTask) => {
+        const observed = await host.inspect(inspectedTask);
+        await writeFile(join(fixture.path, 'AGENTS.md'), '# New clean commit\n');
+        await executeFile('git', ['add', 'AGENTS.md'], { cwd: fixture.path });
+        await executeFile('git', ['commit', '-m', 'changed during probe'], { cwd: fixture.path });
+        return observed;
+      },
+    };
+    await expect(
+      new GitHarnessInspection(fixture.path, inventory).inspect(
+        boundTask,
+        new ProtectedCredentials(),
+      ),
+    ).resolves.toEqual({ kind: 'Rejected', reason: 'RepositoryBindingChanged' });
+  });
+
   it.each(['RunFormatter', 'RunStaticAnalysis'] as const)(
     'resolves declared %s executables and rejects unavailable ones before H1 construction',
     async (capability) => {
@@ -170,7 +282,7 @@ describe('Git H1 inspection', () => {
           toolCommands: [declaration],
         },
       };
-      const inspection = new GitHarnessInspection(fixture.path);
+      const inspection = hostInspection(fixture.path);
       const outcome = await inspection.inspect(boundTask, new ProtectedCredentials());
       expect(outcome.kind).toBe('Inspected');
       if (outcome.kind !== 'Inspected') throw new Error('Expected inspected executables');
@@ -205,7 +317,7 @@ describe('Git H1 inspection', () => {
     await symlink(executable, alias);
     const task = taskProjectionFixture();
     await expect(
-      new GitHarnessInspection(fixture.path).inspect(
+      hostInspection(fixture.path).inspect(
         {
           ...task,
           revision: {
@@ -240,7 +352,7 @@ describe('Git H1 inspection', () => {
     await writeFile(join(fixture.path, 'AGENTS.md'), '# Changed after admission\n');
 
     await expect(
-      new GitHarnessInspection(fixture.path).inspect(boundTask, new ProtectedCredentials()),
+      hostInspection(fixture.path).inspect(boundTask, new ProtectedCredentials()),
     ).resolves.toEqual({
       kind: 'Rejected',
       reason: 'WorktreeDirty',

@@ -13,7 +13,7 @@
     "_format": "prettier --write .",
     "_format:check": "prettier --check .",
     "_lint": "eslint .",
-    "_test": "pnpm --filter @devrandom/domain run build && pnpm --filter @devrandom/protocol run build && pnpm --filter @devrandom/identity run build && vitest run",
+    "_test": "pnpm --filter @devrandom/domain run build && pnpm --filter @devrandom/protocol run build && pnpm --filter @devrandom/identity run build && pnpm --filter @devrandom/runtime run build && vitest run",
     "_typecheck": "tsc --noEmit"
   },
   "devDependencies": {

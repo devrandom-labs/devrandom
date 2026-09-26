@@ -57,6 +57,25 @@ export interface BaselineHarnessInspection {
   ): Promise<BaselineHarnessInspectionOutcome>;
 }
 
+/** The selected execution environment, not the Git adapter, owns executable realpaths. */
+export type HarnessExecutionInventoryOutcome =
+  | {
+      readonly kind: 'Inspected';
+      readonly environmentCompatibility: HarnessEnvironmentCompatibility;
+      readonly commandExecutables: readonly {
+        readonly commandId: string;
+        readonly executableRealpath: string;
+      }[];
+    }
+  | {
+      readonly kind: 'Rejected';
+      readonly reason: 'CommandExecutableUnavailable' | 'EnvironmentUnsupported';
+    };
+
+export interface HarnessExecutionInventory {
+  inspect(task: TaskProjection): Promise<HarnessExecutionInventoryOutcome>;
+}
+
 export type BaselineHarnessModelInspectionOutcome =
   | { readonly kind: 'Compatible'; readonly compatibility: HarnessModelCompatibility }
   | {

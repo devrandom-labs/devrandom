@@ -11,6 +11,7 @@ import {
 import { BaselineHarnessPreparation } from './harness/application/baseline-harness-preparation.js';
 import { BaselineHarnessAdmissionFile } from './harness/infrastructure/baseline-harness-admission-file.js';
 import { GitHarnessInspection } from './harness/infrastructure/git-harness-inspection.js';
+import { HostHarnessExecutionInventory } from './harness/infrastructure/host-harness-execution-inventory.js';
 import { EnvironmentPiModelInspection } from './harness/infrastructure/model-profile-environment.js';
 import { HarnessEvaluation } from './harness/application/harness-evaluation.js';
 import { VerifiedFailureCampaign } from './harness/application/verified-failure-campaign.js';
@@ -147,7 +148,10 @@ function taskRunPreparation(): TaskRunPreparation {
         CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
       }),
       availableCapabilities: managedWorktreeCapabilities,
-      repository: new GitHarnessInspection(process.cwd()),
+      repository: new GitHarnessInspection(
+        process.cwd(),
+        new HostHarnessExecutionInventory(process.cwd()),
+      ),
       model: new EnvironmentPiModelInspection({
         DEVRANDOM_MODEL_PROVIDER: process.env.DEVRANDOM_MODEL_PROVIDER,
         DEVRANDOM_MODEL_ID: process.env.DEVRANDOM_MODEL_ID,

@@ -1,23 +1,19 @@
 import { execFile } from 'node:child_process';
-import { constants } from 'node:fs';
-import { access, realpath, stat } from 'node:fs/promises';
-import { delimiter, isAbsolute, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { identifyHarnessInstruction, type TaskProjection } from '@devrandom/protocol';
-import type { HarnessEnvironmentCompatibility, ProtectedCredentials } from '@devrandom/domain';
+import type { ProtectedCredentials } from '@devrandom/domain';
 
 import type {
   BaselineHarnessInspection,
   BaselineHarnessInspectionOutcome,
+  HarnessExecutionInventory,
 } from '../application/baseline-harness-preparation.js';
 
 const executeFile = promisify(execFile);
 const maximumInstructionCount = 64;
 const maximumInstructionBytes = 131_072;
 const maximumTreeOutputBytes = 1_048_576;
-const piSdkVersion = '0.87.1';
-const xstateVersion = '5.33.2';
 
 type InspectionRejectionReason = Extract<
   BaselineHarnessInspectionOutcome,
@@ -36,9 +32,11 @@ class GitInspectionFailure extends Error {
 
 export class GitHarnessInspection implements BaselineHarnessInspection {
   readonly #workingDirectory: string;
+  readonly #executionInventory: HarnessExecutionInventory;
 
-  constructor(workingDirectory: string) {
+  constructor(workingDirectory: string, executionInventory: HarnessExecutionInventory) {
     this.#workingDirectory = workingDirectory;
+    this.#executionInventory = executionInventory;
   }
 
   async inspect(
@@ -79,26 +77,39 @@ export class GitHarnessInspection implements BaselineHarnessInspection {
         }
         instructionResources.push(identified.resource);
       }
-      const environmentCompatibility = await this.#environmentCompatibility();
-      if (environmentCompatibility === undefined) {
-        return { kind: 'Rejected', reason: 'EnvironmentUnsupported' };
-      }
-      const commandExecutables = [];
-      for (const condition of [
+      const inventory = await this.#executionInventory.inspect(task);
+      if (inventory.kind === 'Rejected') return inventory;
+      const declaredCommands = [
         ...task.revision.completionConditions,
         ...(task.revision.toolCommands ?? []),
-      ]) {
-        const executableRealpath = await this.#resolveExecutable(condition.argv[0] ?? '');
-        if (executableRealpath === undefined) {
-          return { kind: 'Rejected', reason: 'CommandExecutableUnavailable' };
-        }
+      ];
+      if (
+        inventory.commandExecutables.length !== declaredCommands.length ||
+        inventory.commandExecutables.some(
+          (entry, index) =>
+            entry.commandId !== declaredCommands[index]?.id ||
+            !entry.executableRealpath.startsWith('/') ||
+            entry.executableRealpath.includes('\u0000'),
+        )
+      )
+        return { kind: 'Rejected', reason: 'CommandExecutableUnavailable' };
+      for (const { executableRealpath } of inventory.commandExecutables) {
         if (
           protectedCredentials.inspect(utf8.encode(executableRealpath)).kind === 'WithheldSecret'
         ) {
           return { kind: 'Rejected', reason: 'SecretDetected' };
         }
-        commandExecutables.push({ commandId: condition.id, executableRealpath });
       }
+      const finalStatus = await this.#gitText([
+        'status',
+        '--porcelain=v1',
+        '--untracked-files=normal',
+      ]);
+      if (finalStatus.length !== 0) return { kind: 'Rejected', reason: 'WorktreeDirty' };
+      const finalCommit = (await this.#gitText(['rev-parse', '--verify', 'HEAD^{commit}'])).trim();
+      const finalTree = (await this.#gitText(['rev-parse', '--verify', 'HEAD^{tree}'])).trim();
+      if (finalCommit !== commit || finalTree !== tree)
+        return { kind: 'Rejected', reason: 'RepositoryBindingChanged' };
       return {
         kind: 'Inspected',
         snapshot: {
@@ -108,8 +119,8 @@ export class GitHarnessInspection implements BaselineHarnessInspection {
             tree,
             instructionResources,
           },
-          commandExecutables,
-          environmentCompatibility,
+          commandExecutables: inventory.commandExecutables,
+          environmentCompatibility: inventory.environmentCompatibility,
         },
       };
     } catch (cause) {
@@ -133,50 +144,6 @@ export class GitHarnessInspection implements BaselineHarnessInspection {
       throw new GitInspectionFailure('InstructionInventoryTooLarge');
     }
     return paths;
-  }
-
-  async #environmentCompatibility(): Promise<HarnessEnvironmentCompatibility | undefined> {
-    if (
-      (process.platform !== 'darwin' && process.platform !== 'linux') ||
-      (process.arch !== 'arm64' && process.arch !== 'x64')
-    ) {
-      return undefined;
-    }
-    const versionOutput = (await this.#gitText(['version'])).trim();
-    const match = /^git version ([0-9][A-Za-z0-9.+_-]*)$/u.exec(versionOutput);
-    if (match?.[1] === undefined) {
-      return undefined;
-    }
-    return {
-      operatingSystem: process.platform,
-      architecture: process.arch,
-      nodeVersion: process.versions.node,
-      gitVersion: match[1],
-      piSdkVersion,
-      xstateVersion,
-    };
-  }
-
-  async #resolveExecutable(command: string): Promise<string | undefined> {
-    const candidates = command.includes('/')
-      ? [resolve(this.#workingDirectory, command)]
-      : (process.env.PATH ?? '')
-          .split(delimiter)
-          .map((directory) =>
-            resolve(directory.length === 0 ? this.#workingDirectory : directory, command),
-          );
-    for (const candidate of candidates) {
-      try {
-        await access(candidate, constants.X_OK);
-        const resolved = await realpath(candidate);
-        if (isAbsolute(resolved) && (await stat(resolved)).isFile()) {
-          return resolved;
-        }
-      } catch {
-        // Continue through the finite PATH snapshot captured for this inspection.
-      }
-    }
-    return undefined;
   }
 
   async #gitText(
