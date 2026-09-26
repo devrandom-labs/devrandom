@@ -16,7 +16,10 @@ const incarnationId = 'ee87e11d-fb5f-46b4-841f-8a7a5faad97c';
 export function sealedRunPredecessorFixture(
   extraBeforeCheckpoint: readonly EvidenceEventDetail[] = [],
   reason:
-    'CheckpointPause' | 'HarnessCompatibilityFailure' | 'ContextLimitReached' = 'CheckpointPause',
+    | 'CheckpointPause'
+    | 'HarnessCompatibilityFailure'
+    | 'ContextLimitReached'
+    | 'ProcessLost' = 'CheckpointPause',
   options?: {
     readonly run: Run;
     readonly leaseAt: string;
@@ -28,7 +31,7 @@ export function sealedRunPredecessorFixture(
   const base = options?.run ?? runFixture();
   const at = options?.at ?? '2026-09-24T20:00:01.000Z';
   const initial =
-    reason === 'ContextLimitReached'
+    reason === 'ContextLimitReached' || reason === 'ProcessLost'
       ? {
           ...base,
           binding: {

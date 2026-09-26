@@ -387,6 +387,7 @@ function continuedCalibrationProof(
     readonly consumed?: number;
     readonly debitConsumed?: number;
     readonly confirmed?: boolean;
+    readonly processLost?: boolean;
   } = {},
 ) {
   const original = runFixture();
@@ -403,7 +404,7 @@ function continuedCalibrationProof(
       { kind: 'BudgetDebited', budget: 'providerRequests', amount: 2, consumed: 2 },
       { kind: 'Observation', source: 'Repository', artifactSaid: artifact.artifact.d },
     ],
-    'ContextLimitReached',
+    options.processLost === true ? 'ProcessLost' : 'ContextLimitReached',
     {
       run: base,
       leaseAt: '2026-09-24T20:00:00.000Z',
@@ -733,6 +734,14 @@ describe('current Task residual allowance', () => {
     ).toMatchObject({ kind: 'Blocked' });
   });
 
+  it('counts a genuine terminal successor after sealed ProcessLost once, preserving prior spend', async () => {
+    const proof = continuedCalibrationProof({ confirmed: true, processLost: true });
+    expect(await new MongoTaskResidualAllowance(database(proof)).inspect(request)).toMatchObject({
+      kind: 'Available',
+      remaining: { providerRequests: 26 },
+    });
+  });
+
   it('counts a terminal confirmed successor including prior-stream raw verifier evidence exactly once', async () => {
     const proof = continuedCalibrationProof({ confirmed: true });
     expect(await new MongoTaskResidualAllowance(database(proof)).inspect(request)).toMatchObject({
@@ -922,40 +931,43 @@ withMongo('Mongo current Task residual allowance', () => {
     await client.close();
   });
 
-  it('accounts for a terminal confirmed successor as one cumulative Run debit in real Mongo', async () => {
-    await database.dropDatabase();
-    const proof = continuedCalibrationProof({ confirmed: true });
-    await database.collection<TaskDocument>(tasksCollectionName).insertOne(proof.task);
-    await database.collection<RunDocument>(runsCollectionName).insertMany(proof.runs);
-    await database
-      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
-      .insertMany(proof.streams);
-    await database
-      .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
-      .insertMany(proof.checkpoints);
-    await database
-      .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
-      .insertMany(proof.events);
-    await database
-      .collection<RunSuccessorSegmentDocument>(runSuccessorSegmentsCollectionName)
-      .insertMany(proof.segments);
-    await database
-      .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
-      .insertMany(proof.artifacts);
-    expect(await new MongoTaskResidualAllowance(database).inspect(request)).toMatchObject({
-      kind: 'Available',
-      remaining: { providerRequests: 26 },
-    });
-    const predecessor = proof.streams[0];
-    if (predecessor === undefined) throw new Error('stream missing');
-    await database
-      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
-      .updateOne({ _id: predecessor._id }, { $set: { seal: { kind: 'Open' } } });
-    expect(await new MongoTaskResidualAllowance(database).inspect(request)).toMatchObject({
-      kind: 'Blocked',
-      reason: 'RunProofInvalid',
-    });
-  });
+  it.each([false, true])(
+    'accounts for a terminal successor once in real Mongo (ProcessLost=%s)',
+    async (processLost) => {
+      await database.dropDatabase();
+      const proof = continuedCalibrationProof({ confirmed: true, processLost });
+      await database.collection<TaskDocument>(tasksCollectionName).insertOne(proof.task);
+      await database.collection<RunDocument>(runsCollectionName).insertMany(proof.runs);
+      await database
+        .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+        .insertMany(proof.streams);
+      await database
+        .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+        .insertMany(proof.checkpoints);
+      await database
+        .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+        .insertMany(proof.events);
+      await database
+        .collection<RunSuccessorSegmentDocument>(runSuccessorSegmentsCollectionName)
+        .insertMany(proof.segments);
+      await database
+        .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
+        .insertMany(proof.artifacts);
+      expect(await new MongoTaskResidualAllowance(database).inspect(request)).toMatchObject({
+        kind: 'Available',
+        remaining: { providerRequests: 26 },
+      });
+      const predecessor = proof.streams[0];
+      if (predecessor === undefined) throw new Error('stream missing');
+      await database
+        .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+        .updateOne({ _id: predecessor._id }, { $set: { seal: { kind: 'Open' } } });
+      expect(await new MongoTaskResidualAllowance(database).inspect(request)).toMatchObject({
+        kind: 'Blocked',
+        reason: 'RunProofInvalid',
+      });
+    },
+  );
 
   it('reads the exact Task, all Task reservations, and does not count another Task or owner', async () => {
     await database.dropDatabase();

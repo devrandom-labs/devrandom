@@ -312,20 +312,25 @@ function checkpointFor(
   incarnationId: string,
   events: readonly EvidenceEvent[],
   verifierReceipts: readonly PublicVerifierReceipt[],
-  disposition: RunCalibrationDisposition | { readonly kind: 'Retained' | 'ContextLimit' },
+  disposition:
+    RunCalibrationDisposition | { readonly kind: 'Retained' | 'ContextLimit' | 'ProcessLost' },
 ): VerifiedCheckpoint {
   const head = events.at(-1);
   if (head === undefined) throw new Error('Missing checkpoint head');
   const runState =
-    disposition.kind === 'Retained' || disposition.kind === 'ContextLimit'
+    disposition.kind === 'Retained' ||
+    disposition.kind === 'ContextLimit' ||
+    disposition.kind === 'ProcessLost'
       ? {
           kind: 'Active' as const,
           phase: {
             kind: 'Blocked' as const,
             reason:
-              disposition.kind === 'ContextLimit'
-                ? ('ContextLimitReached' as const)
-                : ('HarnessCompatibilityFailure' as const),
+              disposition.kind === 'ProcessLost'
+                ? ('ProcessLost' as const)
+                : disposition.kind === 'ContextLimit'
+                  ? ('ContextLimitReached' as const)
+                  : ('HarnessCompatibilityFailure' as const),
           },
           verification: { kind: 'NotSubmitted' as const },
         }
@@ -369,11 +374,13 @@ function checkpointFor(
       budget: { consumed: zeroBudget(), remaining: taskBudgetCeilings },
       runState,
       continuation:
-        disposition.kind === 'ContextLimit'
-          ? { kind: 'ExternalResolutionRequired', reason: 'ContextLimitReached' }
-          : disposition.kind === 'Retained'
-            ? { kind: 'LaterHarnessCompatibilityResolutionRequired' }
-            : { kind: 'NoContinuation' },
+        disposition.kind === 'ProcessLost'
+          ? { kind: 'LaterRuntimeRecoveryRequired' }
+          : disposition.kind === 'ContextLimit'
+            ? { kind: 'ExternalResolutionRequired', reason: 'ContextLimitReached' }
+            : disposition.kind === 'Retained'
+              ? { kind: 'LaterHarnessCompatibilityResolutionRequired' }
+              : { kind: 'NoContinuation' },
     },
     commandIds,
   );
@@ -387,6 +394,7 @@ async function continueCalibrationFixture(
   running: Run,
   incarnationId: string,
   preparedProfile: ReturnType<typeof profile>,
+  recoveryKind: 'ContextLimit' | 'ProcessLost' = 'ContextLimit',
 ): Promise<Run> {
   const writer = eventWriter(running, incarnationId);
   writer.add({ kind: 'RunStarted', fromRunVersion: running.version });
@@ -410,15 +418,15 @@ async function continueCalibrationFixture(
     return prepared.receipt;
   });
   const checkpoint = checkpointFor(running, incarnationId, writer.events, unresolved, {
-    kind: 'ContextLimit',
+    kind: recoveryKind,
   });
   const head = writer.add({
     kind: 'RunBlocked',
-    reason: 'ContextLimitReached',
+    reason: recoveryKind === 'ProcessLost' ? 'ProcessLost' : 'ContextLimitReached',
     checkpointSaid: checkpoint.d,
   });
   const blocked = blockRun(running, {
-    reason: 'ContextLimitReached',
+    reason: recoveryKind === 'ProcessLost' ? 'ProcessLost' : 'ContextLimitReached',
     checkpointSaid: checkpoint.d,
   });
   if (blocked.kind !== 'Blocked') throw new Error('Predecessor block failed');
@@ -601,12 +609,13 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
     for (const ordinal of [1, 2, 3, 4, 5, 6] as const) {
       const initial = runFor(ordinal, command.revision.d);
       const running =
-        ordinal === 1
+        ordinal === 1 || ordinal === 2
           ? await continueCalibrationFixture(
               database,
               initial.run,
               initial.incarnationId,
               preparedProfile,
+              ordinal === 2 ? 'ProcessLost' : 'ContextLimit',
             )
           : initial.run;
       const incarnationId =
@@ -835,7 +844,9 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
         receipt,
       });
       expect((await fetch(url, { headers: authorized })).status).toBe(200);
-      const foreign = await fetch(url, { headers: { authorization: `Bearer ${'b'.repeat(43)}` } });
+      const foreign = await fetch(url, {
+        headers: { authorization: `Bearer ${'b'.repeat(43)}` },
+      });
       expect(foreign.status).toBe(404);
       expect(await foreign.text()).not.toContain(receipt.d);
       const absent = await fetch(
@@ -906,7 +917,10 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
         successor: { ...decoded.segment.successor, harnessRevisionSaid: said('z') },
       },
       { ...body, predecessor: { ...decoded.segment.predecessor, chainHeadSaid: said('z') } },
-      { ...body, predecessor: { ...decoded.segment.predecessor, evidenceStreamId: randomUUID() } },
+      {
+        ...body,
+        predecessor: { ...decoded.segment.predecessor, evidenceStreamId: randomUUID() },
+      },
     ];
     for (const variant of variants) {
       const prepared = prepareRunSuccessorSegment(variant);
@@ -966,7 +980,9 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
 
   it('qualifies six distinct, sealed exact-read Runs, then rejects corruption and a missing ordinal', async () => {
     const qualification = new MongoFailureQualification(database);
-    await expect(qualification.assess(qualificationInput)).resolves.toEqual({ kind: 'Qualified' });
+    await expect(qualification.assess(qualificationInput)).resolves.toEqual({
+      kind: 'Qualified',
+    });
     await expect(
       qualification.assess({ ...qualificationInput, ownerAid: said('z') }),
     ).resolves.toEqual({ kind: 'Blocked', gate: 'Qualification' });
@@ -1001,7 +1017,9 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
     await database
       .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
       .replaceOne({ _id: limitsReceiptDocument._id }, limitsReceiptDocument);
-    await expect(qualification.assess(qualificationInput)).resolves.toEqual({ kind: 'Qualified' });
+    await expect(qualification.assess(qualificationInput)).resolves.toEqual({
+      kind: 'Qualified',
+    });
     await database
       .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
       .updateOne(
@@ -1069,7 +1087,9 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
     await database
       .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
       .insertOne(missingEvent);
-    await expect(qualification.assess(qualificationInput)).resolves.toEqual({ kind: 'Qualified' });
+    await expect(qualification.assess(qualificationInput)).resolves.toEqual({
+      kind: 'Qualified',
+    });
     await database
       .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
       .deleteOne({ _id: missingEvent._id });
@@ -1080,7 +1100,9 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
     await database
       .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
       .insertOne(missingEvent);
-    await expect(qualification.assess(qualificationInput)).resolves.toEqual({ kind: 'Qualified' });
+    await expect(qualification.assess(qualificationInput)).resolves.toEqual({
+      kind: 'Qualified',
+    });
     await database
       .collection<RunDocument>(runsCollectionName)
       .deleteOne({ _id: firstCalibrationRunId });

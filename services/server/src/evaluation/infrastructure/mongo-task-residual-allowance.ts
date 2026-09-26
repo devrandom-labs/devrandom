@@ -196,6 +196,7 @@ export class MongoTaskResidualAllowance {
         streams.has(segment.successor.evidenceStreamId) ||
         incarnations.has(segment.successor.incarnationId) ||
         segment.predecessor.incarnationId === segment.successor.incarnationId ||
+        segment.predecessor.segmentSaid !== previous?.d ||
         (previous !== undefined &&
           (segment.predecessor.incarnationId !== previous.successor.incarnationId ||
             segment.fromRunVersion <= previous.fromRunVersion ||
@@ -212,14 +213,6 @@ export class MongoTaskResidualAllowance {
         version: segment.fromRunVersion,
         consumedBudget: segment.consumedBudget,
         lease: { ...run.lease, incarnationId: segment.predecessor.incarnationId },
-        lifecycle: {
-          kind: 'Active',
-          phase: {
-            kind: 'Blocked',
-            reason: 'ContextLimitReached',
-            checkpointSaid: segment.predecessor.checkpointSaid,
-          },
-        },
         ...(previous === undefined
           ? {}
           : {
@@ -319,15 +312,16 @@ export class MongoTaskResidualAllowance {
         let previousBudget = { ...currentRun.consumedBudget };
         for (const name of taskBudgetNames) previousBudget[name] = 0;
         for (const target of targets) {
-          const run = target.run;
+          let run = target.run;
           const streamId = run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId;
           authorizedStreams.push(streamId);
           const checkpointSaid =
-            run.lifecycle.kind === 'Ended'
+            target.predecessor?.predecessor.checkpointSaid ??
+            (run.lifecycle.kind === 'Ended'
               ? run.lifecycle.outcome.checkpointSaid
               : run.lifecycle.phase.kind === 'Blocked'
                 ? run.lifecycle.phase.checkpointSaid
-                : undefined;
+                : undefined);
           if (checkpointSaid === undefined)
             return { kind: 'Blocked', reason: 'UnresolvedRunSpend' };
           const streamDocument = await this.#streams.findOne(
@@ -353,6 +347,28 @@ export class MongoTaskResidualAllowance {
               checkpointDocument,
               task.revision.completionConditions.map((condition) => condition.id),
             ).checkpoint;
+            if (target.predecessor !== undefined) {
+              if (
+                checkpoint.runState.kind !== 'Active' ||
+                checkpoint.runState.phase.kind !== 'Blocked' ||
+                (checkpoint.runState.phase.reason !== 'ContextLimitReached' &&
+                  checkpoint.runState.phase.reason !== 'ProcessLost')
+              )
+                return { kind: 'Blocked', reason: 'RunProofInvalid' };
+              // Historical read projection uses the authenticated checkpoint reason;
+              // the exact segment, stream, seal and raw prefix are verified below.
+              run = {
+                ...run,
+                lifecycle: {
+                  kind: 'Active',
+                  phase: {
+                    kind: 'Blocked',
+                    reason: checkpoint.runState.phase.reason,
+                    checkpointSaid: checkpoint.d,
+                  },
+                },
+              };
+            }
             if (
               !evidenceCheckpointBelongsToRun(checkpoint, run) ||
               stream.binding.streamId !== streamId ||

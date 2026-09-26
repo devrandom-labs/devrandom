@@ -312,6 +312,7 @@ export class MongoFailureQualification implements FailureQualificationReading {
         segment === undefined ||
         authorizedStreams.includes(segment.successor.evidenceStreamId) ||
         incarnations.has(segment.successor.incarnationId) ||
+        segment.predecessor.segmentSaid !== latest?.d ||
         (latest !== undefined &&
           (segment.predecessor.incarnationId !== latest.successor.incarnationId ||
             segment.fromRunVersion <= latest.fromRunVersion ||
@@ -444,7 +445,11 @@ export class MongoFailureQualification implements FailureQualificationReading {
         ? !isDeepStrictEqual(stream.provisional.lifecycle, run.lifecycle)
         : stream.provisional.lifecycle.kind !== 'Active' ||
           stream.provisional.lifecycle.phase.kind !== 'Blocked' ||
-          stream.provisional.lifecycle.phase.reason !== 'ContextLimitReached') ||
+          (stream.provisional.lifecycle.phase.reason !== 'ContextLimitReached' &&
+            stream.provisional.lifecycle.phase.reason !== 'ProcessLost') ||
+          checkpoint.runState.kind !== 'Active' ||
+          checkpoint.runState.phase.kind !== 'Blocked' ||
+          stream.provisional.lifecycle.phase.reason !== checkpoint.runState.phase.reason) ||
       Object.entries(checkpoint.budget.consumed).some(([dimension, consumed]) => {
         const name = dimension as keyof typeof checkpoint.budget.consumed;
         return (
@@ -474,9 +479,11 @@ export class MongoFailureQualification implements FailureQualificationReading {
             : !calibrationCheckpointMatches(run, checkpoint))
         : checkpoint.runState.kind !== 'Active' ||
           checkpoint.runState.phase.kind !== 'Blocked' ||
-          checkpoint.runState.phase.reason !== 'ContextLimitReached' ||
-          checkpoint.continuation.kind !== 'ExternalResolutionRequired' ||
-          checkpoint.continuation.reason !== 'ContextLimitReached' ||
+          (checkpoint.runState.phase.reason === 'ProcessLost'
+            ? checkpoint.continuation.kind !== 'LaterRuntimeRecoveryRequired'
+            : checkpoint.runState.phase.reason !== 'ContextLimitReached' ||
+              checkpoint.continuation.kind !== 'ExternalResolutionRequired' ||
+              checkpoint.continuation.reason !== 'ContextLimitReached') ||
           checkpoint.incarnationId !== target.predecessor.predecessor.incarnationId ||
           stream.cursor.acceptedThrough !== target.predecessor.predecessor.finalSequence ||
           stream.cursor.chainHeadSaid !== target.predecessor.predecessor.chainHeadSaid ||
@@ -643,7 +650,9 @@ export class MongoFailureQualification implements FailureQualificationReading {
     if (target.predecessor !== undefined) {
       if (
         blockedEvent?.event.kind !== 'RunBlocked' ||
-        blockedEvent.event.reason !== 'ContextLimitReached' ||
+        checkpoint.runState.kind !== 'Active' ||
+        checkpoint.runState.phase.kind !== 'Blocked' ||
+        blockedEvent.event.reason !== checkpoint.runState.phase.reason ||
         blockedEvent.event.checkpointSaid !== checkpoint.d ||
         calibrationEvent !== undefined ||
         failureEvent !== undefined
