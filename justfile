@@ -561,3 +561,12 @@ run-site: _require-nix
 
 check: _require-nix format-check lint typecheck test boundaries build smoke
     nix flake check
+
+# Invoke the built public CLI, preserving every argument and the selected Task directory.
+[positional-arguments]
+cli +args: _require-nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repository_root={{quote(justfile_directory())}}
+    cd "${DEVRANDOM_TASK_DIRECTORY:-$repository_root}"
+    exec node --env-file-if-exists="${DEVRANDOM_ENV_FILE:-$repository_root/.env.cli}" "$repository_root/apps/cli/dist/main.js" "$@"
