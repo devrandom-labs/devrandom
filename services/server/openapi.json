@@ -42243,7 +42243,8 @@
                   "commandId",
                   "fingerprint",
                   "expectedEvaluationVersion",
-                  "closure"
+                  "closure",
+                  "evidenceIndex"
                 ],
                 "properties": {
                   "version": {
@@ -42382,6 +42383,63 @@
                       "agentSealSaid": {
                         "type": "string",
                         "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "evidenceIndex": {
+                    "type": "object",
+                    "required": ["artifact", "bytesBase64Url"],
+                    "properties": {
+                      "artifact": {
+                        "type": "object",
+                        "required": ["version", "d", "mediaType", "byteLength", "contentDigest"],
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "mediaType": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "const": "application/octet-stream"
+                              },
+                              {
+                                "type": "string",
+                                "const": "application/json"
+                              },
+                              {
+                                "type": "string",
+                                "const": "text/plain; charset=utf-8"
+                              },
+                              {
+                                "type": "string",
+                                "const": "text/x-diff; charset=utf-8"
+                              }
+                            ]
+                          },
+                          "byteLength": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 524288
+                          },
+                          "contentDigest": {
+                            "type": "string",
+                            "pattern": "^sha256:[a-f0-9]{64}$"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "bytesBase64Url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 174763,
+                        "pattern": "^[A-Za-z0-9_-]*$"
                       }
                     },
                     "additionalProperties": false

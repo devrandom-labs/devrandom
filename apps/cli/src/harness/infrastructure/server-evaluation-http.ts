@@ -1,5 +1,6 @@
 import {
   decodeEvaluationClosure,
+  decodeEvidenceArtifact,
   decodeEvaluationEvidenceBatch,
   decodeEvaluationExecutionProfile,
   decodeEvaluationManifest,
@@ -411,9 +412,15 @@ export class ServerEvaluationHttp {
     command: Type.Static<typeof evaluationClosureCommandSchema>,
     signal?: AbortSignal,
   ): Promise<HostedEvaluationClosure> {
+    if (!Value.Check(evaluationClosureCommandSchema, command)) return { kind: 'Rejected' };
+    const indexBytes = Buffer.from(command.evidenceIndex.bytesBase64Url, 'base64url');
     if (
-      !Value.Check(evaluationClosureCommandSchema, command) ||
-      decodeEvaluationClosure(command.closure).kind !== 'Accepted'
+      decodeEvaluationClosure(command.closure).kind !== 'Accepted' ||
+      command.evidenceIndex.artifact.d !== command.closure.evidenceIndexSaid ||
+      command.evidenceIndex.artifact.mediaType !== 'application/json' ||
+      indexBytes.byteLength > 128 * 1_024 ||
+      indexBytes.toString('base64url') !== command.evidenceIndex.bytesBase64Url ||
+      decodeEvidenceArtifact(command.evidenceIndex.artifact, indexBytes).kind !== 'Accepted'
     )
       return { kind: 'Rejected' };
     const encoded = JSON.stringify(command);

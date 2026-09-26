@@ -173,7 +173,8 @@ describe('closed evaluation hosted commands', () => {
       },
     };
     expect(Value.Check(evaluationClosureCommandSchema, command)).toBe(true);
-    const { evidenceIndex: _missing, ...withoutIndex } = command;
+    const withoutIndex = { ...command };
+    Reflect.deleteProperty(withoutIndex, 'evidenceIndex');
     expect(Value.Check(evaluationClosureCommandSchema, withoutIndex)).toBe(false);
   });
 });

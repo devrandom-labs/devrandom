@@ -326,12 +326,17 @@ it('binds a lease renewal receipt to the exact Evaluation and lease identities',
 
 it('sends a prepared closure without creating a local seal and verifies the committed SAID', async () => {
   const evaluationId = id('5');
+  const indexBytes = new TextEncoder().encode(
+    '{"version":1,"kind":"EvaluationClosureEvidenceIndex"}',
+  );
+  const index = prepareEvidenceArtifact(indexBytes, 'application/json');
+  if (index.kind !== 'Prepared') throw new Error(index.reason);
   const prepared = prepareEvaluationClosure({
     evaluationId,
     evidenceStreamId: id('6'),
     originRunId: command.originRunId,
     manifestSaid: said('M'),
-    evidenceIndexSaid: said('I'),
+    evidenceIndexSaid: index.artifact.d,
     acceptedEventCount: 1,
     acceptedHeadSaid: said('h'),
     observationSaids: Array.from({ length: 18 }, (_, index) =>
@@ -358,6 +363,10 @@ it('sends a prepared closure without creating a local seal and verifies the comm
     fingerprint: command.fingerprint,
     expectedEvaluationVersion: 1,
     closure: prepared.closure,
+    evidenceIndex: {
+      artifact: index.artifact,
+      bytesBase64Url: Buffer.from(indexBytes).toString('base64url'),
+    },
   };
   const http = new ServerEvaluationHttp(origin(), 'b'.repeat(43), (url, init) => {
     expect(url).toBe(`http://127.0.0.1:3211/api/evaluations/${evaluationId}/closure`);
@@ -383,4 +392,10 @@ it('sends a prepared closure without creating a local seal and verifies the comm
     ),
   );
   expect(await forged.closeEvidence(closureCommand)).toEqual({ kind: 'ResponseInvalid' });
+  expect(
+    await http.closeEvidence({
+      ...closureCommand,
+      evidenceIndex: { ...closureCommand.evidenceIndex, bytesBase64Url: 'AA' },
+    }),
+  ).toEqual({ kind: 'Rejected' });
 });
