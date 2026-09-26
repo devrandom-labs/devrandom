@@ -154,14 +154,14 @@ function fixture() {
     expectedPointerVersion: 1,
     evaluationManifestSaid: manifest.manifest.d,
     evaluationClosureSaid: closure.closure.d,
-    hypothesisSaid: said('n'),
+    hypothesisSaid: said('H'),
     selection: { kind: 'RetainIncumbent' },
   });
   if (selection.kind !== 'Prepared') throw new Error('selection fixture rejected');
   const evidence: VerifiedPromotionEvidence = {
     manifest: manifest.manifest,
     closure: closure.closure,
-    hypothesisSaid: said('n'),
+    hypothesisSaid: said('H'),
     selectionRecord: selection.record,
     comparison,
   };
@@ -183,7 +183,7 @@ function fixture() {
     evaluationManifestSaid: manifest.manifest.d,
     evaluationClosureSaid: closure.closure.d,
     disposition: { kind: 'RetainIncumbent', selectionEvidenceSaid: selection.record.d },
-    hypothesisSaid: said('n'),
+    hypothesisSaid: said('H'),
   };
   const decision: GovernorPromotionDecisionPayload = {
     version: 1,
@@ -294,6 +294,50 @@ describe('Signify local promotion signing', () => {
     expect(await signers.governor.sign({ decision, mandate, evidence })).toEqual({
       kind: 'Rejected',
     });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('refuses a re-said selection record when its hypothesis differs from locked M', async () => {
+    const { evidence, mandate, decision, proposal } = fixture();
+    const prepare = vi.fn((input: StablePromotionExchange): Promise<PreparedPromotionExchange> =>
+      Promise.resolve({ exchangeSaid: input.kind === 'Proposal' ? said('P') : said('G') }),
+    );
+    const signers = signifyLocalPromotionSigning({
+      exchanges: {
+        prepare,
+        deliver: (input) => Promise.resolve({ exchangeSaid: input.exchangeSaid }),
+      },
+      agentAid: agent,
+      governorAid: governor,
+      issuerAid: issuer,
+      authority: { verify: () => Promise.resolve({ kind: 'Current', mandate }) },
+      confirm: () => Promise.resolve('Confirmed'),
+      now: () => 123,
+    });
+    expect((await signers.agent.sign(proposal)).kind).toBe('Verified');
+    prepare.mockClear();
+    const substituted = preparePromotionSelectionRecord({
+      taskId: decision.taskId,
+      taskRevisionSaid: decision.taskRevisionSaid,
+      harnessLineageId: decision.harnessLineageId,
+      expectedIncumbentRevisionSaid: decision.expectedIncumbentRevisionSaid,
+      expectedPointerVersion: decision.expectedPointerVersion,
+      evaluationManifestSaid: decision.evaluationManifestSaid,
+      evaluationClosureSaid: decision.evaluationClosureSaid,
+      hypothesisSaid: said('q'),
+      selection: { kind: 'RetainIncumbent' },
+    });
+    if (substituted.kind !== 'Prepared') throw new Error('substitution fixture rejected');
+    expect(
+      await signers.governor.sign({
+        decision: {
+          ...decision,
+          disposition: { kind: 'RetainIncumbent', selectionEvidenceSaid: substituted.record.d },
+        },
+        mandate,
+        evidence: { ...evidence, hypothesisSaid: said('q'), selectionRecord: substituted.record },
+      }),
+    ).toEqual({ kind: 'Rejected' });
     expect(prepare).not.toHaveBeenCalled();
   });
 });

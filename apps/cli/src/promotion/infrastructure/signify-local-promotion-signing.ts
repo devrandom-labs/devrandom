@@ -52,6 +52,7 @@ function matchesDecision(
     evidence.closure.manifestSaid !== evidence.manifest.d ||
     evidence.closure.evaluationId !== evidence.manifest.evaluationId ||
     evidence.manifest.taskId !== decision.taskId ||
+    evidence.manifest.hypothesisSaid !== evidence.hypothesisSaid ||
     evidence.manifest.taskRevisionSaid !== decision.taskRevisionSaid ||
     evidence.manifest.revisions.H1 !== decision.expectedIncumbentRevisionSaid ||
     evidence.manifest.d !== decision.evaluationManifestSaid ||
