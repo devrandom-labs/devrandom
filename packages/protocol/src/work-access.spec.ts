@@ -7,6 +7,7 @@ import {
   workAccessAttemptProjectionSchema,
   workAccessProblemSchema,
   workAccessRequestInvalidProblemSchema,
+  workAccessScopeSchema,
 } from './work-access.js';
 
 const createBody = {
@@ -19,6 +20,10 @@ const createBody = {
 } as const;
 
 describe('Work Access HTTP contract', () => {
+  it('admits a dedicated activation commit grant scope', () => {
+    expect(Value.Check(workAccessScopeSchema, 'activation:commit')).toBe(true);
+    expect(Value.Check(workAccessScopeSchema, 'activation:sign')).toBe(false);
+  });
   it('accepts only the closed precommitted-secret attempt command', () => {
     expect(Value.Check(createWorkAccessAttemptBodySchema, createBody)).toBe(true);
     expect(

@@ -25,6 +25,7 @@ export const workAccessScopes = Object.freeze([
   'run:read',
   'task:create',
   'task:read',
+  'activation:commit',
 ] as const);
 
 export const workAccessScopeSchema = Type.Union([
@@ -43,6 +44,7 @@ export const workAccessScopeSchema = Type.Union([
   Type.Literal(workAccessScopes[12]),
   Type.Literal(workAccessScopes[13]),
   Type.Literal(workAccessScopes[14]),
+  Type.Literal(workAccessScopes[15]),
 ]);
 
 export type WorkAccessScope = Type.Static<typeof workAccessScopeSchema>;
