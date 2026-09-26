@@ -23,38 +23,48 @@ interface ManifestPolicy {
   readonly forbidden: readonly RegExp[];
 }
 
+const browserPolicy: ManifestPolicy = {
+  required: new Set([
+    '@emotion/cache',
+    '@emotion/react',
+    '@emotion/styled',
+    '@mui/material',
+    '@mui/material-nextjs',
+    '@reduxjs/toolkit',
+    'next',
+    'react',
+    'react-dom',
+    'react-redux',
+  ]),
+  forbidden: [
+    /^@apollo\/client$/,
+    /^@chakra-ui\//,
+    /^@mantine\//,
+    /^@remix-run\//,
+    /^@tanstack\/react-query$/,
+    /^@vitejs\//,
+    /^antd$/,
+    /^astro$/,
+    /^axios$/,
+    /^ky$/,
+    /^react-router(?:-dom)?$/,
+    /^styled-components$/,
+    /^swr$/,
+    /^tailwindcss$/,
+    /^vite$/,
+    /^vue$/,
+  ],
+};
+
 const policies: Readonly<Record<string, ManifestPolicy>> = {
-  'apps/site/package.json': {
-    required: new Set([
-      '@emotion/cache',
-      '@emotion/react',
-      '@emotion/styled',
-      '@mui/material',
-      '@mui/material-nextjs',
-      '@reduxjs/toolkit',
-      'next',
-      'react',
-      'react-dom',
-      'react-redux',
-    ]),
-    forbidden: [
-      /^@apollo\/client$/,
-      /^@chakra-ui\//,
-      /^@mantine\//,
-      /^@remix-run\//,
-      /^@tanstack\/react-query$/,
-      /^@vitejs\//,
-      /^antd$/,
-      /^astro$/,
-      /^axios$/,
-      /^ky$/,
-      /^react-router(?:-dom)?$/,
-      /^styled-components$/,
-      /^swr$/,
-      /^tailwindcss$/,
-      /^vite$/,
-      /^vue$/,
-    ],
+  'apps/site/package.json': browserPolicy,
+  'apps/demo/package.json': {
+    required: new Set(
+      [...browserPolicy.required].filter(
+        (name) => name !== '@reduxjs/toolkit' && name !== 'react-redux',
+      ),
+    ),
+    forbidden: browserPolicy.forbidden,
   },
   'services/server/package.json': {
     required: new Set(['@fastify/swagger', 'fastify']),

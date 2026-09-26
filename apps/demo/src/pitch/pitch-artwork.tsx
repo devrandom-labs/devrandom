@@ -18,30 +18,168 @@ const paths = {
 export type PitchIconName = keyof typeof paths;
 
 export function PitchIcon({ name, ...props }: SvgIconProps & { readonly name: PitchIconName }) {
-  return <SvgIcon {...props} viewBox="0 0 24 24"><path d={paths[name]} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></SvgIcon>;
+  return (
+    <SvgIcon {...props} viewBox="0 0 24 24">
+      <path
+        d={paths[name]}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </SvgIcon>
+  );
 }
 
 export function BrandMark({ size = 32 }: { readonly size?: number }) {
-  return <Box component="svg" aria-hidden="true" viewBox="0 0 40 40" sx={{ width: size, height: size, flexShrink: 0 }}>
-    <path d="M5 8h7v24H5zm11 7h7v17h-7zm11-7h7v24h-7z" fill="currentColor" />
-    <path d="M16 8h7v4h-7z" fill="currentColor" />
-  </Box>;
+  return (
+    <Box
+      component="svg"
+      aria-hidden="true"
+      viewBox="0 0 40 40"
+      sx={{ width: size, height: size, flexShrink: 0 }}
+    >
+      <path d="M5 8h7v24H5zm11 7h7v17h-7zm11-7h7v24h-7z" fill="currentColor" />
+      <path d="M16 8h7v4h-7z" fill="currentColor" />
+    </Box>
+  );
+}
+
+export function CandidateBranches({ selected }: { readonly selected: number }) {
+  return (
+    <Box
+      component="svg"
+      role="img"
+      aria-label="H1 remains active while three immutable candidates branch for evaluation"
+      viewBox="0 0 480 96"
+      sx={{ width: '100%', height: 96, my: 1 }}
+    >
+      {[80, 240, 400].map((x, index) => (
+        <Box
+          component="path"
+          key={x}
+          d={`M240 25 C240 48 ${String(x)} 42 ${String(x)} 76`}
+          fill="none"
+          stroke={selected === index ? '#d7ef75' : '#61745b'}
+          strokeWidth={selected === index ? 2 : 1}
+          strokeDasharray="5 7"
+          sx={{ animation: selected === index ? 'travel 2s linear infinite' : 'none' }}
+        />
+      ))}
+      <rect x="186" y="2" width="108" height="30" rx="15" fill="#354e36" stroke="#91a96b" />
+      <text x="240" y="22" textAnchor="middle" fill="#d7ef75" fontSize="11" fontFamily="monospace">
+        H1 · ACTIVE
+      </text>
+      {[80, 240, 400].map((x, index) => (
+        <g key={x}>
+          <circle
+            cx={x}
+            cy="78"
+            r="12"
+            fill={selected === index ? '#d7ef75' : '#354e36'}
+            stroke="#91a96b"
+          />
+          <text
+            x={x}
+            y="82"
+            textAnchor="middle"
+            fill={selected === index ? '#20342a' : '#c9d7bd'}
+            fontSize="9"
+            fontFamily="monospace"
+          >
+            C{index + 1}
+          </text>
+        </g>
+      ))}
+    </Box>
+  );
 }
 
 export function OrbitArtwork() {
-  return <Box sx={{ position: 'relative', width: '100%', height: { xs: 340, md: 450 }, overflow: 'hidden' }}>
-    <Box component="svg" aria-hidden="true" viewBox="0 0 560 460" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-      <defs><radialGradient id="harness-glow"><stop stopColor="#c5e97b" stopOpacity="0.16"/><stop offset="1" stopColor="#c5e97b" stopOpacity="0"/></radialGradient></defs>
-      <circle cx="280" cy="228" r="215" fill="url(#harness-glow)" />
-      <g fill="none" stroke="#a7bb8b" strokeOpacity="0.2"><ellipse cx="280" cy="228" rx="218" ry="144" transform="rotate(-28 280 228)"/><ellipse cx="280" cy="228" rx="218" ry="144" transform="rotate(28 280 228)"/><circle cx="280" cy="228" r="128"/><circle cx="280" cy="228" r="192" strokeDasharray="2 8" /></g>
-      <Box component="g" sx={{ transformOrigin: '280px 228px', animation: 'orbit 45s linear infinite' }}><circle cx="280" cy="36" r="5" fill="#d7ef75"/><circle cx="280" cy="420" r="3" fill="#8ba98a"/></Box>
-      <Box component="g" sx={{ animation: 'breathe 6s ease-in-out infinite', transformOrigin: '280px 228px' }}>
-        <path d="m280 130 83 48v99l-83 48-83-48v-99Z" fill="#273e2e" stroke="#afc576" strokeWidth="1.2"/>
-        <path d="m280 130 83 48-83 49-83-49Zm0 97v98" fill="#334a33" stroke="#afc576" strokeWidth="1.2"/>
-        <path d="m280 155 60 34-60 35-60-35Z" fill="#d7ef75"/>
-        <path d="m237 234 11 7v34l-11-7Zm21 12 11 7v34l-11-7Zm32 6 11-7v35l-11 7Zm21-12 11-7v35l-11 7Z" fill="#d7ef75"/>
+  return (
+    <Box
+      sx={{ position: 'relative', width: '100%', height: { xs: 340, md: 450 }, overflow: 'hidden' }}
+    >
+      <Box
+        component="svg"
+        aria-hidden="true"
+        viewBox="0 0 560 460"
+        sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+      >
+        <defs>
+          <radialGradient id="harness-glow">
+            <stop stopColor="#c5e97b" stopOpacity="0.16" />
+            <stop offset="1" stopColor="#c5e97b" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <circle cx="280" cy="228" r="215" fill="url(#harness-glow)" />
+        <g fill="none" stroke="#a7bb8b" strokeOpacity="0.2">
+          <ellipse cx="280" cy="228" rx="218" ry="144" transform="rotate(-28 280 228)" />
+          <ellipse cx="280" cy="228" rx="218" ry="144" transform="rotate(28 280 228)" />
+          <circle cx="280" cy="228" r="128" />
+          <circle cx="280" cy="228" r="192" strokeDasharray="2 8" />
+        </g>
+        <Box
+          component="g"
+          sx={{ transformOrigin: '280px 228px', animation: 'orbit 45s linear infinite' }}
+        >
+          <circle cx="280" cy="36" r="5" fill="#d7ef75" />
+          <circle cx="280" cy="420" r="3" fill="#8ba98a" />
+        </Box>
+        <Box
+          component="g"
+          sx={{ animation: 'breathe 6s ease-in-out infinite', transformOrigin: '280px 228px' }}
+        >
+          <path
+            d="m280 130 83 48v99l-83 48-83-48v-99Z"
+            fill="#273e2e"
+            stroke="#afc576"
+            strokeWidth="1.2"
+          />
+          <path
+            d="m280 130 83 48-83 49-83-49Zm0 97v98"
+            fill="#334a33"
+            stroke="#afc576"
+            strokeWidth="1.2"
+          />
+          <path d="m280 155 60 34-60 35-60-35Z" fill="#d7ef75" />
+          <path
+            d="m237 234 11 7v34l-11-7Zm21 12 11 7v34l-11-7Zm32 6 11-7v35l-11 7Zm21-12 11-7v35l-11 7Z"
+            fill="#d7ef75"
+          />
+        </Box>
       </Box>
+      {[
+        { title: 'EVIDENCE', text: 'Learn from what happened', top: '9%', left: '5%' },
+        { title: 'BEHAVIOR', text: 'Evolve how it works', top: '70%', left: '5%' },
+        { title: 'AUTHORITY', text: 'Keep the ceiling fixed', top: '42%', left: '60%' },
+      ].map((item) => (
+        <Box
+          key={item.title}
+          sx={{
+            position: 'absolute',
+            top: item.top,
+            left: item.left,
+            bgcolor: '#1e3026ee',
+            border: '1px solid #4a6047',
+            borderRadius: 2,
+            px: 1.7,
+            py: 1.1,
+            maxWidth: '39%',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <Typography
+            sx={{ color: '#d7ef75', fontSize: 9, letterSpacing: '0.16em', fontWeight: 600 }}
+          >
+            {item.title}
+          </Typography>
+          <Typography sx={{ color: '#e2e9d8', fontSize: { xs: 10, md: 12 }, mt: 0.4 }}>
+            {item.text}
+          </Typography>
+        </Box>
+      ))}
     </Box>
-    {[{ title: 'EVIDENCE', text: 'Learn from what happened', top: '9%', left: '5%' }, { title: 'BEHAVIOR', text: 'Evolve how it works', top: '70%', left: '5%' }, { title: 'AUTHORITY', text: 'Keep the ceiling fixed', top: '42%', left: '60%' }].map((item) => <Box key={item.title} sx={{ position: 'absolute', top: item.top, left: item.left, bgcolor: '#1e3026ee', border: '1px solid #4a6047', borderRadius: 2, px: 1.7, py: 1.1, maxWidth: '39%', backdropFilter: 'blur(8px)' }}><Typography sx={{ color: '#d7ef75', fontSize: 9, letterSpacing: '0.16em', fontWeight: 600 }}>{item.title}</Typography><Typography sx={{ color: '#e2e9d8', fontSize: { xs: 10, md: 12 }, mt: 0.4 }}>{item.text}</Typography></Box>)}
-  </Box>;
+  );
 }

@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const deployableNames = new Set(['@devrandom/cli', '@devrandom/server', '@devrandom/site', '@devrandom/demo']);
+const deployableNames = new Set([
+  '@devrandom/cli',
+  '@devrandom/server',
+  '@devrandom/site',
+  '@devrandom/demo',
+]);
 
 const workspaceDirectories = [
   'apps/cli',

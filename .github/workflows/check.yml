@@ -19,6 +19,8 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@v13
       - name: Install JavaScript dependencies
         run: nix develop --command just bootstrap
+      - name: Install the pitch browser smoke dependencies
+        run: nix develop --command just demo-browser-ci
       - name: Run repository gates
         run: nix develop --command just check
       - name: Run bounded external integration

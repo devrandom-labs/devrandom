@@ -33,5 +33,10 @@
     "tooling/**/*.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["apps/site/.next", "apps/site/next-env.d.ts", "apps/demo/.next", "apps/demo/next-env.d.ts"]
+  "exclude": [
+    "apps/site/.next",
+    "apps/site/next-env.d.ts",
+    "apps/demo/.next",
+    "apps/demo/next-env.d.ts"
+  ]
 }
