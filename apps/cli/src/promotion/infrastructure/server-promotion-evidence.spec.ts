@@ -1,4 +1,4 @@
-import { prepareEvaluationEvidenceEvent } from '@devrandom/protocol';
+import { prepareEvaluationEvidenceEvent, prepareEvidenceArtifact } from '@devrandom/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ServerPromotionEvidence } from './server-promotion-evidence.js';
@@ -59,6 +59,19 @@ function prefix() {
 }
 
 describe('hosted accepted Evaluation prefix for local promotion', () => {
+  it('never relabels a different raw public artifact as the requested custody SAID', async () => {
+    const prepared = prepareEvidenceArtifact(Buffer.from('different'), 'application/json');
+    if (prepared.kind !== 'Prepared') throw new Error('artifact fixture');
+    const server = new ServerPromotionEvidence({
+      readEvidencePage: () => Promise.resolve({ kind: 'Unavailable' as const }),
+      readPublicArtifact: () =>
+        Promise.resolve({ kind: 'Read' as const, artifact: prepared.artifact, bytes: Buffer.from('different') }),
+    });
+    expect(await server.openPublic({ evaluationId: binding.evaluationId, artifactSaid: said('z') })).toEqual({
+      kind: 'Missing',
+    });
+  });
+
   it('reopens every page and rejects a substituted cross-page predecessor before selection', async () => {
     const events = prefix();
     const head = events.at(-1)?.d;

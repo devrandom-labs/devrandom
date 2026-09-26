@@ -1,5 +1,9 @@
 import { validateExecutionBinding } from '@devrandom/domain';
-import { decodeEvaluationEvidenceEvent, type EvaluationEvidenceEvent } from '@devrandom/protocol';
+import {
+  decodeEvaluationEvidenceEvent,
+  decodeEvidenceArtifact,
+  type EvaluationEvidenceEvent,
+} from '@devrandom/protocol';
 
 import type { PromotionAcceptedEvidenceReading } from '../application/open-promotion-custody.js';
 import type { ServerEvaluationHttp } from '../../harness/infrastructure/server-evaluation-http.js';
@@ -82,7 +86,9 @@ export class ServerPromotionEvidence implements PromotionAcceptedEvidenceReading
     try {
       const response = await this.#server.readPublicArtifact(input);
       if (response.kind === 'Unavailable') return { kind: 'Unavailable' };
-      return response.kind === 'Read'
+      return response.kind === 'Read' &&
+        response.artifact.d === input.artifactSaid &&
+        decodeEvidenceArtifact(response.artifact, response.bytes).kind === 'Accepted'
         ? { kind: 'Opened', artifact: response.artifact, bytes: response.bytes }
         : { kind: 'Missing' };
     } catch {
