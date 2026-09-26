@@ -10,6 +10,8 @@ import {
 } from '@devrandom/domain';
 import {
   decodeEvaluationExecutionProfile,
+  decodeRunSuccessorSegment,
+  type RunSuccessorSegment,
   evidenceArtifactReferences,
   type EvidenceEvent,
   type PublicVerifierReceipt,
@@ -34,6 +36,10 @@ import {
   decodeEvidenceStreamDocument,
   type EvidenceStreamDocument,
 } from '../../evidence/infrastructure/evidence-stream-document.js';
+import {
+  runSuccessorSegmentsCollectionName,
+  type RunSuccessorSegmentDocument,
+} from '../../run/infrastructure/mongo-run-continuations.js';
 import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
 import { decodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
 import { tasksCollectionName } from '../../task/infrastructure/mongo-tasks.js';
@@ -131,8 +137,10 @@ export class MongoFailureQualification implements FailureQualificationReading {
   readonly #checkpoints: Collection<EvidenceCheckpointDocument>;
   readonly #events: Collection<EvidenceEventDocument>;
   readonly #artifacts: Collection<EvidenceArtifactDocument>;
+  readonly #segments: Collection<RunSuccessorSegmentDocument>;
 
   constructor(database: Db) {
+    this.#segments = database.collection(runSuccessorSegmentsCollectionName);
     this.#tasks = database.collection(tasksCollectionName);
     this.#runs = database.collection(runsCollectionName);
     this.#streams = database.collection(evidenceCollectionNames.streams);
@@ -262,9 +270,132 @@ export class MongoFailureQualification implements FailureQualificationReading {
     completionConditionIds: readonly string[],
     input: QualificationInput,
   ): Promise<ObservationOutcome> {
+    const documents = await this.#segments
+      .find({ ownerAid: input.ownerAid, runId: run.binding.runId })
+      .toArray();
+    const segments: RunSuccessorSegment[] = [];
+    for (const document of documents) {
+      const decoded = decodeRunSuccessorSegment(document.segment);
+      if (
+        decoded.kind !== 'Accepted' ||
+        document._id !== decoded.segment.d ||
+        decoded.segment.kind !== 'CalibrationContinuationSegment' ||
+        run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
+        decoded.segment.runId !== run.binding.runId ||
+        decoded.segment.ownerAid !== input.ownerAid ||
+        decoded.segment.taskId !== run.binding.taskId ||
+        decoded.segment.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+        decoded.segment.personalAgentAid !== run.binding.personalAgentAid ||
+        decoded.segment.taskMandateSaid !== run.binding.taskMandateSaid ||
+        decoded.segment.baseline.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        decoded.segment.successor.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        document.acceptedAt.toISOString() !== decoded.segment.admittedAt
+      )
+        return blockedEvidence;
+      segments.push(decoded.segment);
+    }
+    const authorizedStreams = [run.binding.evidenceStreamId];
+    const incarnations = new Set<string>();
+    let latest: RunSuccessorSegment | undefined;
+    let previousObservation: RunObservation | undefined;
+    const chainArtifacts = new Set<string>();
+    while (segments.length > 0) {
+      const streamId = authorizedStreams.at(-1);
+      const matches = segments.filter(
+        (segment) => segment.predecessor.evidenceStreamId === streamId,
+      );
+      const segment = matches[0];
+      if (latest === undefined && segment !== undefined)
+        incarnations.add(segment.predecessor.incarnationId);
+      if (
+        matches.length !== 1 ||
+        segment === undefined ||
+        authorizedStreams.includes(segment.successor.evidenceStreamId) ||
+        incarnations.has(segment.successor.incarnationId) ||
+        (latest !== undefined &&
+          (segment.predecessor.incarnationId !== latest.successor.incarnationId ||
+            segment.fromRunVersion <= latest.fromRunVersion ||
+            segment.admittedAt < latest.admittedAt))
+      )
+        return blockedEvidence;
+      const observed = await this.#readStream(run, completionConditionIds, input, {
+        streamId: segment.predecessor.evidenceStreamId,
+        checkpointSaid: segment.predecessor.checkpointSaid,
+        authorizedStreams: [...authorizedStreams],
+        predecessor: segment,
+      });
+      if (observed.kind !== 'Observed') return observed;
+      if (
+        previousObservation !== undefined &&
+        Object.entries(previousObservation.checkpoint.budget.consumed).some(
+          ([dimension, amount]) =>
+            observed.checkpoint.budget.consumed[
+              dimension as keyof typeof observed.checkpoint.budget.consumed
+            ] < amount,
+        )
+      )
+        return blockedEvidence;
+      for (const said of observed.observation.seal.artifactSaids) chainArtifacts.add(said);
+      previousObservation = observed;
+      incarnations.add(segment.successor.incarnationId);
+      latest = segment;
+      authorizedStreams.push(segment.successor.evidenceStreamId);
+      segments.splice(segments.indexOf(segment), 1);
+    }
+    if (
+      latest === undefined
+        ? run.currentExecution !== undefined
+        : run.currentExecution?.segmentSaid !== latest.d ||
+          run.currentExecution.evidenceStreamId !== latest.successor.evidenceStreamId ||
+          run.currentExecution.harnessRevisionSaid !== latest.successor.harnessRevisionSaid ||
+          run.lease.kind !== 'Held' ||
+          run.lease.incarnationId !== latest.successor.incarnationId ||
+          run.version <= latest.fromRunVersion
+    )
+      return blockedEvidence;
+    const final = await this.#readStream(run, completionConditionIds, input, {
+      streamId: authorizedStreams.at(-1) ?? run.binding.evidenceStreamId,
+      authorizedStreams,
+      ...(latest === undefined ? {} : { incarnationId: latest.successor.incarnationId }),
+    });
+    if (final.kind !== 'Observed') return final;
+    if (
+      previousObservation !== undefined &&
+      Object.entries(previousObservation.checkpoint.budget.consumed).some(
+        ([dimension, amount]) =>
+          final.checkpoint.budget.consumed[
+            dimension as keyof typeof final.checkpoint.budget.consumed
+          ] < amount,
+      )
+    )
+      return blockedEvidence;
+    return {
+      ...final,
+      observation: {
+        ...final.observation,
+        seal: {
+          ...final.observation.seal,
+          artifactSaids: [...new Set([...chainArtifacts, ...final.observation.seal.artifactSaids])],
+        },
+      },
+    };
+  }
+
+  async #readStream(
+    run: Run,
+    completionConditionIds: readonly string[],
+    input: QualificationInput,
+    target: {
+      readonly streamId: string;
+      readonly checkpointSaid?: string;
+      readonly incarnationId?: string;
+      readonly authorizedStreams: readonly string[];
+      readonly predecessor?: RunSuccessorSegment;
+    },
+  ): Promise<ObservationOutcome> {
     const { ownerAid } = input;
     const streamDocument = await this.#streams.findOne({
-      _id: run.binding.evidenceStreamId,
+      _id: target.streamId,
       'binding.ownerAid': ownerAid,
       'binding.runId': run.binding.runId,
     });
@@ -282,11 +413,12 @@ export class MongoFailureQualification implements FailureQualificationReading {
     )
       return blockedEvidence;
     const checkpointSaid =
-      run.lifecycle.kind === 'Ended'
+      target.checkpointSaid ??
+      (run.lifecycle.kind === 'Ended'
         ? run.lifecycle.outcome.checkpointSaid
         : run.lifecycle.phase.kind === 'Blocked'
           ? run.lifecycle.phase.checkpointSaid
-          : undefined;
+          : undefined);
     if (checkpointSaid === undefined) return blockedQualification;
     const checkpointDocument = await this.#checkpoints.findOne({
       _id: checkpointSaid,
@@ -300,6 +432,26 @@ export class MongoFailureQualification implements FailureQualificationReading {
       completionConditionIds,
     ).checkpoint;
     if (
+      checkpoint.runId !== run.binding.runId ||
+      (target.incarnationId !== undefined && checkpoint.incarnationId !== target.incarnationId) ||
+      stream.provisional.kind !== 'Checkpointed' ||
+      stream.provisional.checkpointSaid !== checkpoint.d ||
+      !isDeepStrictEqual(
+        stream.provisional.submissionVerification,
+        checkpoint.runState.verification,
+      ) ||
+      (target.predecessor === undefined
+        ? !isDeepStrictEqual(stream.provisional.lifecycle, run.lifecycle)
+        : stream.provisional.lifecycle.kind !== 'Active' ||
+          stream.provisional.lifecycle.phase.kind !== 'Blocked' ||
+          stream.provisional.lifecycle.phase.reason !== 'ContextLimitReached') ||
+      Object.entries(checkpoint.budget.consumed).some(([dimension, consumed]) => {
+        const name = dimension as keyof typeof checkpoint.budget.consumed;
+        return (
+          consumed > run.binding.budget[name] ||
+          consumed + checkpoint.budget.remaining[name] !== run.binding.budget[name]
+        );
+      }) ||
       checkpoint.taskId !== run.binding.taskId ||
       checkpoint.taskRevisionSaid !== run.binding.taskRevisionSaid ||
       checkpoint.harnessLineageId !== run.binding.harnessLineageId ||
@@ -315,10 +467,22 @@ export class MongoFailureQualification implements FailureQualificationReading {
       checkpoint.evidence.finalSequence >= stream.cursor.acceptedThrough ||
       checkpoint.evidence.eventCount !== checkpoint.evidence.finalSequence + 1 ||
       checkpoint.incarnationId !== stream.binding.incarnationId ||
-      checkpoint.runState.verification.kind !== run.submissionVerification.kind ||
-      (run.binding.purpose.kind === 'Retained'
-        ? !retainedCheckpointMatches(run, checkpoint)
-        : !calibrationCheckpointMatches(run, checkpoint))
+      (target.predecessor === undefined
+        ? checkpoint.runState.verification.kind !== run.submissionVerification.kind ||
+          (run.binding.purpose.kind === 'Retained'
+            ? !retainedCheckpointMatches(run, checkpoint)
+            : !calibrationCheckpointMatches(run, checkpoint))
+        : checkpoint.runState.kind !== 'Active' ||
+          checkpoint.runState.phase.kind !== 'Blocked' ||
+          checkpoint.runState.phase.reason !== 'ContextLimitReached' ||
+          checkpoint.continuation.kind !== 'ExternalResolutionRequired' ||
+          checkpoint.continuation.reason !== 'ContextLimitReached' ||
+          checkpoint.incarnationId !== target.predecessor.predecessor.incarnationId ||
+          stream.cursor.acceptedThrough !== target.predecessor.predecessor.finalSequence ||
+          stream.cursor.chainHeadSaid !== target.predecessor.predecessor.chainHeadSaid ||
+          stream.seal.exchangeSaid !== target.predecessor.predecessor.sealExchangeSaid ||
+          stream.seal.sealedAt > target.predecessor.admittedAt ||
+          !isDeepStrictEqual(checkpoint.budget.consumed, target.predecessor.consumedBudget))
     )
       return blockedEvidence;
     if (
@@ -337,6 +501,8 @@ export class MongoFailureQualification implements FailureQualificationReading {
     let checkpointVerified = false;
     let checkpointAccepted = false;
     const artifactSaids = new Set<string>();
+    const authorized = new Set<string>();
+    const modelRequests = new Set<string>();
     const cursor = this.#events
       .find({ ownerAid, runId: run.binding.runId, evidenceStreamId: stream.binding.streamId })
       .sort({ sequence: 1 });
@@ -358,6 +524,33 @@ export class MongoFailureQualification implements FailureQualificationReading {
         return blockedEvidence;
       if (sequence === checkpoint.evidence.finalSequence) {
         checkpointHeadFound = event.d === checkpoint.evidence.chainHeadSaid;
+      }
+      if (target.predecessor !== undefined) {
+        const detail = event.event;
+        if (detail.kind === 'ModelRequest' && profileEvent === undefined) return blockedProfile;
+        if (
+          detail.kind === 'ToolAuthorized' ||
+          detail.kind === 'EffectCompleted' ||
+          detail.kind === 'EffectFailed'
+        ) {
+          const key = `${detail.piSessionId}:${detail.modelTurnId}:${detail.toolCallId}:${String(detail.proposalIndex)}`;
+          if (detail.kind === 'ToolAuthorized') {
+            if (authorized.has(key)) return blockedEvidence;
+            authorized.add(key);
+          } else if (!authorized.delete(key)) return blockedEvidence;
+        }
+        if (detail.kind === 'ModelRequest' || detail.kind === 'ModelMessageCompleted') {
+          const key = `${detail.piSessionId}:${detail.modelTurnId}`;
+          if (detail.kind === 'ModelRequest') {
+            if (modelRequests.has(key)) return blockedEvidence;
+            modelRequests.add(key);
+          } else if (!modelRequests.delete(key)) return blockedEvidence;
+        }
+        if (
+          sequence === checkpoint.evidence.finalSequence &&
+          (authorized.size !== 0 || modelRequests.size !== 0)
+        )
+          return blockedEvidence;
       }
       for (const said of evidenceArtifactReferences(event.event)) artifactSaids.add(said);
       switch (event.event.kind) {
@@ -381,7 +574,12 @@ export class MongoFailureQualification implements FailureQualificationReading {
           calibrationEvent = event;
           break;
         case 'RunBlocked':
-          if (blockedEvent !== undefined || !checkpointVerified || checkpointAccepted)
+          if (
+            blockedEvent !== undefined ||
+            (target.predecessor === undefined && !checkpointVerified) ||
+            checkpointAccepted ||
+            sequence <= checkpoint.evidence.finalSequence
+          )
             return blockedEvidence;
           blockedEvent = event;
           break;
@@ -434,14 +632,24 @@ export class MongoFailureQualification implements FailureQualificationReading {
       sequence !== stream.cursor.acceptedThrough + 1 ||
       previousSaid !== stream.cursor.chainHeadSaid ||
       !checkpointHeadFound ||
-      !checkpointVerified ||
-      !checkpointAccepted ||
+      (target.predecessor === undefined && (!checkpointVerified || !checkpointAccepted)) ||
+      authorized.size !== 0 ||
+      modelRequests.size !== 0 ||
       profileEvent?.event.kind !== 'RunExecutionProfileBound' ||
       profileEvent.event.executionProfileSaid !== input.executionProfileSaid ||
       profileEvent.incarnationId !== checkpoint.incarnationId
     )
       return blockedEvidence;
-    if (run.binding.purpose.kind === 'Retained') {
+    if (target.predecessor !== undefined) {
+      if (
+        blockedEvent?.event.kind !== 'RunBlocked' ||
+        blockedEvent.event.reason !== 'ContextLimitReached' ||
+        blockedEvent.event.checkpointSaid !== checkpoint.d ||
+        calibrationEvent !== undefined ||
+        failureEvent !== undefined
+      )
+        return blockedEvidence;
+    } else if (run.binding.purpose.kind === 'Retained') {
       if (
         blockedEvent?.event.kind !== 'RunBlocked' ||
         blockedEvent.event.reason !== 'HarnessCompatibilityFailure' ||
@@ -474,7 +682,7 @@ export class MongoFailureQualification implements FailureQualificationReading {
         _id: evidenceArtifactDocumentId(run.binding.runId, said),
         ownerAid,
         runId: run.binding.runId,
-        evidenceStreamId: stream.binding.streamId,
+        evidenceStreamId: { $in: [...target.authorizedStreams] },
         'artifact.d': said,
       });
       if (rawDocument === null) return blockedEvidence;
@@ -510,7 +718,7 @@ export class MongoFailureQualification implements FailureQualificationReading {
         _id: evidenceArtifactDocumentId(run.binding.runId, said),
         ownerAid,
         runId: run.binding.runId,
-        evidenceStreamId: stream.binding.streamId,
+        evidenceStreamId: { $in: [...target.authorizedStreams] },
         'artifact.d': said,
       });
       if (rawDocument === null) return blockedProfile;
