@@ -7,6 +7,8 @@ import { prepareProtectedEvaluationArtifact } from './protected-artifact.js';
 import {
   bindEvaluationVerifierBundle,
   decodeEvaluationVerifierBundle,
+  decodeEvaluationVerifierBundleBytes,
+  encodeEvaluationVerifierBundle,
   prepareEvaluationVerifierBundle,
 } from './verifier-bundle.js';
 
@@ -151,4 +153,35 @@ it('rejects duplicate public IDs, scope changes, and hidden plaintext fields', (
   expect(prepareEvaluationVerifierBundle({ ...input, hiddenAnswer: 'legacy passes' }).kind).toBe(
     'Rejected',
   );
+});
+
+it('matches the disclosed tamper contract without prescribing a particular rejection error', () => {
+  const input = bundleInput();
+  expect(
+    prepareEvaluationVerifierBundle({
+      ...input,
+      publicConditions: input.publicConditions.map((condition) =>
+        condition.id === 'cesr-tamper'
+          ? { ...condition, expected: { kind: 'Rejected', error: 'AnyRejection' } }
+          : condition,
+      ),
+    }).kind,
+  ).toBe('Prepared');
+});
+
+it('retains only exact canonical parent bundle bytes for M custody', () => {
+  const prepared = prepareEvaluationVerifierBundle(bundleInput());
+  if (prepared.kind !== 'Prepared') throw new Error('verifier bundle rejected');
+  const encoded = encodeEvaluationVerifierBundle(prepared.bundle);
+  if (encoded.kind !== 'Encoded') throw new Error('bundle encoding rejected');
+  expect(decodeEvaluationVerifierBundleBytes(encoded.bytes)).toEqual({
+    kind: 'Accepted',
+    bundle: prepared.bundle,
+    bytes: encoded.bytes,
+  });
+  expect(
+    decodeEvaluationVerifierBundleBytes(
+      new TextEncoder().encode(`${JSON.stringify(prepared.bundle)}\n`),
+    ),
+  ).toEqual({ kind: 'Rejected' });
 });

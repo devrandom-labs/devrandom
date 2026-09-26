@@ -39,6 +39,7 @@ const rejectedObservation = Type.Object(
   {
     kind: Type.Literal('Rejected'),
     error: Type.Union([
+      Type.Literal('AnyRejection'),
       Type.Literal('InvalidFrame'),
       Type.Literal('InvalidPayload'),
       Type.Literal('UnsupportedVersion'),
@@ -116,6 +117,7 @@ export type EvaluationVerifierBundleDecoding =
 export type EvaluationVerifierBinding =
   | { readonly kind: 'Bound' }
   | { readonly kind: 'Rejected'; readonly reason: 'BundleInvalid' | 'ManifestMismatch' };
+export const maximumEvaluationVerifierBundleBytes = 768 * 1024;
 
 function validPublicConditions(input: EvaluationVerifierBundleInput): boolean {
   const identifiers = new Set<string>();
@@ -212,6 +214,43 @@ export function decodeEvaluationVerifierBundle(input: unknown): EvaluationVerifi
       : { kind: 'Rejected', reason: 'SaidMismatch' };
   } catch {
     return { kind: 'Rejected', reason: 'SaidMismatch' };
+  }
+}
+
+/** Exact JSON bytes are retained so server custody and local replay name the same bundle. */
+export function encodeEvaluationVerifierBundle(
+  bundle: EvaluationVerifierBundle,
+): { readonly kind: 'Encoded'; readonly bytes: Uint8Array } | { readonly kind: 'Rejected' } {
+  if (decodeEvaluationVerifierBundle(bundle).kind !== 'Accepted') return { kind: 'Rejected' };
+  const bytes = new TextEncoder().encode(JSON.stringify(bundle));
+  return bytes.byteLength <= maximumEvaluationVerifierBundleBytes
+    ? { kind: 'Encoded', bytes }
+    : { kind: 'Rejected' };
+}
+
+export function decodeEvaluationVerifierBundleBytes(input: unknown):
+  | {
+      readonly kind: 'Accepted';
+      readonly bundle: EvaluationVerifierBundle;
+      readonly bytes: Uint8Array;
+    }
+  | { readonly kind: 'Rejected' } {
+  if (
+    !(input instanceof Uint8Array) ||
+    input.byteLength === 0 ||
+    input.byteLength > maximumEvaluationVerifierBundleBytes
+  )
+    return { kind: 'Rejected' };
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(input));
+    const decoded = decodeEvaluationVerifierBundle(parsed);
+    if (decoded.kind !== 'Accepted') return { kind: 'Rejected' };
+    const encoded = encodeEvaluationVerifierBundle(decoded.bundle);
+    if (encoded.kind !== 'Encoded' || !Buffer.from(input).equals(Buffer.from(encoded.bytes)))
+      return { kind: 'Rejected' };
+    return { kind: 'Accepted', bundle: decoded.bundle, bytes: Uint8Array.from(input) };
+  } catch {
+    return { kind: 'Rejected' };
   }
 }
 
