@@ -3,15 +3,18 @@ import type {
   MandateIssuerAnchor,
   MandateTelState,
   PromotionMandateInspection,
+  ExactPromotionMandateInspection,
   TaskMandateInspection,
 } from '@devrandom/domain';
 import {
   decodePromotionMandateCredential,
   decodePromotionMandateCredentialV2,
+  decodePromotionMandateCredentialV3,
   decodeTaskMandateCredential,
   decodeTaskMandateCredentialV2,
   promotionMandateSchemaSaid,
   promotionMandateV2SchemaSaid,
+  promotionMandateV3SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
 } from '@devrandom/protocol';
@@ -175,6 +178,9 @@ function cryptographicEvidence(
     return invalidMandateEvidence('resolved schema is malformed');
   }
   verifySaid(sources.resolvedSchema, sources.resolvedSchema.$id, 'resolved mandate schema', '$id');
+  if (sources.resolvedSchema.$id !== credential.s) {
+    return invalidMandateEvidence('resolved mandate schema differs from credential schema');
+  }
   return {
     credentialSaid: credential.d,
     attributeSaid: credential.a.d,
@@ -230,17 +236,22 @@ export function inspectPromotionMandateCredentialEvidence(
     return invalidMandateEvidence('credential record is incomplete');
   }
   const legacy = decodePromotionMandateCredential(sources.credential.sad);
+  const v3 = decodePromotionMandateCredentialV3(sources.credential.sad);
   const decoding =
     legacy.kind === 'Accepted'
       ? legacy
-      : decodePromotionMandateCredentialV2(sources.credential.sad);
+      : (() => {
+          const v2 = decodePromotionMandateCredentialV2(sources.credential.sad);
+          return v2.kind === 'Accepted' ? v2 : v3;
+        })();
   if (decoding.kind === 'Rejected') {
     return invalidMandateEvidence(`Promotion Mandate decoding failed: ${decoding.reason}`);
   }
   const { credential } = decoding;
   if (
     credential.s !== promotionMandateSchemaSaid &&
-    credential.s !== promotionMandateV2SchemaSaid
+    credential.s !== promotionMandateV2SchemaSaid &&
+    credential.s !== promotionMandateV3SchemaSaid
   ) {
     return invalidMandateEvidence('Promotion Mandate schema differs from the pinned schema');
   }
@@ -255,9 +266,36 @@ export function inspectPromotionMandateCredentialEvidence(
     evolutionClassCeiling: credential.a.evolutionClassCeiling,
     requiredEvidenceClasses: credential.a.requiredEvidenceClasses,
     ...('experience' in credential.a ? { experience: credential.a.experience } : {}),
+    ...(v3.kind === 'Accepted'
+      ? {
+          evaluationManifestSaid: v3.credential.a.evaluationManifestSaid,
+          requiredMetrics: v3.credential.a.requiredMetrics,
+          requiredChecks: v3.credential.a.requiredChecks,
+          riskLimit: v3.credential.a.riskLimit,
+        }
+      : {}),
     notBefore: credential.a.notBefore,
     expiresAt: credential.a.expiresAt,
   };
+}
+
+export function inspectExactPromotionMandateCredentialEvidence(
+  sources: MandateCredentialEvidenceSources,
+): ExactPromotionMandateInspection {
+  if (!Value.Check(credentialRecordSchema, sources.credential))
+    return invalidMandateEvidence('credential record is incomplete');
+  if (decodePromotionMandateCredentialV3(sources.credential.sad).kind !== 'Accepted')
+    return invalidMandateEvidence('exact Promotion Mandate v3 decoding failed');
+  const inspection = inspectPromotionMandateCredentialEvidence(sources);
+  if (
+    inspection.credential.schemaSaid !== promotionMandateV3SchemaSaid ||
+    !('evaluationManifestSaid' in inspection) ||
+    !('requiredMetrics' in inspection) ||
+    !('requiredChecks' in inspection) ||
+    !('riskLimit' in inspection)
+  )
+    return invalidMandateEvidence('exact Promotion Mandate v3 claims are absent');
+  return inspection as ExactPromotionMandateInspection;
 }
 
 export function inspectMandateCredentialEvidence(
@@ -272,7 +310,13 @@ export function inspectMandateCredentialEvidence(
     return { kind: 'TaskMandate', value: inspectTaskMandateCredentialEvidence(sources) };
   }
   const promotion = decodePromotionMandateCredential(sources.credential.sad);
-  if (promotion.kind === 'Accepted') {
+  const promotionV2 = decodePromotionMandateCredentialV2(sources.credential.sad);
+  const promotionV3 = decodePromotionMandateCredentialV3(sources.credential.sad);
+  if (
+    promotion.kind === 'Accepted' ||
+    promotionV2.kind === 'Accepted' ||
+    promotionV3.kind === 'Accepted'
+  ) {
     return {
       kind: 'PromotionMandate',
       value: inspectPromotionMandateCredentialEvidence(sources),

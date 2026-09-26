@@ -1,7 +1,16 @@
-import { promotionEvidenceClasses, taskBudgetCeilings } from '@devrandom/domain';
+import {
+  promotionEvidenceClasses,
+  promotionRequiredChecks,
+  promotionRequiredMetrics,
+  promotionRiskLimit,
+  taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
+} from '@devrandom/domain';
 import {
   promotionMandateSchema,
   promotionMandateSchemaSaid,
+  promotionMandateV3Schema,
+  promotionMandateV3SchemaSaid,
   taskMandateSchema,
   taskMandateSchemaSaid,
 } from '@devrandom/protocol';
@@ -10,6 +19,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
   inspectPromotionMandateCredentialEvidence,
+  inspectExactPromotionMandateCredentialEvidence,
+  inspectMandateCredentialEvidence,
   inspectTaskMandateCredentialEvidence,
 } from './mandate-credential.js';
 
@@ -199,6 +210,95 @@ describe('Task Mandate cryptographic inspection', () => {
 });
 
 describe('Promotion Mandate cryptographic inspection', () => {
+  it('reads v3 exact-M claims only from a SAID-bound ACDC with issued TEL and anchored issuer KEL', () => {
+    const attributes = saidify({
+      d: '',
+      i: holderAid,
+      dt: '2026-09-24T14:05:00.000000+00:00',
+      authority: 'ActivateEvaluatedSuccessor',
+      taskId,
+      taskRevisionSaid,
+      harnessLineageId,
+      capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
+      budgetCeiling: taskEvaluationBudgetCeilings,
+      evolutionClassCeiling: ['C1', 'C2'],
+      requiredEvidenceClasses: [...promotionEvidenceClasses],
+      experience: {
+        corpusSaid: `E${'q'.repeat(43)}`,
+        repositoryResourceSaid: `E${'s'.repeat(43)}`,
+        disclosure: 'AuthorizedAnalogy',
+      },
+      evaluationManifestSaid: `E${'m'.repeat(43)}`,
+      requiredMetrics: [...promotionRequiredMetrics],
+      requiredChecks: [...promotionRequiredChecks],
+      riskLimit: { ...promotionRiskLimit },
+      notBefore: '2026-09-24T14:00:00.000Z',
+      expiresAt: '2026-09-24T18:00:00.000Z',
+    });
+    const credential = saidify({
+      v: 'ACDC10JSON000000_',
+      d: '',
+      i: ownerAid,
+      ri: registryId,
+      s: promotionMandateV3SchemaSaid,
+      a: attributes,
+    });
+    const issuance = saidify({
+      v: 'KERI10JSON000000_',
+      t: 'iss',
+      d: '',
+      i: credential.d,
+      ri: registryId,
+      s: '0',
+      dt: attributes.dt,
+    });
+    const anchor = saidify({
+      v: 'KERI10JSON000000_',
+      t: 'ixn',
+      d: '',
+      i: ownerAid,
+      s: '2',
+      p: ownerAid,
+      a: [{ i: credential.d, s: issuance.s, d: issuance.d }],
+    });
+    const sources = {
+      expectedCredentialSaid: credential.d,
+      credential: { sad: credential, iss: issuance, anc: anchor },
+      credentialState: { i: credential.d, ri: registryId, s: '0', et: 'iss' },
+      issuerKeyEvents: [{ ked: anchor }],
+      resolvedSchema: promotionMandateV3Schema,
+    };
+    expect(inspectExactPromotionMandateCredentialEvidence(sources)).toMatchObject({
+      evaluationManifestSaid: attributes.evaluationManifestSaid,
+      requiredMetrics: promotionRequiredMetrics,
+      requiredChecks: promotionRequiredChecks,
+      riskLimit: promotionRiskLimit,
+      credential: {
+        schemaSaid: promotionMandateV3SchemaSaid,
+        telState: { kind: 'Issued' },
+        issuerAnchor: { kind: 'Anchored' },
+      },
+    });
+    expect(inspectMandateCredentialEvidence(sources).kind).toBe('PromotionMandate');
+    expect(() =>
+      inspectExactPromotionMandateCredentialEvidence({
+        ...sources,
+        credential: {
+          ...sources.credential,
+          sad: {
+            ...credential,
+            a: { ...attributes, evaluationManifestSaid: `E${'x'.repeat(43)}` },
+          },
+        },
+      }),
+    ).toThrow('exact Promotion Mandate v3 decoding failed');
+    expect(() =>
+      inspectExactPromotionMandateCredentialEvidence({
+        ...sources,
+        resolvedSchema: { ...promotionMandateV3Schema, title: 'Substituted' },
+      }),
+    ).toThrow('resolved mandate schema');
+  });
   it('decodes the exact authority ceiling from independently verified evidence', () => {
     const attributes = saidify({
       d: '',

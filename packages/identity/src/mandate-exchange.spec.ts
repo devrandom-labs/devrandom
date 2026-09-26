@@ -1,5 +1,16 @@
-import { taskBudgetCeilings } from '@devrandom/domain';
-import { promotionMandateSchemaSaid, taskMandateSchemaSaid } from '@devrandom/protocol';
+import {
+  promotionEvidenceClasses,
+  promotionRequiredChecks,
+  promotionRequiredMetrics,
+  promotionRiskLimit,
+  taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
+} from '@devrandom/domain';
+import {
+  promotionMandateSchemaSaid,
+  promotionMandateV3SchemaSaid,
+  taskMandateSchemaSaid,
+} from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import { describe, expect, it } from 'vitest';
 
@@ -15,7 +26,7 @@ import {
   reconcileMandateOperationEvidence,
   taskMandateSchemaOobi,
 } from './mandate-exchange.js';
-import { credentialRegistryId, personalAgentAid, userAid } from './keri-identifier.js';
+import { credentialRegistryId, governorAid, personalAgentAid, userAid } from './keri-identifier.js';
 
 describe('mandate operation evidence', () => {
   it('decodes the exact operation name and exchange identity', () => {
@@ -314,6 +325,88 @@ describe('mandate issuance reconciliation', () => {
       a: attributes,
     });
   }
+
+  it('reconciles only the exact v3 M and rejects a substituted manifest or partial scope', () => {
+    const governor = governorAid(holder);
+    const exact = {
+      kind: 'PromotionMandate' as const,
+      userAlias: input.userAlias,
+      userAid: owner,
+      holderAid: governor,
+      registryId: registry,
+      issuedAt: input.issuedAt,
+      claims: {
+        authority: 'ActivateEvaluatedSuccessor' as const,
+        taskId: input.claims.taskId,
+        taskRevisionSaid: input.claims.taskRevisionSaid,
+        harnessLineageId: input.claims.harnessLineageId,
+        capabilityCeiling: [
+          'ReadRepository',
+          'ReadTaskMemory',
+          'RunTests',
+          'SubmitResult',
+        ] as const,
+        budgetCeiling: taskEvaluationBudgetCeilings,
+        evolutionClassCeiling: ['C1', 'C2'] as const,
+        requiredEvidenceClasses: promotionEvidenceClasses,
+        experience: {
+          corpusSaid: `E${'q'.repeat(43)}`,
+          repositoryResourceSaid: `E${'s'.repeat(43)}`,
+          disclosure: 'AuthorizedAnalogy' as const,
+        },
+        evaluationManifestSaid: `E${'m'.repeat(43)}`,
+        requiredMetrics: promotionRequiredMetrics,
+        requiredChecks: promotionRequiredChecks,
+        riskLimit: promotionRiskLimit,
+        notBefore: input.claims.notBefore,
+        expiresAt: input.claims.expiresAt,
+      },
+    };
+    const attributes = saidify({
+      d: '',
+      i: governor,
+      dt: mandateProtocolDatetime(exact.issuedAt),
+      authority: exact.claims.authority,
+      taskId: exact.claims.taskId,
+      taskRevisionSaid: exact.claims.taskRevisionSaid,
+      harnessLineageId: exact.claims.harnessLineageId,
+      capabilityCeiling: [...exact.claims.capabilityCeiling],
+      budgetCeiling: exact.claims.budgetCeiling,
+      evolutionClassCeiling: [...exact.claims.evolutionClassCeiling],
+      requiredEvidenceClasses: [...exact.claims.requiredEvidenceClasses],
+      experience: exact.claims.experience,
+      evaluationManifestSaid: exact.claims.evaluationManifestSaid,
+      requiredMetrics: [...exact.claims.requiredMetrics],
+      requiredChecks: [...exact.claims.requiredChecks],
+      riskLimit: { ...exact.claims.riskLimit },
+      notBefore: exact.claims.notBefore,
+      expiresAt: exact.claims.expiresAt,
+    });
+    const mandate = saidify({
+      v: 'ACDC10JSON000000_',
+      d: '',
+      i: owner,
+      ri: registry,
+      s: promotionMandateV3SchemaSaid,
+      a: attributes,
+    });
+    const record = { sad: mandate, iss: { d: 'issuance' }, anc: { d: 'anchor' }, ancatc: [] };
+    expect(reconcileMandateIssuanceEvidence([record], [], exact)).toEqual({
+      kind: 'Materialized',
+      credentialSaid: mandate.d,
+    });
+    expect(
+      reconcileMandateIssuanceEvidence([record], [], {
+        ...exact,
+        claims: { ...exact.claims, evaluationManifestSaid: `E${'x'.repeat(43)}` },
+      }),
+    ).toEqual({ kind: 'NotFound' });
+    const partial = structuredClone(exact);
+    Reflect.deleteProperty(partial.claims, 'requiredChecks');
+    expect(() => reconcileMandateIssuanceEvidence([record], [], partial)).toThrow(
+      'exact Promotion Mandate claims',
+    );
+  });
 
   it('prefers exact materialized credential evidence over a still-listed operation', () => {
     const mandate = credential();

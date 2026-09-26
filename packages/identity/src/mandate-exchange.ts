@@ -1,22 +1,29 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import type {
-  MandateRepository,
-  PromotionEvidenceClass,
-  TaskBudgets,
-  TaskEvolutionClass,
-  TaskEvaluationCapability,
-  MandateExperienceScope,
+import {
+  promotionRequiredChecks,
+  promotionRequiredMetrics,
+  promotionRiskLimit,
+  type ExactPromotionMandateClaims,
+  type MandateExperienceScope,
+  type MandateRepository,
+  type PromotionEvidenceClass,
+  type TaskBudgets,
+  type TaskEvolutionClass,
+  type TaskEvaluationCapability,
 } from '@devrandom/domain';
 import {
   decodePromotionMandateCredential,
   decodePromotionMandateCredentialV2,
+  decodePromotionMandateCredentialV3,
   decodeTaskMandateCredential,
   decodeTaskMandateCredentialV2,
   promotionMandateSchema,
   promotionMandateSchemaSaid,
   promotionMandateV2Schema,
   promotionMandateV2SchemaSaid,
+  promotionMandateV3Schema,
+  promotionMandateV3SchemaSaid,
   taskMandateSchema,
   taskMandateSchemaSaid,
   taskMandateV2Schema,
@@ -124,7 +131,7 @@ export interface TaskMandateClaims {
   readonly experience?: MandateExperienceScope;
 }
 
-export interface PromotionMandateClaims {
+interface PromotionMandateBaseClaims {
   readonly authority: 'ActivateEvaluatedSuccessor';
   readonly taskId: string;
   readonly taskRevisionSaid: string;
@@ -137,6 +144,17 @@ export interface PromotionMandateClaims {
   readonly expiresAt: string;
   readonly experience?: MandateExperienceScope;
 }
+
+export type PromotionMandateClaims = PromotionMandateBaseClaims &
+  (
+    | {
+        readonly evaluationManifestSaid?: never;
+        readonly requiredMetrics?: never;
+        readonly requiredChecks?: never;
+        readonly riskLimit?: never;
+      }
+    | (ExactPromotionMandateClaims & { readonly experience: MandateExperienceScope })
+  );
 
 export interface StableTaskMandateIssuance {
   readonly kind: 'TaskMandate';
@@ -605,6 +623,29 @@ function unavailable(stage: string, cause: unknown): IdentityFailure {
   );
 }
 
+function exactPromotionClaims(
+  claims: PromotionMandateClaims,
+): claims is PromotionMandateBaseClaims &
+  ExactPromotionMandateClaims & { readonly experience: MandateExperienceScope } {
+  const supplied = [
+    claims.evaluationManifestSaid,
+    claims.requiredMetrics,
+    claims.requiredChecks,
+    claims.riskLimit,
+  ];
+  if (supplied.every((value) => value === undefined)) return false;
+  if (
+    supplied.some((value) => value === undefined) ||
+    claims.experience === undefined ||
+    !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(claims.evaluationManifestSaid ?? '') ||
+    !isDeepStrictEqual(claims.requiredMetrics, promotionRequiredMetrics) ||
+    !isDeepStrictEqual(claims.requiredChecks, promotionRequiredChecks) ||
+    !isDeepStrictEqual(claims.riskLimit, promotionRiskLimit)
+  )
+    return invalidExchange('exact Promotion Mandate claims differ from the frozen E4 scope');
+  return true;
+}
+
 function issuanceArguments(input: StableMandateIssuance) {
   switch (input.kind) {
     case 'TaskMandate':
@@ -628,12 +669,14 @@ function issuanceArguments(input: StableMandateIssuance) {
           expiresAt: input.claims.expiresAt,
         },
       };
-    case 'PromotionMandate':
+    case 'PromotionMandate': {
+      const exact = exactPromotionClaims(input.claims);
       return {
         i: input.userAid,
         ri: input.registryId,
-        s:
-          input.claims.experience === undefined
+        s: exact
+          ? promotionMandateV3SchemaSaid
+          : input.claims.experience === undefined
             ? promotionMandateSchemaSaid
             : promotionMandateV2SchemaSaid,
         a: {
@@ -648,10 +691,19 @@ function issuanceArguments(input: StableMandateIssuance) {
           evolutionClassCeiling: [...input.claims.evolutionClassCeiling],
           requiredEvidenceClasses: [...input.claims.requiredEvidenceClasses],
           ...(input.claims.experience === undefined ? {} : { experience: input.claims.experience }),
+          ...(exact
+            ? {
+                evaluationManifestSaid: input.claims.evaluationManifestSaid,
+                requiredMetrics: [...input.claims.requiredMetrics],
+                requiredChecks: [...input.claims.requiredChecks],
+                riskLimit: { ...input.claims.riskLimit },
+              }
+            : {}),
           notBefore: input.claims.notBefore,
           expiresAt: input.claims.expiresAt,
         },
       };
+    }
   }
 }
 
@@ -736,8 +788,11 @@ function stableIssuanceMatch(
         : { kind: 'Mismatch', field: 'CredentialContent' };
     }
     case 'PromotionMandate': {
-      const decoding =
-        input.claims.experience === undefined
+      const exact = exactPromotionClaims(input.claims);
+      const v3 = decodePromotionMandateCredentialV3(credential);
+      const decoding = exact
+        ? v3
+        : input.claims.experience === undefined
           ? decodePromotionMandateCredential(credential)
           : decodePromotionMandateCredentialV2(credential);
       if (decoding.kind === 'Rejected') {
@@ -756,6 +811,14 @@ function stableIssuanceMatch(
           ...('experience' in decoding.credential.a
             ? { experience: decoding.credential.a.experience }
             : {}),
+          ...(v3.kind === 'Accepted'
+            ? {
+                evaluationManifestSaid: v3.credential.a.evaluationManifestSaid,
+                requiredMetrics: v3.credential.a.requiredMetrics,
+                requiredChecks: v3.credential.a.requiredChecks,
+                riskLimit: v3.credential.a.riskLimit,
+              }
+            : {}),
           notBefore: decoding.credential.a.notBefore,
           expiresAt: decoding.credential.a.expiresAt,
         },
@@ -769,6 +832,14 @@ function stableIssuanceMatch(
           evolutionClassCeiling: input.claims.evolutionClassCeiling,
           requiredEvidenceClasses: input.claims.requiredEvidenceClasses,
           ...(input.claims.experience === undefined ? {} : { experience: input.claims.experience }),
+          ...(exact
+            ? {
+                evaluationManifestSaid: input.claims.evaluationManifestSaid,
+                requiredMetrics: input.claims.requiredMetrics,
+                requiredChecks: input.claims.requiredChecks,
+                riskLimit: input.claims.riskLimit,
+              }
+            : {}),
           notBefore: input.claims.notBefore,
           expiresAt: input.claims.expiresAt,
         },
@@ -889,14 +960,18 @@ function issuanceInspectionMatches(
   expected: StableMandateIssuance,
 ): boolean {
   const credential = inspection.value.credential;
+  const exactPromotion =
+    expected.kind === 'PromotionMandate' && exactPromotionClaims(expected.claims);
   const expectedSchema =
     expected.kind === 'TaskMandate'
       ? expected.claims.experience === undefined
         ? taskMandateSchemaSaid
         : taskMandateV2SchemaSaid
-      : expected.claims.experience === undefined
-        ? promotionMandateSchemaSaid
-        : promotionMandateV2SchemaSaid;
+      : exactPromotion
+        ? promotionMandateV3SchemaSaid
+        : expected.claims.experience === undefined
+          ? promotionMandateSchemaSaid
+          : promotionMandateV2SchemaSaid;
   if (
     inspection.kind !== expected.kind ||
     credential.issuerAid !== expected.userAid ||
@@ -958,6 +1033,17 @@ function issuanceInspectionMatches(
         ...(inspection.value.experience === undefined
           ? {}
           : { experience: inspection.value.experience }),
+        ...('evaluationManifestSaid' in inspection.value &&
+        'requiredMetrics' in inspection.value &&
+        'requiredChecks' in inspection.value &&
+        'riskLimit' in inspection.value
+          ? {
+              evaluationManifestSaid: inspection.value.evaluationManifestSaid,
+              requiredMetrics: inspection.value.requiredMetrics,
+              requiredChecks: inspection.value.requiredChecks,
+              riskLimit: inspection.value.riskLimit,
+            }
+          : {}),
         notBefore: inspection.value.notBefore,
         expiresAt: inspection.value.expiresAt,
       }) ===
@@ -973,6 +1059,14 @@ function issuanceInspectionMatches(
         ...(expected.claims.experience === undefined
           ? {}
           : { experience: expected.claims.experience }),
+        ...(exactPromotion
+          ? {
+              evaluationManifestSaid: expected.claims.evaluationManifestSaid,
+              requiredMetrics: expected.claims.requiredMetrics,
+              requiredChecks: expected.claims.requiredChecks,
+              riskLimit: expected.claims.riskLimit,
+            }
+          : {}),
         notBefore: expected.claims.notBefore,
         expiresAt: expected.claims.expiresAt,
       })
@@ -1422,7 +1516,7 @@ function verifyHolderInspection(
   const expectedSchemas =
     expected.mandateKind === 'TaskMandate'
       ? [taskMandateSchemaSaid, taskMandateV2SchemaSaid]
-      : [promotionMandateSchemaSaid, promotionMandateV2SchemaSaid];
+      : [promotionMandateSchemaSaid, promotionMandateV2SchemaSaid, promotionMandateV3SchemaSaid];
   if (
     inspection.kind !== expected.mandateKind ||
     evidence.credentialSaid !== expected.credentialSaid ||
@@ -1469,6 +1563,11 @@ export async function connectLocalMandateCustody(
     promotionMandateV2Schema,
     input.operationTimeoutMs,
   );
+  const promotionV3SchemaAvailability = signifyCredentialSchemaAvailability(
+    client,
+    promotionMandateV3Schema,
+    input.operationTimeoutMs,
+  );
   const prepareSchemas = async (): Promise<void> => {
     await taskSchemaAvailability.resolve(input.taskMandateSchemaOobi.url);
     const taskV2Oobi = new URL(input.taskMandateSchemaOobi.url);
@@ -1494,7 +1593,13 @@ export async function connectLocalMandateCustody(
       ),
     reconcileIssuance: (request) => reconcileIssuance(client, request),
     async submitIssuance(request) {
+      const exact = request.kind === 'PromotionMandate' && exactPromotionClaims(request.claims);
       await prepareSchemas();
+      if (exact) {
+        const promotionV3Oobi = new URL(input.promotionMandateSchemaOobi.url);
+        promotionV3Oobi.pathname = `/oobi/${promotionMandateV3SchemaSaid}`;
+        await promotionV3SchemaAvailability.resolve(promotionV3Oobi.href);
+      }
       return submitIssuance(client, request);
     },
     observeIssuance: (request) => observeIssuance(client, request),
@@ -1594,7 +1699,8 @@ async function inspectAdmission(
       inspection.value.credential.schemaSaid !== taskMandateSchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV2SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateSchemaSaid &&
-      inspection.value.credential.schemaSaid !== promotionMandateV2SchemaSaid
+      inspection.value.credential.schemaSaid !== promotionMandateV2SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV3SchemaSaid
     ) {
       return { kind: 'Rejected', reason: 'CredentialSchemaMismatch' };
     }

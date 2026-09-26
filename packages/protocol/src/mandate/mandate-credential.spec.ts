@@ -1,5 +1,8 @@
 import {
   promotionEvidenceClasses,
+  promotionRequiredChecks,
+  promotionRequiredMetrics,
+  promotionRiskLimit,
   taskBudgetCeilings,
   taskEvaluationBudgetCeilings,
 } from '@devrandom/domain';
@@ -9,12 +12,15 @@ import { describe, expect, it } from 'vitest';
 import {
   decodePromotionMandateCredential,
   decodePromotionMandateCredentialV2,
+  decodePromotionMandateCredentialV3,
   decodeTaskMandateCredential,
   decodeTaskMandateCredentialV2,
   promotionMandateSchema,
   promotionMandateSchemaSaid,
   promotionMandateV2Schema,
   promotionMandateV2SchemaSaid,
+  promotionMandateV3Schema,
+  promotionMandateV3SchemaSaid,
   taskMandateSchema,
   taskMandateSchemaSaid,
   taskMandateV2Schema,
@@ -100,6 +106,59 @@ function promotionCredential(): unknown {
 }
 
 describe('Mandate credential schemas', () => {
+  it('accepts only a distinct exact-M v3 credential with ordered E4 claims', () => {
+    const legacy = decodePromotionMandateCredential(promotionCredential());
+    if (legacy.kind !== 'Accepted') throw new Error('legacy fixture rejected');
+    const { notBefore, expiresAt, ...base } = legacy.credential.a;
+    const exact = {
+      evaluationManifestSaid: `E${'m'.repeat(43)}`,
+      requiredMetrics: [...promotionRequiredMetrics],
+      requiredChecks: [...promotionRequiredChecks],
+      riskLimit: { ...promotionRiskLimit },
+    };
+    const attributes = saidify({
+      ...base,
+      d: '',
+      capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
+      budgetCeiling: taskEvaluationBudgetCeilings,
+      experience: {
+        corpusSaid: `E${'q'.repeat(43)}`,
+        repositoryResourceSaid: `E${'s'.repeat(43)}`,
+        disclosure: 'AuthorizedAnalogy',
+      },
+      ...exact,
+      notBefore,
+      expiresAt,
+    });
+    const credential = saidify({
+      ...legacy.credential,
+      d: '',
+      s: promotionMandateV3SchemaSaid,
+      a: attributes,
+    });
+    expect(decodePromotionMandateCredentialV3(credential)).toEqual({
+      kind: 'Accepted',
+      credential,
+    });
+    expect(decodePromotionMandateCredentialV2(credential).kind).toBe('Rejected');
+    expect(promotionMandateV3Schema.$id).toBe(promotionMandateV3SchemaSaid);
+    expect(
+      new Saider({ qb64: promotionMandateV3SchemaSaid }).verify(
+        promotionMandateV3Schema,
+        true,
+        false,
+        undefined,
+        '$id',
+      ),
+    ).toBe(true);
+    const swapped = saidify({
+      ...(attributes as object),
+      d: '',
+      requiredMetrics: [...promotionRequiredMetrics].reverse(),
+    });
+    const changed = saidify({ ...(credential as object), d: '', a: swapped });
+    expect(decodePromotionMandateCredentialV3(changed).kind).toBe('Rejected');
+  });
   it('accepts only the exact versioned Promotion Mandate experience and budget attributes', () => {
     const decoded = decodePromotionMandateCredential(promotionCredential());
     expect(decoded.kind).toBe('Accepted');
@@ -197,9 +256,29 @@ describe('Mandate credential schemas', () => {
     }
   });
 
+  it('fails closed when the v3 exact-M schema bytes drift', () => {
+    Reflect.set(promotionMandateV3Schema, 'description', 'drifted exact-M schema');
+    try {
+      expect(verifyMandateSchemaCatalog()).toEqual({
+        kind: 'Mismatch',
+        schema: 'PromotionMandateV3',
+        expectedSaid: promotionMandateV3SchemaSaid,
+      });
+    } finally {
+      Reflect.set(
+        promotionMandateV3Schema,
+        'description',
+        'User-confirmed exact E4 authority for one Governor, Task Revision and evaluation manifest',
+      );
+    }
+  });
+
   it('pins both schema SAIDs to their exact TypeBox document bytes', () => {
     expect(taskMandateSchemaSaid).toBe('EA1IvABDQ7L9XtBkLtJmw4ouzR3ie3a_C6oAKpVPqKyk');
+    expect(taskMandateV2SchemaSaid).toBe('EOY8HBroEjfQNrCcePMlfVbP-nb1n4cEphePUB4X_KCZ');
     expect(promotionMandateSchemaSaid).toBe('EHL1THTMidi0ibU-Yuw9mOzUyxg0G5eBwmqJsnbFDp-s');
+    expect(promotionMandateV2SchemaSaid).toBe('EKJIBacKPWlMuJFCmmcq4rHZWUnMEBc8PicQRFOCMvkD');
+    expect(promotionMandateV3SchemaSaid).toBe('EAQCbiVS9-JfwXwYHEgNCOryzg9Aq1ft1m98u_5TP742');
     expect(
       new Saider({ qb64: taskMandateSchemaSaid }).verify(
         taskMandateSchema,

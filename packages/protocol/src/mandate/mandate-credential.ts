@@ -1,4 +1,10 @@
-import { promotionEvidenceClasses, taskEvolutionClasses } from '@devrandom/domain';
+import {
+  promotionEvidenceClasses,
+  promotionRequiredChecks,
+  promotionRequiredMetrics,
+  promotionRiskLimit,
+  taskEvolutionClasses,
+} from '@devrandom/domain';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
 import { Value } from 'typebox/value';
@@ -123,6 +129,33 @@ const promotionMandateV2AttributesSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const {
+  notBefore: promotionV3NotBefore,
+  expiresAt: promotionV3ExpiresAt,
+  ...promotionV3BaseProperties
+} = promotionMandateV2AttributesSchema.properties;
+const promotionMandateV3AttributesSchema = Type.Object(
+  {
+    ...promotionV3BaseProperties,
+    evaluationManifestSaid: keriIdentifierSchema,
+    requiredMetrics: Type.Tuple(promotionRequiredMetrics.map((metric) => Type.Literal(metric))),
+    requiredChecks: Type.Tuple(promotionRequiredChecks.map((check) => Type.Literal(check))),
+    riskLimit: Type.Object(
+      {
+        maximumUnsafeEffects: Type.Literal(promotionRiskLimit.maximumUnsafeEffects),
+        maximumDisqualifyingAttempts: Type.Literal(promotionRiskLimit.maximumDisqualifyingAttempts),
+        minimumAdditionalSuccessesOverEachControl: Type.Literal(
+          promotionRiskLimit.minimumAdditionalSuccessesOverEachControl,
+        ),
+      },
+      { additionalProperties: false },
+    ),
+    notBefore: promotionV3NotBefore,
+    expiresAt: promotionV3ExpiresAt,
+  },
+  { additionalProperties: false },
+);
+
 function mandateSchema<Attributes extends ReturnType<typeof Type.Object>>(
   attributes: Attributes,
   title: string,
@@ -229,11 +262,35 @@ export const promotionMandateV2Schema = {
   $id: promotionMandateV2SchemaSaid,
 };
 
+const promotionMandateV3SchemaDefinition = mandateSchema(
+  promotionMandateV3AttributesSchema,
+  'Devrandom Promotion Mandate v3',
+  'User-confirmed exact E4 authority for one Governor, Task Revision and evaluation manifest',
+  'DevrandomPromotionMandate',
+  '3.0.0',
+);
+const [promotionMandateV3SchemaId] = Saider.saidify(
+  promotionMandateV3SchemaDefinition,
+  undefined,
+  undefined,
+  '$id',
+);
+export const promotionMandateV3SchemaSaid = promotionMandateV3SchemaId.qb64;
+export const promotionMandateV3Schema = {
+  ...promotionMandateV3SchemaDefinition,
+  $id: promotionMandateV3SchemaSaid,
+};
+
 export type MandateSchemaCatalogVerification =
   | { readonly kind: 'Verified' }
   | {
       readonly kind: 'Mismatch';
-      readonly schema: 'TaskMandate' | 'TaskMandateV2' | 'PromotionMandate' | 'PromotionMandateV2';
+      readonly schema:
+        | 'TaskMandate'
+        | 'TaskMandateV2'
+        | 'PromotionMandate'
+        | 'PromotionMandateV2'
+        | 'PromotionMandateV3';
       readonly expectedSaid: string;
     };
 
@@ -273,6 +330,13 @@ export function verifyMandateSchemaCatalog(): MandateSchemaCatalogVerification {
       expectedSaid: promotionMandateV2SchemaSaid,
     };
   }
+  if (!schemaMatchesSaid(promotionMandateV3Schema, promotionMandateV3SchemaSaid)) {
+    return {
+      kind: 'Mismatch',
+      schema: 'PromotionMandateV3',
+      expectedSaid: promotionMandateV3SchemaSaid,
+    };
+  }
   return { kind: 'Verified' };
 }
 
@@ -282,13 +346,16 @@ export type TaskMandateAttributes = TaskMandateCredential['a'];
 export type TaskMandateV2Attributes = TaskMandateV2Credential['a'];
 export type PromotionMandateCredential = Type.Static<typeof promotionMandateSchema>;
 export type PromotionMandateV2Credential = Type.Static<typeof promotionMandateV2Schema>;
+export type PromotionMandateV3Credential = Type.Static<typeof promotionMandateV3Schema>;
 export type PromotionMandateAttributes = PromotionMandateCredential['a'];
 export type PromotionMandateV2Attributes = PromotionMandateV2Credential['a'];
+export type PromotionMandateV3Attributes = PromotionMandateV3Credential['a'];
 export type MandateCredential =
   | TaskMandateCredential
   | TaskMandateV2Credential
   | PromotionMandateCredential
-  | PromotionMandateV2Credential;
+  | PromotionMandateV2Credential
+  | PromotionMandateV3Credential;
 
 export type MandateCredentialInvalidity =
   | 'SchemaInvalid'
@@ -311,6 +378,10 @@ export type PromotionMandateCredentialDecoding =
 
 export type PromotionMandateV2CredentialDecoding =
   | { readonly kind: 'Accepted'; readonly credential: PromotionMandateV2Credential }
+  | { readonly kind: 'Rejected'; readonly reason: MandateCredentialInvalidity };
+
+export type PromotionMandateV3CredentialDecoding =
+  | { readonly kind: 'Accepted'; readonly credential: PromotionMandateV3Credential }
   | { readonly kind: 'Rejected'; readonly reason: MandateCredentialInvalidity };
 
 function compareUtf8(left: string, right: string): number {
@@ -484,6 +555,40 @@ function rebuildPromotionMandateV2Credential(credential: PromotionMandateV2Crede
   };
 }
 
+function rebuildPromotionMandateV3Credential(credential: PromotionMandateV3Credential) {
+  return {
+    v: credential.v,
+    d: credential.d,
+    i: credential.i,
+    ri: credential.ri,
+    s: credential.s,
+    a: {
+      d: credential.a.d,
+      i: credential.a.i,
+      dt: credential.a.dt,
+      authority: credential.a.authority,
+      taskId: credential.a.taskId,
+      taskRevisionSaid: credential.a.taskRevisionSaid,
+      harnessLineageId: credential.a.harnessLineageId,
+      capabilityCeiling: sorted(credential.a.capabilityCeiling),
+      budgetCeiling: rebuildBudgets(credential.a.budgetCeiling),
+      evolutionClassCeiling: sorted(credential.a.evolutionClassCeiling),
+      requiredEvidenceClasses: [...promotionEvidenceClasses],
+      experience: {
+        corpusSaid: credential.a.experience.corpusSaid,
+        repositoryResourceSaid: credential.a.experience.repositoryResourceSaid,
+        disclosure: credential.a.experience.disclosure,
+      },
+      evaluationManifestSaid: credential.a.evaluationManifestSaid,
+      requiredMetrics: [...promotionRequiredMetrics],
+      requiredChecks: [...promotionRequiredChecks],
+      riskLimit: { ...promotionRiskLimit },
+      notBefore: credential.a.notBefore,
+      expiresAt: credential.a.expiresAt,
+    },
+  };
+}
+
 type SaidDocumentKind = 'Credential' | 'Attributes';
 
 function saidIsValid(document: object, said: string, documentKind: SaidDocumentKind): boolean {
@@ -559,6 +664,22 @@ export function decodePromotionMandateCredentialV2(
     return { kind: 'Rejected', reason: 'UnexpectedSchema' };
   const canonical = rebuildPromotionMandateV2Credential(input);
   if (JSON.stringify(input) !== JSON.stringify(canonical))
+    return { kind: 'Rejected', reason: 'NonCanonical' };
+  if (!saidIsValid(input.a, input.a.d, 'Attributes'))
+    return { kind: 'Rejected', reason: 'AttributeSaidMismatch' };
+  if (!saidIsValid(input, input.d, 'Credential'))
+    return { kind: 'Rejected', reason: 'CredentialSaidMismatch' };
+  return { kind: 'Accepted', credential: input };
+}
+
+export function decodePromotionMandateCredentialV3(
+  input: unknown,
+): PromotionMandateV3CredentialDecoding {
+  if (!Value.Check(promotionMandateV3Schema, input))
+    return { kind: 'Rejected', reason: 'SchemaInvalid' };
+  if (input.s !== promotionMandateV3SchemaSaid)
+    return { kind: 'Rejected', reason: 'UnexpectedSchema' };
+  if (JSON.stringify(input) !== JSON.stringify(rebuildPromotionMandateV3Credential(input)))
     return { kind: 'Rejected', reason: 'NonCanonical' };
   if (!saidIsValid(input.a, input.a.d, 'Attributes'))
     return { kind: 'Rejected', reason: 'AttributeSaidMismatch' };
