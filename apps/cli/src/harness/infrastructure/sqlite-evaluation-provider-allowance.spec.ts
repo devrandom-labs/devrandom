@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import type { EvaluationExecutionBinding } from '@devrandom/domain';
 import {
@@ -19,7 +19,11 @@ import { HostedEvaluationResearchProviderCustody } from './hosted-evaluation-res
 
 const said = (letter: string): string => `E${letter.repeat(43)}`;
 const roots: string[] = [];
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-26T12:00:00.000Z'));
+});
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
