@@ -8,13 +8,11 @@ const request = {
   signal: new AbortController().signal,
 };
 it('prevents native grading before an exhausted F allowance and accounts negative builds before releasing them', async () => {
-  const build = vi
-    .fn()
-    .mockResolvedValue({
-      kind: 'BuildFailed',
-      buildReceiptSaid: 'raw',
-      cleanupReceiptSaid: 'cleanup',
-    });
+  const build = vi.fn().mockResolvedValue({
+    kind: 'BuildFailed',
+    buildReceiptSaid: 'raw',
+    cleanupReceiptSaid: 'cleanup',
+  });
   const record = vi.fn().mockResolvedValue(true);
   let time = 0;
   const grading = new FinalizationNativeGrading({
@@ -38,15 +36,13 @@ it('prevents native grading before an exhausted F allowance and accounts negativ
   expect(build).toHaveBeenCalledTimes(1);
 });
 it('does not release a grading result when durable accounting fails', async () => {
-  const build = vi
-    .fn()
-    .mockResolvedValue({
-      kind: 'Frozen',
-      sourceSaid: 'source',
-      executableSaid: 'exe',
-      buildReceiptSaid: 'raw',
-      cleanupReceiptSaid: 'cleanup',
-    });
+  const build = vi.fn().mockResolvedValue({
+    kind: 'Frozen',
+    sourceSaid: 'source',
+    executableSaid: 'exe',
+    buildReceiptSaid: 'raw',
+    cleanupReceiptSaid: 'cleanup',
+  });
   const grading = new FinalizationNativeGrading({
     maximumSeconds: 10,
     construction: { build },
