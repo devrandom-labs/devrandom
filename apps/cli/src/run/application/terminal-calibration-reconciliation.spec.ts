@@ -169,15 +169,31 @@ describe('terminal calibration reconciliation', () => {
   );
 });
 
-it.each(['Accepted', 'Rejected', 'Cancelled', 'ChangedSource'] as const)(
+it.each(['Accepted', 'Rejected', 'Cancelled', 'ChangedSource', 'CancelledSuccessor'] as const)(
   'preserves original accounting before terminal checkpoint and requires seal acknowledgement: %s',
   async (seal) => {
     const root = await mkdtemp(join(tmpdir(), 'terminal-calibration-'));
     try {
-      const cancellation = seal === 'Cancelled' || seal === 'ChangedSource';
+      const cancellation =
+        seal === 'Cancelled' || seal === 'ChangedSource' || seal === 'CancelledSuccessor';
+      const successor = seal === 'CancelledSuccessor';
       const original = calibrationRun();
+      if (original.lease.kind !== 'Held') throw new Error('lease');
       const run: Run = {
+        ...(successor
+          ? {
+              currentExecution: {
+                segmentSaid: said('S'),
+                evidenceStreamId: '11111111-1111-4111-8111-111111111111',
+                harnessRevisionSaid: original.binding.initialHarnessRevisionSaid,
+              },
+            }
+          : {}),
         ...original,
+        lease: successor ? { ...original.lease, segmentSaid: said('S') } : original.lease,
+        consumedBudget: successor
+          ? { ...original.consumedBudget, providerRequests: 7, runWallTimeSeconds: 265 }
+          : original.consumedBudget,
         binding: {
           ...original.binding,
           budget: { ...original.binding.budget, changedWorktreeBytes: cancellation ? 100 : 10 },
@@ -200,7 +216,7 @@ it.each(['Accepted', 'Rejected', 'Cancelled', 'ChangedSource'] as const)(
           version: 1,
           disposition: { kind: 'Accepted' },
           runId: run.binding.runId,
-          evidenceStreamId: run.binding.evidenceStreamId,
+          evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
           batchSaid: body.batch.d,
           acceptedThroughSequence: last.sequence,
           chainHeadSaid: last.d,
@@ -222,7 +238,11 @@ it.each(['Accepted', 'Rejected', 'Cancelled', 'ChangedSource'] as const)(
         opened.recorder.recordBudgetDebit({
           occurredAt: time,
           producer: { kind: 'PiExecutor' },
-          debits: [{ kind: 'BudgetDebited', budget: 'providerRequests', amount: 3, consumed: 3 }],
+          debits: [
+            successor
+              ? { kind: 'BudgetDebited', budget: 'runWallTimeSeconds', amount: 9, consumed: 274 }
+              : { kind: 'BudgetDebited', budget: 'providerRequests', amount: 3, consumed: 3 },
+          ],
         }).kind,
       ).toBe('Recorded');
       opened.recorder.close();
@@ -305,12 +325,17 @@ it.each(['Accepted', 'Rejected', 'Cancelled', 'ChangedSource'] as const)(
       expect(originalBodies).toHaveLength(2);
       expect(originalBodies[1]?.events[0]?.event).toEqual({
         kind: 'BudgetDebited',
-        budget: 'providerRequests',
-        amount: 3,
-        consumed: 3,
+        budget: successor ? 'runWallTimeSeconds' : 'providerRequests',
+        amount: successor ? 9 : 3,
+        consumed: successor ? 274 : 3,
       });
       expect(terminalBodies).toHaveLength(1);
-      expect(terminalBodies[0]?.checkpoint?.budget.consumed.providerRequests).toBe(3);
+      expect(terminalBodies[0]?.checkpoint?.budget.consumed.providerRequests).toBe(
+        successor ? 7 : 3,
+      );
+      expect(terminalBodies[0]?.checkpoint?.budget.consumed.runWallTimeSeconds).toBe(
+        successor ? 274 : 0,
+      );
       expect(terminalBodies[0]?.checkpoint?.budget.consumed.changedWorktreeBytes).toBe(20);
       expect(terminalBodies[0]?.checkpoint?.runState).toMatchObject({
         kind: 'Ended',

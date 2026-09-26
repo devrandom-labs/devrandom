@@ -136,7 +136,8 @@ export class TerminalCalibrationComposition {
       const last = events.at(-1);
       if (
         stream.runId !== run.binding.runId ||
-        stream.evidenceStreamId !== run.binding.evidenceStreamId ||
+        stream.evidenceStreamId !==
+          (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) ||
         stream.cursor.kind !== 'Accepted' ||
         stream.cursor.eventCount !== events.length ||
         stream.cursor.acceptedThroughSequence !== last?.sequence ||

@@ -117,13 +117,17 @@ export function assessTerminalCalibrationBatch(
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Preparing' ||
     lease.kind !== 'Held' ||
+    (run.currentExecution !== undefined &&
+      (run.currentExecution.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        lease.segmentSaid !== run.currentExecution.segmentSaid)) ||
     receivedAt === undefined ||
     exactTime(lease.expiresAt) === undefined ||
     receivedAt < Date.parse(lease.expiresAt) ||
     stream.seal.kind !== 'Open' ||
     stream.binding.ownerAid !== run.binding.ownerAid ||
     stream.binding.runId !== run.binding.runId ||
-    stream.binding.streamId !== run.binding.evidenceStreamId ||
+    stream.binding.streamId !==
+      (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) ||
     stream.binding.incarnationId !== lease.incarnationId
   )
     return reject('RunNotEligible');
@@ -149,7 +153,8 @@ export function assessTerminalCalibrationBatch(
     return reject('BatchInvalid');
   if (
     body.batch.runId !== run.binding.runId ||
-    body.batch.evidenceStreamId !== run.binding.evidenceStreamId ||
+    body.batch.evidenceStreamId !==
+      (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) ||
     body.batch.startingSequence !== stream.cursor.acceptedThrough + 1 ||
     body.batch.predecessor.kind !== 'Previous' ||
     body.batch.predecessor.eventSaid !== stream.cursor.chainHeadSaid

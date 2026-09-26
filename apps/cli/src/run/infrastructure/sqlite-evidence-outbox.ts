@@ -1706,27 +1706,22 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
       return { kind: 'LocalStateCorruption' };
     const rootDirectory = join(stateRoot, 'runs', run.binding.runId);
     const runDirectory =
-      bookkeeping === 'RuntimeRecovery' && run.currentExecution !== undefined
-        ? join(rootDirectory, 'incarnations', run.lease.incarnationId)
-        : rootDirectory;
+      run.currentExecution === undefined
+        ? rootDirectory
+        : join(rootDirectory, 'incarnations', run.lease.incarnationId);
     const artifactDirectory = join(runDirectory, 'artifacts');
     const path = join(runDirectory, 'outbox.sqlite');
     let database: DatabaseSync | undefined;
     try {
       if (
-        ![stateRoot, join(stateRoot, 'runs'), runDirectory, artifactDirectory].every(
+        ![stateRoot, join(stateRoot, 'runs'), rootDirectory, runDirectory, artifactDirectory].every(
           isOwnerOnlyDirectory,
         ) ||
-        realpathSync(runDirectory) !==
-          (bookkeeping === 'RuntimeRecovery' && run.currentExecution !== undefined
-            ? join(
-                realpathSync(stateRoot),
-                'runs',
-                run.binding.runId,
-                'incarnations',
-                run.lease.incarnationId,
-              )
-            : join(realpathSync(stateRoot), 'runs', run.binding.runId)) ||
+        realpathSync(rootDirectory) !== join(realpathSync(stateRoot), 'runs', run.binding.runId) ||
+        (run.currentExecution !== undefined &&
+          (!isOwnerOnlyDirectory(join(rootDirectory, 'incarnations')) ||
+            realpathSync(runDirectory) !==
+              join(realpathSync(rootDirectory), 'incarnations', run.lease.incarnationId))) ||
         pathKind(path) !== 'RegularFile' ||
         (lstatSync(path).mode & 0o777) !== 0o600
       )

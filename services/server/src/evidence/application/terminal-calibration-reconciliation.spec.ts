@@ -458,6 +458,21 @@ describe('terminal calibration evidence reconciliation', () => {
       body: body({ kind: 'CheckpointAccepted', checkpointSaid }),
       receivedAt: '2026-09-24T20:01:01.000Z',
     };
+    for (const currentExecution of [
+      {
+        segmentSaid: said('x'),
+        evidenceStreamId: run.binding.evidenceStreamId,
+        harnessRevisionSaid: said('z'),
+      },
+      {
+        segmentSaid: said('x'),
+        evidenceStreamId: run.binding.evidenceStreamId,
+        harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+      },
+    ])
+      expect(
+        assessTerminalCalibrationBatch({ ...input, run: { ...run, currentExecution } }),
+      ).toEqual({ kind: 'Rejected', reason: 'RunNotEligible' });
     expect(assessTerminalCalibrationBatch(input)).toEqual({
       kind: 'Accepted',
       phase: 'Acknowledgement',

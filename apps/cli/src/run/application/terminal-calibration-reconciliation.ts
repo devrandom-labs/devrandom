@@ -110,6 +110,12 @@ export async function reconcileSealedTerminalCalibration(
   if (
     run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
     run.lifecycle.kind !== 'Ended' ||
+    run.lease.kind !== 'Held' ||
+    last?.incarnationId !== run.lease.incarnationId ||
+    (run.currentExecution !== undefined &&
+      (input.intent !== 'CancelExpiredRun' ||
+        run.currentExecution.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        run.lease.segmentSaid !== run.currentExecution.segmentSaid)) ||
     (input.intent === 'CancelExpiredRun'
       ? run.lifecycle.outcome.kind !== 'Cancelled'
       : run.lifecycle.outcome.kind !== 'CalibrationExcluded' ||
@@ -123,12 +129,12 @@ export async function reconcileSealedTerminalCalibration(
     harness.authority.personalAgentAid !== run.binding.personalAgentAid ||
     harness.authority.taskMandateSaid !== run.binding.taskMandateSaid ||
     stream.runId !== run.binding.runId ||
-    stream.evidenceStreamId !== run.binding.evidenceStreamId ||
+    stream.evidenceStreamId !==
+      (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) ||
     stream.seal.kind !== 'Sealed' ||
     stream.cursor.kind !== 'Accepted' ||
     stream.checkpoint.kind !== 'Accepted' ||
     stream.checkpoint.checkpointSaid !== run.lifecycle.outcome.checkpointSaid ||
-    last === undefined ||
     last.event.kind !== 'CheckpointAccepted' ||
     last.event.checkpointSaid !== stream.checkpoint.checkpointSaid ||
     stream.cursor.eventCount !== events.length ||
@@ -216,6 +222,10 @@ export async function reconcileTerminalCalibrationRun(
   if (
     run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
     run.lease.kind !== 'Held' ||
+    (run.currentExecution !== undefined &&
+      (!cancellation ||
+        run.currentExecution.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        run.lease.segmentSaid !== run.currentExecution.segmentSaid)) ||
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Preparing' ||
     !Number.isFinite(Date.parse(dependencies.now())) ||
@@ -260,12 +270,15 @@ export async function reconcileTerminalCalibrationRun(
         incarnationId: run.lease.incarnationId,
         leaseObservedAt: started.occurredAt,
         worktree: { repository: run.binding.repository },
-        evidence: { kind: 'Genesis', streamId: run.binding.evidenceStreamId },
+        evidence: {
+          kind: 'Genesis',
+          streamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
+        },
       },
     );
     if (replay.kind !== 'Started') return { kind: 'LocalEvidenceRejected' };
     const consumed = { ...run.consumedBudget };
-    for (const name of taskBudgetNames) consumed[name] = 0;
+    if (run.currentExecution === undefined) for (const name of taskBudgetNames) consumed[name] = 0;
     for (const { event } of events) {
       if (event.kind !== 'BudgetDebited') continue;
       if (

@@ -11,6 +11,7 @@ import {
 import { acceptEvidenceBatch, type Run, type TaskBudgets } from '@devrandom/domain';
 import {
   decodeEvidenceBatch,
+  decodeRunSuccessorSegment,
   evidenceArtifactReferences,
   evidenceBatchCommandFingerprint,
   type EvidenceBatchAcknowledgement,
@@ -24,6 +25,10 @@ import {
   type TerminalCalibrationEvidence,
   type TerminalCalibrationReconciliationInput,
 } from '../application/terminal-calibration-reconciliation.js';
+import {
+  runSuccessorSegmentsCollectionName,
+  type RunSuccessorSegmentDocument,
+} from '../../run/infrastructure/mongo-run-continuations.js';
 import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
 import { decodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
 import { tasksCollectionName } from '../../task/infrastructure/mongo-tasks.js';
@@ -110,6 +115,7 @@ function oneAcceptedChain(
 export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvidence {
   readonly #client: MongoClient;
   readonly #runs: Collection<RunDocument>;
+  readonly #segments: Collection<RunSuccessorSegmentDocument>;
   readonly #tasks: Collection<TaskDocument>;
   readonly #streams: Collection<EvidenceStreamDocument>;
   readonly #events: Collection<EvidenceEventDocument>;
@@ -120,6 +126,7 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
 
   constructor(client: MongoClient, database: Db) {
     this.#client = client;
+    this.#segments = database.collection(runSuccessorSegmentsCollectionName);
     this.#runs = database.collection<RunDocument>(runsCollectionName);
     this.#tasks = database.collection<TaskDocument>(tasksCollectionName);
     this.#streams = database.collection<EvidenceStreamDocument>(evidenceCollectionNames.streams);
@@ -163,8 +170,37 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
     );
     if (runDocument === null) return { kind: 'EvidenceRunNotFound' };
     const run = decodeRunDocument(runDocument).run;
+    if (run.currentExecution !== undefined) {
+      const stored = await this.#segments.findOne(
+        { _id: run.currentExecution.segmentSaid, ownerAid: input.ownerAid, runId: input.runId },
+        { session },
+      );
+      const decoded = stored === null ? undefined : decodeRunSuccessorSegment(stored.segment);
+      if (decoded?.kind !== 'Accepted') return rejected('RunBindingMismatch');
+      const segment = decoded.segment;
+      if (
+        segment.version !== 2 ||
+        segment.d !== run.currentExecution.segmentSaid ||
+        segment.ownerAid !== run.binding.ownerAid ||
+        segment.taskId !== run.binding.taskId ||
+        segment.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+        segment.runId !== run.binding.runId ||
+        segment.personalAgentAid !== run.binding.personalAgentAid ||
+        segment.taskMandateSaid !== run.binding.taskMandateSaid ||
+        segment.successor.evidenceStreamId !== run.currentExecution.evidenceStreamId ||
+        segment.successor.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        run.lease.kind !== 'Held' ||
+        segment.successor.incarnationId !== run.lease.incarnationId ||
+        !isDeepStrictEqual(segment.consumedBudget, run.consumedBudget)
+      )
+        return rejected('RunBindingMismatch');
+    }
+
     const streamDocument = await this.#streams.findOne(
-      { _id: run.binding.evidenceStreamId, 'binding.ownerAid': input.ownerAid },
+      {
+        _id: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
+        'binding.ownerAid': input.ownerAid,
+      },
       { session },
     );
     if (streamDocument === null)
@@ -194,7 +230,7 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
         {
           ownerAid: input.ownerAid,
           runId: input.runId,
-          evidenceStreamId: run.binding.evidenceStreamId,
+          evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
         },
         { session },
       )
@@ -266,7 +302,8 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
           const artifact = decodeEvidenceArtifactDocument(document);
           return (
             artifact.ownerAid !== input.ownerAid ||
-            artifact.evidenceStreamId !== run.binding.evidenceStreamId
+            artifact.evidenceStreamId !==
+              (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId)
           );
         })
       )
@@ -305,7 +342,7 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
       version: 1,
       disposition: { kind: 'Accepted' },
       runId: input.runId,
-      evidenceStreamId: run.binding.evidenceStreamId,
+      evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
       batchSaid: body.batch.d,
       acceptedThroughSequence: body.batch.endingSequence,
       chainHeadSaid: body.batch.eventSaids.at(-1) ?? '',
@@ -315,7 +352,7 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
       body.events.map((event) =>
         encodeEvidenceEventDocument({
           ownerAid: input.ownerAid,
-          evidenceStreamId: run.binding.evidenceStreamId,
+          evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
           batchSaid: body.batch.d,
           event,
           receivedAt: input.receivedAt,
@@ -328,7 +365,8 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
         encodeEvidenceCheckpointDocument(
           {
             ownerAid: input.ownerAid,
-            evidenceStreamId: run.binding.evidenceStreamId,
+            evidenceStreamId:
+              run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
             batchSaid: body.batch.d,
             checkpoint: body.checkpoint,
             receivedAt: input.receivedAt,

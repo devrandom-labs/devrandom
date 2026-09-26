@@ -6,9 +6,17 @@ import { MongoClient } from 'mongodb';
 import Value from 'typebox/value';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { acquireFirstRunLease, createRun, openTask, type Run } from '@devrandom/domain';
+import {
+  acquireFirstRunLease,
+  continueCalibrationRun,
+  createEvidenceStream,
+  createRun,
+  openTask,
+  type Run,
+} from '@devrandom/domain';
 import {
   evidenceBatchCommandFingerprint,
+  prepareRunSuccessorSegment,
   prepareEvidenceBatch,
   prepareEvidenceEvent,
   prepareVerifiedCheckpoint,
@@ -25,7 +33,12 @@ import { tasksCollectionName } from '../../task/infrastructure/mongo-tasks.js';
 import { encodeTaskDocument, type TaskDocument } from '../../task/infrastructure/task-document.js';
 import { taskCommandFixture } from '../../task/test/task-command-fixture.js';
 import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
-import { encodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
+import {
+  decodeRunDocument,
+  encodeRunDocument,
+  type RunDocument,
+} from '../../run/infrastructure/run-document.js';
+import { evidenceEventBelongsToRun } from '../domain/run-binding.js';
 import { terminalCalibrationRoutes } from '../route/terminal-calibration-routes.js';
 import { MongoEvidenceBatches } from './mongo-evidence-batches.js';
 import { MongoEvidenceBootstrap } from './mongo-evidence-bootstrap.js';
@@ -33,8 +46,14 @@ import { MongoEvidenceSeals } from './mongo-evidence-seals.js';
 import { evidenceCollectionNames } from './evidence-storage-contract.js';
 import {
   decodeEvidenceStreamDocument,
+  encodeEvidenceStreamDocument,
   type EvidenceStreamDocument,
 } from './evidence-stream-document.js';
+import { sealedRunPredecessorFixture } from '../../run/test/sealed-run-predecessor-fixture.js';
+import {
+  runSuccessorSegmentsCollectionName,
+  type RunSuccessorSegmentDocument,
+} from '../../run/infrastructure/mongo-run-continuations.js';
 import { MongoTerminalCalibrationEvidence } from './mongo-terminal-calibration-evidence.js';
 
 const uri = process.env['DEVRANDOM_MONGODB_URI'];
@@ -78,7 +97,7 @@ function body(run: Run, events: readonly EvidenceEvent[]) {
   const prepared = prepareEvidenceBatch({
     version: 1,
     runId: run.binding.runId,
-    evidenceStreamId: run.binding.evidenceStreamId,
+    evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
     events: [...events],
   });
   if (prepared.kind !== 'Prepared') throw new Error(`Batch fixture: ${prepared.reason}`);
@@ -99,10 +118,16 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
     }
   });
 
-  it.each(['BudgetExhausted', 'Cancelled', 'CancelledEightRunQuota'] as const)(
+  it.each([
+    'BudgetExhausted',
+    'Cancelled',
+    'CancelledEightRunQuota',
+    'CancelledSuccessor',
+  ] as const)(
     'rejects expired effects and stale/wrong terminal requests, then seals exact %s bookkeeping',
     async (disposition) => {
       const cancellation = disposition !== 'BudgetExhausted';
+      const successor = disposition === 'CancelledSuccessor';
       if (client === undefined) throw new Error('Mongo URI unavailable');
       const database = client.db(databaseName);
       await database.dropDatabase();
@@ -158,7 +183,7 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
           ...taskBudgetCeilings,
           runsPerAdmittedUser: disposition === 'CancelledEightRunQuota' ? 8 : 6,
         },
-        acceptedAt: '2026-09-24T20:00:00.000Z',
+        acceptedAt: successor ? '2026-09-24T19:59:00.000Z' : '2026-09-24T20:00:00.000Z',
       });
       if (created.kind !== 'Created') throw new Error(`Run fixture: ${created.reason}`);
       const leased = acquireFirstRunLease(created.run, {
@@ -167,7 +192,93 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
         serverTime: '2026-09-24T20:00:00.000Z',
       });
       if (leased.kind !== 'Acquired') throw new Error('Lease fixture failed');
-      const run = leased.run;
+      let run = leased.run;
+      let originalStream: EvidenceStreamDocument | undefined;
+      if (successor) {
+        const predecessor = sealedRunPredecessorFixture([], 'ContextLimitReached', {
+          run: {
+            ...created.run,
+            consumedBudget: {
+              ...created.run.consumedBudget,
+              runWallTimeSeconds: 265,
+              providerRequests: 7,
+            },
+          },
+          leaseAt: '2026-09-24T19:59:00.000Z',
+          at: '2026-09-24T19:59:10.000Z',
+          completionConditionIds: taskCommand.revision.completionConditions.map(({ id }) => id),
+        });
+        if (predecessor.run.lease.kind !== 'Held') throw new Error('predecessor lease');
+        const prepared = prepareRunSuccessorSegment({
+          version: 2,
+          kind: 'CalibrationContinuationSegment',
+          runId,
+          taskId,
+          taskRevisionSaid: run.binding.taskRevisionSaid,
+          ownerAid,
+          personalAgentAid,
+          taskMandateSaid: mandateSaid,
+          fromRunVersion: predecessor.run.version,
+          predecessor: {
+            incarnationId: predecessor.run.lease.incarnationId,
+            evidenceStreamId: predecessor.stream.binding.streamId,
+            checkpointSaid: predecessor.checkpoint.d,
+            sealExchangeSaid: predecessor.sealExchangeSaid,
+            finalSequence: predecessor.stream.cursor.acceptedThrough,
+            chainHeadSaid: predecessor.chainHeadSaid,
+          },
+          successor: {
+            incarnationId,
+            evidenceStreamId: randomUUID(),
+            harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+          },
+          baseline: {
+            pointerVersion: 1,
+            harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+          },
+          consumedBudget: predecessor.run.consumedBudget,
+          admittedAt: '2026-09-24T20:00:00.000Z',
+        });
+        if (prepared.kind !== 'Prepared' || prepared.segment.version !== 2)
+          throw new Error('segment fixture');
+        const segment = prepared.segment;
+        const continued = continueCalibrationRun(predecessor.run, {
+          expectedRunVersion: predecessor.run.version,
+          serverTime: segment.admittedAt,
+          predecessor: segment.predecessor,
+          successor: { ...segment.successor, segmentSaid: segment.d },
+          baseline: segment.baseline,
+          effects: 'Settled',
+        });
+        if (continued.kind !== 'Admitted')
+          throw new Error(`continuation fixture: ${continued.kind}`);
+        run = continued.run;
+        await database
+          .collection<RunSuccessorSegmentDocument>(runSuccessorSegmentsCollectionName)
+          .insertOne({
+            _id: segment.d,
+            ownerAid,
+            runId,
+            segment,
+            acceptedAt: new Date(segment.admittedAt),
+          });
+        const successorStream = createEvidenceStream({
+          ...predecessor.stream.binding,
+          streamId: segment.successor.evidenceStreamId,
+          incarnationId: segment.successor.incarnationId,
+          combinedByteCeiling:
+            predecessor.stream.binding.combinedByteCeiling -
+            predecessor.stream.acceptedEvidenceBytes,
+        });
+        if (successorStream.kind !== 'Created') throw new Error('successor stream');
+        await database
+          .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+          .insertOne(encodeEvidenceStreamDocument(successorStream.stream));
+        originalStream = encodeEvidenceStreamDocument(predecessor.stream);
+        await database
+          .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+          .insertOne(originalStream);
+      }
       await database
         .collection<RunDocument>(runsCollectionName)
         .insertOne(encodeRunDocument(run, `sha256:${'c'.repeat(64)}`));
@@ -188,15 +299,22 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
         '2026-09-24T20:00:11.000Z',
       );
       const ordinary = body(run, [started, incarnation]);
-      await expect(
-        new MongoEvidenceBatches(client, database).accept({
-          ownerAid,
-          expectedRunVersion: run.version,
-          commandFingerprint: evidenceBatchCommandFingerprint(ordinary),
-          body: ordinary,
-          receivedAt: '2026-09-24T20:00:12.000Z',
-        }),
-      ).resolves.toMatchObject({ kind: 'EvidenceBatchAccepted' });
+      expect(evidenceEventBelongsToRun(started, run)).toBe(true);
+      expect(
+        evidenceEventBelongsToRun(
+          started,
+          decodeRunDocument(encodeRunDocument(run, `sha256:${'c'.repeat(64)}`)).run,
+        ),
+      ).toBe(true);
+      const ordinaryAccepted = await new MongoEvidenceBatches(client, database).accept({
+        ownerAid,
+        expectedRunVersion: run.version,
+        commandFingerprint: evidenceBatchCommandFingerprint(ordinary),
+        body: ordinary,
+        receivedAt: '2026-09-24T20:00:12.000Z',
+      });
+      if (ordinaryAccepted.kind !== 'EvidenceBatchAccepted')
+        throw new Error(JSON.stringify(ordinaryAccepted));
       // These original records were produced while the lease was live. Delivery may
       // be delayed without inventing a new incarnation or changing their content.
       const failure = event(
@@ -222,7 +340,12 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
         run,
         3,
         { kind: 'Previous', eventSaid: failure.d },
-        { kind: 'BudgetDebited', budget: 'runWallTimeSeconds', amount: 85, consumed: 85 },
+        {
+          kind: 'BudgetDebited',
+          budget: 'runWallTimeSeconds',
+          amount: successor ? 9 : 85,
+          consumed: successor ? 274 : 85,
+        },
         { kind: 'RunSupervisor' },
         '2026-09-24T20:00:21.000Z',
       );
@@ -374,12 +497,14 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
             budget: {
               consumed: {
                 ...run.consumedBudget,
-                runWallTimeSeconds: 85,
+                runWallTimeSeconds: successor ? 274 : 85,
                 changedWorktreeBytes: overrun,
               },
               remaining: {
                 ...run.binding.budget,
-                runWallTimeSeconds: run.binding.budget.runWallTimeSeconds - 85,
+                runWallTimeSeconds: run.binding.budget.runWallTimeSeconds - (successor ? 274 : 85),
+                providerRequests:
+                  run.binding.budget.providerRequests - run.consumedBudget.providerRequests,
                 changedWorktreeBytes: Math.max(
                   0,
                   run.binding.budget.changedWorktreeBytes - overrun,
@@ -447,6 +572,40 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
           404,
         );
         currentOwner = ownerAid;
+        if (run.currentExecution !== undefined) {
+          const segments = database.collection<RunSuccessorSegmentDocument>(
+            runSuccessorSegmentsCollectionName,
+          );
+          const stored = await segments.findOne({ _id: run.currentExecution.segmentSaid });
+          if (stored === null) throw new Error('missing segment fixture');
+          await segments.deleteOne({ _id: stored._id });
+          expect(
+            (await post({ version: 1, expected: initialExpected, body: terminal })).status,
+          ).toBe(422);
+          await segments.insertOne({
+            ...stored,
+            segment: {
+              ...stored.segment,
+              consumedBudget: { ...stored.segment.consumedBudget, providerRequests: 0 },
+            },
+          });
+          expect(
+            (await post({ version: 1, expected: initialExpected, body: terminal })).status,
+          ).toBe(422);
+          await segments.replaceOne({ _id: stored._id }, stored);
+          const { currentExecution, ...originalBinding } = run;
+          expect(currentExecution).toBeDefined();
+          const originalBody = body(originalBinding, terminal.events);
+          expect(
+            (
+              await post({
+                version: 1,
+                expected: initialExpected,
+                body: { ...originalBody, checkpoint: terminal.checkpoint },
+              })
+            ).status,
+          ).toBe(409);
+        }
         const accepted = await post({ version: 1, expected: initialExpected, body: terminal });
         expect(accepted.status, await accepted.clone().text()).toBe(201);
         const acceptedBody: unknown = await accepted.json();
@@ -482,7 +641,9 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
         const stream = decodeEvidenceStreamDocument(
           await database
             .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
-            .findOne({ _id: run.binding.evidenceStreamId }),
+            .findOne({
+              _id: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
+            }),
         );
         expect(stream.cursor).toMatchObject({
           kind: 'Continued',
@@ -512,6 +673,20 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
         });
         expect(settled).not.toHaveProperty('activeOwnerSlot');
         expect(settled).not.toHaveProperty('activeGlobalSlot');
+        if (originalStream !== undefined) {
+          expect(
+            await database
+              .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+              .findOne({ _id: originalStream._id }),
+          ).toEqual(originalStream);
+          const ended = await database
+            .collection<RunDocument>(runsCollectionName)
+            .findOne({ _id: runId });
+          expect(ended?.budget.consumed).toMatchObject({
+            runWallTimeSeconds: 274,
+            providerRequests: 7,
+          });
+        }
       } finally {
         await server.close();
       }
