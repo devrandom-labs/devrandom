@@ -1,5 +1,9 @@
 import { expect, it } from 'vitest';
 import {
+  prepareEvaluationEvidenceBatch,
+  prepareEvaluationEvidenceEvent,
+  prepareEvidenceArtifact,
+  prepareEvaluationClosure,
   prepareEvaluationExecutionProfile,
   prepareEvaluationSourceInventory,
 } from '@devrandom/protocol';
@@ -194,4 +198,188 @@ it('does not treat malformed hosted conflicts as an authoritative command confli
     ),
   );
   expect(await malformed.admit(command)).toEqual({ kind: 'ResponseInvalid' });
+});
+
+it('sends exact raw Evaluation bytes and accepts only the matching ordered acknowledgement', async () => {
+  const bytes = new TextEncoder().encode('raw model exchange');
+  const artifact = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
+  if (artifact.kind !== 'Prepared') throw new Error(artifact.reason);
+  const evaluationId = id('5');
+  const streamId = id('6');
+  const event = prepareEvaluationEvidenceEvent({
+    evaluationId,
+    streamId,
+    originRunId: command.originRunId,
+    taskId: command.taskId,
+    taskRevisionSaid: command.taskRevisionSaid,
+    personalAgentAid: command.personalAgentAid,
+    taskMandateSaid: command.taskMandateSaid,
+    harnessRevisionSaid: command.expectedActiveRevisionSaid,
+    phase: { kind: 'Research', policySaid: command.policySaid, role: 'DiagnosticRefiner' },
+    sequence: 0,
+    previous: { kind: 'Genesis' },
+    occurredAt: '2026-09-26T05:00:00.000Z',
+    detail: { kind: 'ModelExchange', rawArtifactSaid: artifact.artifact.d },
+  });
+  if (event.kind !== 'Prepared') throw new Error(event.reason);
+  const batch = prepareEvaluationEvidenceBatch([event.event]);
+  if (batch.kind !== 'Prepared') throw new Error(batch.reason);
+  const upload = {
+    version: 1 as const,
+    commandId: id('7'),
+    fingerprint: command.fingerprint,
+    batch: batch.batch,
+    events: [event.event],
+    publicArtifacts: [
+      { artifact: artifact.artifact, bytesBase64Url: Buffer.from(bytes).toString('base64url') },
+    ],
+    protectedArtifacts: [],
+  };
+  const acknowledgement = {
+    version: 1 as const,
+    disposition: 'Accepted' as const,
+    evaluationId,
+    streamId,
+    batchSaid: batch.batch.d,
+    acceptedThroughSequence: 0,
+    chainHeadSaid: event.event.d,
+  };
+  const http = new ServerEvaluationHttp(origin(), 'b'.repeat(43), (url, init) => {
+    expect(url).toBe(`http://127.0.0.1:3211/api/evaluations/${evaluationId}/batches`);
+    expect(init?.method).toBe('POST');
+    expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${'b'.repeat(43)}`);
+    expect(init?.body).toBe(JSON.stringify(upload));
+    return Promise.resolve(
+      new Response(JSON.stringify(acknowledgement), {
+        status: 201,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    );
+  });
+  expect(await http.appendEvidence(upload)).toEqual({ kind: 'Acknowledged', acknowledgement });
+
+  const forged = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
+    Promise.resolve(
+      new Response(JSON.stringify({ ...acknowledgement, batchSaid: said('f') }), {
+        status: 201,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    ),
+  );
+  expect(await forged.appendEvidence(upload)).toEqual({ kind: 'ResponseInvalid' });
+  const mismatchedRetry = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
+    Promise.resolve(
+      new Response(JSON.stringify(acknowledgement), {
+        status: 200,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    ),
+  );
+  expect(await mismatchedRetry.appendEvidence(upload)).toEqual({ kind: 'ResponseInvalid' });
+});
+
+it('binds a lease renewal receipt to the exact Evaluation and lease identities', async () => {
+  const evaluationId = id('5');
+  const leaseId = id('6');
+  const renewal = {
+    version: 1 as const,
+    commandId: id('7'),
+    fingerprint: command.fingerprint,
+    evaluationId,
+    leaseId,
+    expectedEvaluationVersion: 1,
+  };
+  const receipt = {
+    kind: 'Renewed' as const,
+    evaluationId,
+    version: 2,
+    lease: {
+      evaluationId,
+      leaseId,
+      version: 2,
+      serverTime: '2026-09-26T05:00:00.000Z',
+      expiresAt: '2026-09-26T05:00:45.000Z',
+    },
+  };
+  const http = new ServerEvaluationHttp(origin(), 'b'.repeat(43), (url, init) => {
+    expect(url).toBe(`http://127.0.0.1:3211/api/evaluations/${evaluationId}/lease`);
+    expect(init?.method).toBe('PUT');
+    expect(init?.body).toBe(JSON.stringify(renewal));
+    return Promise.resolve(
+      new Response(JSON.stringify(receipt), {
+        status: 200,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    );
+  });
+  expect(await http.renewLease(renewal)).toEqual({ kind: 'Renewed', receipt });
+  const forged = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
+    Promise.resolve(
+      new Response(JSON.stringify({ ...receipt, lease: { ...receipt.lease, leaseId: id('8') } }), {
+        status: 200,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    ),
+  );
+  expect(await forged.renewLease(renewal)).toEqual({ kind: 'ResponseInvalid' });
+});
+
+it('sends a prepared closure without creating a local seal and verifies the committed SAID', async () => {
+  const evaluationId = id('5');
+  const prepared = prepareEvaluationClosure({
+    evaluationId,
+    evidenceStreamId: id('6'),
+    originRunId: command.originRunId,
+    manifestSaid: said('M'),
+    acceptedEventCount: 1,
+    acceptedHeadSaid: said('h'),
+    observationSaids: Array.from({ length: 18 }, (_, index) =>
+      said(String.fromCharCode(65 + index)),
+    ),
+    measurementSaids: Array.from({ length: 15 }, (_, index) =>
+      said(String.fromCharCode(97 + index)),
+    ),
+    sharedAuditSaid: said('s'),
+    armAuditSaids: {
+      H1: said('1'),
+      C1: said('2'),
+      C2: said('3'),
+      C3: said('4'),
+      H1TaskSearch: said('5'),
+    },
+    protectedCustodySaid: said('p'),
+    agentSealSaid: said('g'),
+  });
+  if (prepared.kind !== 'Prepared') throw new Error(prepared.reason);
+  const closureCommand = {
+    version: 1 as const,
+    commandId: id('7'),
+    fingerprint: command.fingerprint,
+    expectedEvaluationVersion: 1,
+    closure: prepared.closure,
+  };
+  const http = new ServerEvaluationHttp(origin(), 'b'.repeat(43), (url, init) => {
+    expect(url).toBe(`http://127.0.0.1:3211/api/evaluations/${evaluationId}/closure`);
+    expect(init?.method).toBe('PUT');
+    expect(init?.body).toBe(JSON.stringify(closureCommand));
+    return Promise.resolve(
+      new Response(JSON.stringify({ kind: 'Closed', closureSaid: prepared.closure.d }), {
+        status: 201,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    );
+  });
+  expect(await http.closeEvidence(closureCommand)).toEqual({
+    kind: 'Closed',
+    closureSaid: prepared.closure.d,
+  });
+  const forged = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
+    Promise.resolve(
+      new Response(JSON.stringify({ kind: 'Closed', closureSaid: said('x') }), {
+        status: 201,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    ),
+  );
+  expect(await forged.closeEvidence(closureCommand)).toEqual({ kind: 'ResponseInvalid' });
 });

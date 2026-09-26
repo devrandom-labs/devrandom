@@ -1,10 +1,20 @@
 import {
+  decodeEvaluationClosure,
+  decodeEvaluationEvidenceBatch,
   decodeEvaluationExecutionProfile,
   decodeEvaluationSourceInventory,
+  decodeProtectedEvaluationArtifact,
+  decodePublicEvaluationArtifact,
   evaluationAdmissionCommandSchema,
   evaluationAdmissionReceiptSchema,
+  evaluationClosureCommandSchema,
+  evaluationEvidenceAcknowledgementSchema,
+  evaluationEvidenceUploadSchema,
+  evaluationLeaseRenewalCommandSchema,
+  evaluationLeaseRenewalReceiptSchema,
   evaluationPreparationCommandSchema,
 } from '@devrandom/protocol';
+import { taskBudgetCeilings } from '@devrandom/domain';
 import Type from 'typebox';
 import Value from 'typebox/value';
 
@@ -37,6 +47,33 @@ export type HostedEvaluationAdmission =
       readonly gate: 'Profile' | 'Source' | 'Authority' | 'Budget' | 'Qualification' | 'Evidence';
     }
   | { readonly kind: 'Rejected' | 'Conflict' | 'Unavailable' | 'ResponseInvalid' };
+
+export type HostedEvaluationEvidenceDelivery =
+  | {
+      readonly kind: 'Acknowledged';
+      readonly acknowledgement: Type.Static<typeof evaluationEvidenceAcknowledgementSchema>;
+    }
+  | {
+      readonly kind:
+        'Rejected' | 'Denied' | 'Conflict' | 'QuotaExceeded' | 'Unavailable' | 'ResponseInvalid';
+    };
+
+export type HostedEvaluationLeaseRenewal =
+  | {
+      readonly kind: 'Renewed' | 'AlreadyRenewed';
+      readonly receipt: Type.Static<typeof evaluationLeaseRenewalReceiptSchema>;
+    }
+  | {
+      readonly kind:
+        'Lost' | 'Blocked' | 'Rejected' | 'Conflict' | 'Unavailable' | 'ResponseInvalid';
+    };
+
+export type HostedEvaluationClosure =
+  | { readonly kind: 'Closed' | 'AlreadyClosed'; readonly closureSaid: string }
+  | {
+      readonly kind:
+        'Rejected' | 'Denied' | 'Incomplete' | 'Conflict' | 'Unavailable' | 'ResponseInvalid';
+    };
 
 const gates = ['Profile', 'Source', 'Authority', 'Budget', 'Qualification', 'Evidence'] as const;
 const requestTimeoutMilliseconds = 10_000;
@@ -139,9 +176,147 @@ export class ServerEvaluationHttp {
     return { kind: 'ResponseInvalid' };
   }
 
+  async appendEvidence(
+    upload: Type.Static<typeof evaluationEvidenceUploadSchema>,
+    signal?: AbortSignal,
+  ): Promise<HostedEvaluationEvidenceDelivery> {
+    if (
+      !Value.Check(evaluationEvidenceUploadSchema, upload) ||
+      decodeEvaluationEvidenceBatch(upload.batch, upload.events).kind !== 'Accepted' ||
+      upload.publicArtifacts.some(
+        (artifact) => decodePublicEvaluationArtifact(artifact).kind !== 'Accepted',
+      ) ||
+      upload.protectedArtifacts.some(
+        (artifact) =>
+          decodeProtectedEvaluationArtifact(artifact).kind !== 'Accepted' ||
+          artifact.evaluationId !== upload.batch.evaluationId,
+      )
+    )
+      return { kind: 'Rejected' };
+    const encoded = JSON.stringify(upload);
+    if (Buffer.byteLength(encoded, 'utf8') > taskBudgetCeilings.artifactRequestBodyBytes)
+      return { kind: 'QuotaExceeded' };
+    const response = await this.#request(
+      'POST',
+      `/api/evaluations/${upload.batch.evaluationId}/batches`,
+      encoded,
+      signal,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200 || response.status === 201) {
+      const disposition = response.status === 200 ? 'AlreadyAccepted' : 'Accepted';
+      if (
+        !Value.Check(evaluationEvidenceAcknowledgementSchema, response.body) ||
+        response.body.disposition !== disposition ||
+        response.body.evaluationId !== upload.batch.evaluationId ||
+        response.body.streamId !== upload.batch.streamId ||
+        response.body.batchSaid !== upload.batch.d ||
+        response.body.acceptedThroughSequence !== upload.batch.endingSequence ||
+        response.body.chainHeadSaid !== upload.events.at(-1)?.d
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: 'Acknowledged', acknowledgement: response.body };
+    }
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 400) return { kind: 'Rejected' };
+    if (response.status === 403) return { kind: 'Denied' };
+    if (response.status === 409) return { kind: 'Conflict' };
+    if (response.status === 413) return { kind: 'QuotaExceeded' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    return { kind: 'ResponseInvalid' };
+  }
+
+  async renewLease(
+    command: Type.Static<typeof evaluationLeaseRenewalCommandSchema>,
+    signal?: AbortSignal,
+  ): Promise<HostedEvaluationLeaseRenewal> {
+    if (!Value.Check(evaluationLeaseRenewalCommandSchema, command)) return { kind: 'Rejected' };
+    const response = await this.#request(
+      'PUT',
+      `/api/evaluations/${command.evaluationId}/lease`,
+      JSON.stringify(command),
+      signal,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200) {
+      if (
+        !Value.Check(evaluationLeaseRenewalReceiptSchema, response.body) ||
+        (response.body.kind !== 'Renewed' && response.body.kind !== 'AlreadyRenewed') ||
+        response.body.evaluationId !== command.evaluationId ||
+        response.body.version !== command.expectedEvaluationVersion + 1 ||
+        response.body.lease.evaluationId !== command.evaluationId ||
+        response.body.lease.leaseId !== command.leaseId ||
+        response.body.lease.version !== response.body.version ||
+        !Number.isFinite(Date.parse(response.body.lease.serverTime)) ||
+        !Number.isFinite(Date.parse(response.body.lease.expiresAt)) ||
+        Date.parse(response.body.lease.expiresAt) <= Date.parse(response.body.lease.serverTime)
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: response.body.kind, receipt: response.body };
+    }
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 400 || response.status === 403) return { kind: 'Rejected' };
+    if (response.status === 409)
+      return { kind: response.body.code === 'EvaluationLeaseLost' ? 'Lost' : 'Conflict' };
+    if (response.status === 422) return { kind: 'Blocked' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    return { kind: 'ResponseInvalid' };
+  }
+
+  async closeEvidence(
+    command: Type.Static<typeof evaluationClosureCommandSchema>,
+    signal?: AbortSignal,
+  ): Promise<HostedEvaluationClosure> {
+    if (
+      !Value.Check(evaluationClosureCommandSchema, command) ||
+      decodeEvaluationClosure(command.closure).kind !== 'Accepted'
+    )
+      return { kind: 'Rejected' };
+    const encoded = JSON.stringify(command);
+    if (Buffer.byteLength(encoded, 'utf8') > taskBudgetCeilings.ordinaryJsonRequestBodyBytes)
+      return { kind: 'Rejected' };
+    const response = await this.#request(
+      'PUT',
+      `/api/evaluations/${command.closure.evaluationId}/closure`,
+      encoded,
+      signal,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200 || response.status === 201) {
+      const kind = response.status === 200 ? 'AlreadyClosed' : 'Closed';
+      if (
+        typeof response.body !== 'object' ||
+        response.body === null ||
+        !('kind' in response.body) ||
+        response.body.kind !== kind ||
+        !('closureSaid' in response.body) ||
+        response.body.closureSaid !== command.closure.d ||
+        Object.keys(response.body).length !== 2
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind, closureSaid: command.closure.d };
+    }
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 400) return { kind: 'Rejected' };
+    if (response.status === 403) return { kind: 'Denied' };
+    if (response.status === 409) return { kind: 'Conflict' };
+    if (response.status === 422) return { kind: 'Incomplete' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    return { kind: 'ResponseInvalid' };
+  }
+
   async #post(
     path: string,
     command: object,
+    signal?: AbortSignal,
+  ): Promise<HttpReading | undefined> {
+    return this.#request('POST', path, JSON.stringify(command), signal);
+  }
+
+  async #request(
+    method: 'POST' | 'PUT',
+    path: string,
+    encoded: string,
     signal?: AbortSignal,
   ): Promise<HttpReading | undefined> {
     try {
@@ -150,12 +325,12 @@ export class ServerEvaluationHttp {
           ? AbortSignal.timeout(requestTimeoutMilliseconds)
           : AbortSignal.any([signal, AbortSignal.timeout(requestTimeoutMilliseconds)]);
       const response = await this.#fetch(`${this.#origin}${path}`, {
-        method: 'POST',
+        method,
         headers: {
           authorization: `Bearer ${this.#bearer}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify(command),
+        body: encoded,
         signal: requestSignal,
       });
       requestSignal.throwIfAborted();
