@@ -110,7 +110,10 @@ test-mongodb-integration: _require-nix
       services/server/src/harness/infrastructure/mongo-harness-revisions.integration.spec.ts \
       services/server/src/run/infrastructure/mongo-runs.integration.spec.ts \
       services/server/src/evidence/infrastructure/mongo-evidence-bootstrap.integration.spec.ts \
-      services/server/src/evidence/infrastructure/mongo-evidence-delivery.integration.spec.ts
+      services/server/src/evidence/infrastructure/mongo-evidence-delivery.integration.spec.ts \
+      services/server/src/evidence/infrastructure/mongo-evidence-reading.integration.spec.ts \
+      services/server/src/evaluation/infrastructure/mongo-evaluation-evidence.integration.spec.ts \
+      services/server/src/evaluation/composition/hosted-evaluation.integration.spec.ts
 
 test-identity-integration: _require-nix
     #!/usr/bin/env bash

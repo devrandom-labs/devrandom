@@ -12,6 +12,8 @@ import {
   decodeEvaluationExecutionProfile,
   decodeEvaluationSourceInventory,
   evidenceArtifactReferences,
+  evaluationAdmissionCommandSchema,
+  evaluationAdmissionReceiptSchema,
   evaluationPreparationCommandSchema,
   prepareEvidenceArtifact,
   type EvaluationExecutionProfile,
@@ -202,6 +204,36 @@ export class MongoEvaluationReservations implements EvaluationReservations, Eval
     this.#streams = database.collection(evidenceCollectionNames.streams);
     this.#checkpoints = database.collection(evidenceCollectionNames.checkpoints);
     this.#events = database.collection(evidenceCollectionNames.events);
+  }
+
+  async reconcile(input: {
+    readonly ownerAid: string;
+    readonly command: EvaluationAdmissionCommand;
+  }): ReturnType<EvaluationReservations['reconcile']> {
+    try {
+      const previous = await this.#evaluations.findOne({
+        ownerAid: input.ownerAid,
+        'command.commandId': input.command.commandId,
+      });
+      if (previous === null) return { kind: 'NotFound' };
+      if (!Value.Check(evaluationAdmissionCommandSchema, previous.command))
+        return { kind: 'Unavailable' };
+      if (!isDeepStrictEqual(previous.command, input.command)) return { kind: 'Conflict' };
+      const receipt = {
+        kind: 'Admitted' as const,
+        evaluationId: previous._id,
+        version: previous.version,
+        lease: previous.lease,
+        evidenceStreamId: previous.evidenceStreamId,
+        reservationSaid: previous.reservationSaid,
+      };
+      return receipt.lease.evaluationId === receipt.evaluationId &&
+        Value.Check(evaluationAdmissionReceiptSchema, receipt)
+        ? receipt
+        : { kind: 'Unavailable' };
+    } catch {
+      return { kind: 'Unavailable' };
+    }
   }
 
   async reserve(input: {

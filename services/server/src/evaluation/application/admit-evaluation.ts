@@ -34,6 +34,13 @@ export interface EvaluationEligibility {
 
 /** The repository rechecks immutable Run bindings and takes the owner slot; residual spend remains an eligibility gate. */
 export interface EvaluationReservations {
+  reconcile(input: {
+    readonly ownerAid: string;
+    readonly command: EvaluationAdmissionCommand;
+  }): Promise<
+    | Extract<EvaluationAdmissionReceipt, { kind: 'Admitted' | 'Conflict' | 'Unavailable' }>
+    | { readonly kind: 'NotFound' }
+  >;
   reserve(input: {
     readonly ownerAid: string;
     readonly command: EvaluationAdmissionCommand;
@@ -50,8 +57,13 @@ export async function admitEvaluation(
 ): Promise<EvaluationAdmissionOutcome> {
   if (!Value.Check(evaluationAdmissionCommandSchema, input.command) || input.ownerAid.length === 0)
     return { kind: 'Invalid' };
+  const previous = await dependencies.reservations.reconcile(input);
+  if (previous.kind !== 'NotFound') return previous;
   const eligibility = await dependencies.eligibility.inspect(input);
-  if (eligibility.kind !== 'Eligible') return eligibility;
+  if (eligibility.kind !== 'Eligible') {
+    const concurrent = await dependencies.reservations.reconcile(input);
+    return concurrent.kind === 'NotFound' ? eligibility : concurrent;
+  }
   const allocation = assessComparisonAllocation(input.command.allocation, eligibility.remaining);
   if (allocation.kind !== 'Fits') return { kind: 'Blocked', gate: 'Budget' };
   return dependencies.reservations.reserve({ ...input, reserved: allocation.total });

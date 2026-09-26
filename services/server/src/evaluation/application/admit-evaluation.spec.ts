@@ -44,6 +44,7 @@ describe('hosted evaluation admission', () => {
           Promise.resolve({ kind: 'Blocked' as const, gate: 'Qualification' as const }),
       },
       reservations: {
+        reconcile: () => Promise.resolve({ kind: 'NotFound' as const }),
         reserve: () => {
           commits += 1;
           return Promise.reject(new Error('must not commit'));
@@ -64,6 +65,7 @@ describe('hosted evaluation admission', () => {
         inspect: () => Promise.resolve({ kind: 'Eligible' as const, remaining: budget }),
       },
       reservations: {
+        reconcile: () => Promise.resolve({ kind: 'NotFound' as const }),
         reserve: () => {
           commits += 1;
           return Promise.reject(new Error('must not commit'));
@@ -75,5 +77,46 @@ describe('hosted evaluation admission', () => {
       gate: 'Budget',
     });
     expect(commits).toBe(0);
+  });
+
+  it('returns the exact prior admission after a lost reply without allocating again', async () => {
+    let inspections = 0;
+    let reservations = 0;
+    const prior = {
+      kind: 'Admitted' as const,
+      evaluationId: id('4'),
+      version: 1,
+      lease: {
+        evaluationId: id('4'),
+        leaseId: id('5'),
+        version: 1,
+        serverTime: '2026-09-26T05:00:00.000Z',
+        expiresAt: '2026-09-26T05:00:45.000Z',
+      },
+      evidenceStreamId: id('6'),
+      reservationSaid: said('r'),
+    };
+    expect(
+      await admitEvaluation(
+        { ownerAid: said('o'), command },
+        {
+          eligibility: {
+            inspect: () => {
+              inspections += 1;
+              return Promise.resolve({ kind: 'Blocked' as const, gate: 'Budget' as const });
+            },
+          },
+          reservations: {
+            reconcile: () => Promise.resolve(prior),
+            reserve: () => {
+              reservations += 1;
+              return Promise.resolve(prior);
+            },
+          },
+        },
+      ),
+    ).toEqual(prior);
+    expect(inspections).toBe(0);
+    expect(reservations).toBe(0);
   });
 });

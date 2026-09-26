@@ -417,4 +417,27 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
     });
     expect(stale.status).toBe(409);
   });
+
+  it('reads a prior reservation by exact owner and command before any new allocation', async () => {
+    const existing = await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .findOne({ _id: evaluationId });
+    if (existing === null) throw new Error('evaluation fixture missing');
+    const reservations = new MongoEvaluationReservations(client, database);
+    expect(await reservations.reconcile({ ownerAid, command: existing.command })).toMatchObject({
+      kind: 'Admitted',
+      evaluationId,
+      evidenceStreamId: existing.evidenceStreamId,
+      reservationSaid: existing.reservationSaid,
+    });
+    expect(
+      await reservations.reconcile({
+        ownerAid,
+        command: { ...existing.command, fingerprint: `sha256:${'b'.repeat(64)}` },
+      }),
+    ).toEqual({ kind: 'Conflict' });
+    expect(
+      await reservations.reconcile({ ownerAid: said('z'), command: existing.command }),
+    ).toEqual({ kind: 'NotFound' });
+  });
 });
