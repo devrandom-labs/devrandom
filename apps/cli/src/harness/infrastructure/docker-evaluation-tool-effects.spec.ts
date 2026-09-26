@@ -18,6 +18,8 @@ it('rejects a changed protected source before any tool effect and retains real e
     const workerRoot = join(root, 'worker');
     await mkdir(join(workerRoot, 'src'), { recursive: true });
     await mkdir(join(workerRoot, 'tests'));
+    await mkdir(join(workerRoot, 'src/private'));
+    await writeFile(join(workerRoot, 'src/private/canary.txt'), 'protected canary');
     await writeFile(join(workerRoot, 'src/lib.rs'), 'before');
     await writeFile(join(workerRoot, 'tests/public.rs'), 'protected');
     const source = new SourceCustody(join(root, 'custody'), {
@@ -31,7 +33,11 @@ it('rejects a changed protected source before any tool effect and retains real e
       copyDirectoryOut: (_from: string, to: string) => cp(workerRoot, to, { recursive: true }),
       copyInto: (from: string) => cp(from, workerRoot, { recursive: true, force: true }),
     } as unknown as DockerEvaluationCompartment;
-    const rules = { protectedPaths: ['tests'], completionCommands: [], toolCommands: [] };
+    const rules = {
+      protectedPaths: ['tests', 'src/private'],
+      completionCommands: [],
+      toolCommands: [],
+    };
     const resources = new ManagedWorktreeResources({ ...rules, worktree: workerRoot });
     const raws: unknown[] = [];
     const options = {
@@ -66,6 +72,25 @@ it('rejects a changed protected source before any tool effect and retains real e
       requiredCapability: 'EditRepository',
       resource: 'repository://src/lib.rs',
     };
+    for (const input of [
+      { kind: 'ListFiles' as const, path: 'src' },
+      { kind: 'SearchRepository' as const, path: 'src', query: 'canary' },
+    ]) {
+      const observed = await tools.enact(
+        {
+          ...effect,
+          tool: input.kind === 'ListFiles' ? 'list_files' : 'search_repository',
+          requiredCapability: 'ReadRepository',
+          resource: 'repository://src',
+          proposal: { ...effect.proposal, input },
+        },
+        new AbortController().signal,
+      );
+      expect(observed).toMatchObject({
+        kind: 'Completed',
+        summary: input.kind === 'ListFiles' ? 'src/lib.rs' : '',
+      });
+    }
     expect(await tools.enact(effect, new AbortController().signal)).toMatchObject({
       kind: 'Completed',
     });

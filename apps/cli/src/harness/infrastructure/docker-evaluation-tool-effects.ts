@@ -108,12 +108,26 @@ export class DockerEvaluationToolEffects implements ToolEffects {
         case 'ListFiles':
           summary = current.files
             .filter((file) => file.path === input.path || file.path.startsWith(`${input.path}/`))
+            .filter(
+              (file) =>
+                resources.resolve({
+                  ...effect.proposal,
+                  input: { kind: 'ReadFile', path: file.path },
+                }).kind === 'Resolved',
+            )
             .map((file) => file.path)
             .join('\n');
           break;
         case 'SearchRepository':
           summary = current.files
             .filter((file) => file.path === input.path || file.path.startsWith(`${input.path}/`))
+            .filter(
+              (file) =>
+                resources.resolve({
+                  ...effect.proposal,
+                  input: { kind: 'ReadFile', path: file.path },
+                }).kind === 'Resolved',
+            )
             .flatMap((file) =>
               new TextDecoder()
                 .decode(file.bytes)
