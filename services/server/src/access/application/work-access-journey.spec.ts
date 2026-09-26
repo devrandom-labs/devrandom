@@ -392,6 +392,7 @@ describe('Work Access application journey', () => {
           'evidence:read',
           'evidence:seal',
           'experience:retrieve',
+          'harness:publish',
           'run:create',
           'run:execute',
           'run:prepare',

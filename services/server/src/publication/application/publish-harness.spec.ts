@@ -1,3 +1,7 @@
+import {
+  preparePortableHarnessVerification,
+  prepareEvidenceArtifact as preparePortableFixtureArtifact,
+} from '@devrandom/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import { derivePortableBehavior } from '@devrandom/domain';
 import {
@@ -48,6 +52,30 @@ function fixture() {
     behavior: behavior.behavior,
   });
   if (prepared.kind !== 'Prepared') throw new Error('package');
+  const verificationBytes = Buffer.from('{"kind":"PublicPortableFixture"}');
+  const verificationArtifact = preparePortableFixtureArtifact(
+    verificationBytes,
+    'application/json',
+  );
+  if (verificationArtifact.kind !== 'Prepared') throw new Error('verification artifact');
+  const verification = preparePortableHarnessVerification({
+    packageSaid: prepared.package.d,
+    checks: [
+      'Sanitization',
+      'CapabilityIsolation',
+      'PortableBehavior',
+      'FreshPublicVerification',
+      'ProtectedRegression',
+    ].map((name) => ({ name, evidenceSaid: verificationArtifact.artifact.d })),
+    rawEvidence: [
+      {
+        artifact: verificationArtifact.artifact,
+        bytesBase64Url: verificationBytes.toString('base64url'),
+      },
+    ],
+  });
+  if (verification.kind !== 'Prepared') throw new Error('verification');
+
   const command: PublishHarnessCommand = {
     version: 1,
     commandId: '00000000-0000-4000-8000-000000000001',
@@ -58,6 +86,7 @@ function fixture() {
     implementationBase64: Buffer.from(JSON.stringify(implementation)).toString('base64'),
     published: {
       package: prepared.package,
+      verification: verification.verification,
       signature: { exchange: {}, signatures: ['A'.repeat(88)], keyStateSaid: said },
     },
   };
@@ -98,30 +127,42 @@ describe('hosted publication admission', () => {
       published: f.command.published,
     });
   });
-  it.each(['owner', 'receipt', 'source', 'signature', 'changed-pointer'] as const)(
-    'rejects %s without publication effects',
-    async (failure) => {
-      const f = fixture();
-      let ownerAid = said;
-      if (failure === 'owner') ownerAid = `E${'b'.repeat(43)}`;
-      if (failure === 'receipt')
-        f.command = { ...f.command, activationReceiptSaid: `E${'b'.repeat(43)}` };
-      if (failure === 'source')
-        f.command = {
-          ...f.command,
-          configurationBase64: Buffer.from('{"version":1,"arm":"C1"}').toString('base64'),
-        };
-      if (failure === 'signature')
-        f.dependencies.signatures.verify = vi.fn().mockResolvedValue('Rejected');
-      if (failure === 'changed-pointer')
-        f.dependencies.activation.readCurrent = vi
-          .fn()
-          .mockResolvedValueOnce({ kind: 'Read', pointer: f.pointer })
-          .mockResolvedValueOnce({ kind: 'Read', pointer: { ...f.pointer, pointerVersion: 3 } });
-      expect((await publishHarness({ ownerAid, command: f.command }, f.dependencies)).kind).toBe(
-        failure === 'changed-pointer' ? 'Conflict' : 'Rejected',
-      );
-      expect(f.store).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    'owner',
+    'receipt',
+    'source',
+    'signature',
+    'portability-proof',
+    'changed-pointer',
+  ] as const)('rejects %s without publication effects', async (failure) => {
+    const f = fixture();
+    let ownerAid = said;
+    if (failure === 'owner') ownerAid = `E${'b'.repeat(43)}`;
+    if (failure === 'receipt')
+      f.command = { ...f.command, activationReceiptSaid: `E${'b'.repeat(43)}` };
+    if (failure === 'source')
+      f.command = {
+        ...f.command,
+        configurationBase64: Buffer.from('{"version":1,"arm":"C1"}').toString('base64'),
+      };
+    if (failure === 'portability-proof')
+      f.command = {
+        ...f.command,
+        published: {
+          ...f.command.published,
+          verification: { ...f.command.published.verification, packageSaid: `E${'b'.repeat(43)}` },
+        },
+      };
+    if (failure === 'signature')
+      f.dependencies.signatures.verify = vi.fn().mockResolvedValue('Rejected');
+    if (failure === 'changed-pointer')
+      f.dependencies.activation.readCurrent = vi
+        .fn()
+        .mockResolvedValueOnce({ kind: 'Read', pointer: f.pointer })
+        .mockResolvedValueOnce({ kind: 'Read', pointer: { ...f.pointer, pointerVersion: 3 } });
+    expect((await publishHarness({ ownerAid, command: f.command }, f.dependencies)).kind).toBe(
+      failure === 'changed-pointer' ? 'Conflict' : 'Rejected',
+    );
+    expect(f.store).not.toHaveBeenCalled();
+  });
 });

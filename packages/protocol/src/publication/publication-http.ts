@@ -1,3 +1,4 @@
+import { portableHarnessVerificationSchema } from './portable-verification.js';
 import Type from 'typebox';
 import { harnessPackageSchema } from './harness-package.js';
 import { successorHarnessRevisionSchema } from '../harness/successor-revision.js';
@@ -19,7 +20,11 @@ export const publicationSignatureSchema = Type.Object(
   object,
 );
 export const publishedHarnessSchema = Type.Object(
-  { package: harnessPackageSchema, signature: publicationSignatureSchema },
+  {
+    package: harnessPackageSchema,
+    verification: portableHarnessVerificationSchema,
+    signature: publicationSignatureSchema,
+  },
   object,
 );
 export const publishHarnessCommandSchema = Type.Object(

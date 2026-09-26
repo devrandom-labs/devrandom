@@ -47,6 +47,10 @@ try {
   if (experience.status !== 503) {
     throw new Error(`unavailable hosted experience returned ${String(experience.status)}`);
   }
+  const publication = await fetch(`${address}/api/harness-packages/E${'p'.repeat(43)}`);
+  if (publication.status !== 503) {
+    throw new Error(`unavailable publication returned ${String(publication.status)}`);
+  }
 } finally {
   await server.close();
 }

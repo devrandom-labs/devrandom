@@ -55,20 +55,22 @@ export class MongoHarnessPublications implements HarnessPublicationStorage {
             JSON.stringify(existing.published) !== JSON.stringify(input.published))
         )
           return { kind: 'Conflict' as const };
+        const packageBytes = Buffer.byteLength(JSON.stringify(input.published), 'utf8');
+        if (packageBytes > 96 * 1024) return { kind: 'Rejected' as const };
+        // Every new command consumes bounded durable custody, including aliases of an existing package.
+        const bytes = (existing === null ? packageBytes : 0) + 1024;
+        await this.#budgets.updateOne(
+          { _id: input.ownerAid },
+          { $setOnInsert: { count: 0, bytes: 0 } },
+          { upsert: true, session },
+        );
+        const budget = await this.#budgets.updateOne(
+          { _id: input.ownerAid, count: { $lt: 128 }, bytes: { $lte: 8 * 1024 * 1024 - bytes } },
+          { $inc: { count: 1, bytes } },
+          { session },
+        );
+        if (budget.modifiedCount !== 1) return { kind: 'Rejected' as const };
         if (existing === null) {
-          const bytes = Buffer.byteLength(JSON.stringify(input.published), 'utf8');
-          if (bytes > 64 * 1024) return { kind: 'Rejected' as const };
-          await this.#budgets.updateOne(
-            { _id: input.ownerAid },
-            { $setOnInsert: { count: 0, bytes: 0 } },
-            { upsert: true, session },
-          );
-          const budget = await this.#budgets.updateOne(
-            { _id: input.ownerAid, count: { $lt: 128 }, bytes: { $lte: 8 * 1024 * 1024 - bytes } },
-            { $inc: { count: 1, bytes } },
-            { session },
-          );
-          if (budget.modifiedCount !== 1) return { kind: 'Rejected' as const };
           await this.#packages.insertOne(
             {
               _id: input.published.package.d,

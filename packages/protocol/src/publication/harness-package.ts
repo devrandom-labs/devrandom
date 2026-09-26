@@ -50,6 +50,15 @@ export const harnessPackageSchema = Type.Object(
     ...harnessPackageInputSchema.properties,
     requiredCapabilities: Type.Array(Type.String(), { minItems: 1, maxItems: 3 }),
     portabilityProfile: Type.Literal('PortableBehaviorV1'),
+    compatibility: Type.Object(
+      {
+        model: Type.Literal('ConsumerSelected'),
+        runtime: Type.Literal('DevrandomPiV1'),
+        tools: Type.Literal('DeclaredCapabilities'),
+        environment: Type.Literal('ConsumerProvidedRepository'),
+      },
+      object,
+    ),
   },
   object,
 );
@@ -72,6 +81,12 @@ export function prepareHarnessPackage(
       behavior: input.behavior,
       requiredCapabilities: [...portableCapabilities(input.behavior)],
       portabilityProfile: 'PortableBehaviorV1',
+      compatibility: {
+        model: 'ConsumerSelected',
+        runtime: 'DevrandomPiV1',
+        tools: 'DeclaredCapabilities',
+        environment: 'ConsumerProvidedRepository',
+      },
     })[1];
     return Value.Check(harnessPackageSchema, document)
       ? { kind: 'Prepared', package: document }

@@ -1,6 +1,7 @@
 import { derivePortableBehavior } from '@devrandom/domain';
 import {
   decodeHarnessPackage,
+  decodePortableHarnessVerification,
   decodeSuccessorHarnessRevision,
   prepareEvidenceArtifact,
   prepareHarnessPackage,
@@ -64,10 +65,12 @@ export async function publishHarness(
   const { command, ownerAid } = input;
   if (
     decodeHarnessPackage(command.published.package).kind !== 'Accepted' ||
+    decodePortableHarnessVerification(command.published.verification, command.published.package.d)
+      .kind !== 'Accepted' ||
     decodeSuccessorHarnessRevision(command.sourceRevision).kind !== 'Accepted' ||
     command.published.package.publisherAid !== ownerAid ||
     command.published.package.sourceRevisionSaid !== command.sourceRevision.d ||
-    Buffer.byteLength(JSON.stringify(command.published), 'utf8') > 64 * 1024
+    Buffer.byteLength(JSON.stringify(command.published), 'utf8') > 96 * 1024
   )
     return { kind: 'Rejected' };
   const current = await dependencies.activation.readCurrent({ ownerAid, taskId: command.taskId });

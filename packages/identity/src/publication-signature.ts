@@ -1,6 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import {
   decodeHarnessPackage,
+  decodePortableHarnessVerification,
+  type PortableHarnessVerification,
   publicationExchangeRoute,
   publicationSignatureSchema,
   type HarnessPackage,
@@ -27,6 +29,7 @@ const exchange = Type.Object(
         version: Type.Literal(1),
         kind: Type.Literal('HarnessPublication'),
         packageSaid: said,
+        verificationSaid: said,
         keyStateSaid: said,
       },
       { additionalProperties: false },
@@ -38,6 +41,7 @@ const exchange = Type.Object(
 export interface HarnessPublicationSignatures {
   sign(input: {
     readonly package: HarnessPackage;
+    readonly verification: PortableHarnessVerification;
     readonly senderAlias: string;
     readonly recipientAid: string;
     readonly preparedAt: number;
@@ -47,6 +51,7 @@ export interface HarnessPublicationSignatures {
   >;
   verify(input: {
     readonly package: HarnessPackage;
+    readonly verification: PortableHarnessVerification;
     readonly signature: PublicationSignature;
   }): Promise<'Verified' | 'Rejected' | 'Unavailable'>;
 }
@@ -57,6 +62,7 @@ export function signifyHarnessPublicationSignatures(
   const verify: HarnessPublicationSignatures['verify'] = async (input) => {
     if (
       decodeHarnessPackage(input.package).kind !== 'Accepted' ||
+      decodePortableHarnessVerification(input.verification, input.package.d).kind !== 'Accepted' ||
       !Value.Check(publicationSignatureSchema, input.signature) ||
       !Value.Check(exchange, input.signature.exchange)
     )
@@ -66,6 +72,7 @@ export function signifyHarnessPublicationSignatures(
       native.i !== input.package.publisherAid ||
       native.a.i !== native.rp ||
       native.a.packageSaid !== input.package.d ||
+      native.a.verificationSaid !== input.verification.d ||
       native.a.keyStateSaid !== input.signature.keyStateSaid ||
       native.p !== ''
     )
@@ -100,6 +107,8 @@ export function signifyHarnessPublicationSignatures(
     async sign(input) {
       if (
         decodeHarnessPackage(input.package).kind !== 'Accepted' ||
+        decodePortableHarnessVerification(input.verification, input.package.d).kind !==
+          'Accepted' ||
         !Number.isSafeInteger(input.preparedAt) ||
         input.preparedAt < 0
       )
@@ -113,6 +122,7 @@ export function signifyHarnessPublicationSignatures(
           version: 1,
           kind: 'HarnessPublication',
           packageSaid: input.package.d,
+          verificationSaid: input.verification.d,
           keyStateSaid: sender.state.ee.d,
         },
         {},
@@ -123,7 +133,8 @@ export function signifyHarnessPublicationSignatures(
       if (
         !Value.Check(publicationSignatureSchema, signature) ||
         !isDeepStrictEqual(signature.exchange, native.sad) ||
-        (await verify({ package: input.package, signature })) !== 'Verified'
+        (await verify({ package: input.package, verification: input.verification, signature })) !==
+          'Verified'
       )
         return { kind: 'Rejected' };
       return { kind: 'Signed', signature };

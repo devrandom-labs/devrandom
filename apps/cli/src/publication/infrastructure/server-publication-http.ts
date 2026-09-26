@@ -58,7 +58,7 @@ export class ServerPublicationHttp {
       if (response.status !== 200)
         return { kind: response.status === 404 ? 'Rejected' : 'Unavailable' };
       const text = await response.text();
-      if (Buffer.byteLength(text, 'utf8') > 64 * 1024) return { kind: 'Rejected' };
+      if (Buffer.byteLength(text, 'utf8') > 96 * 1024) return { kind: 'Rejected' };
       const value: unknown = JSON.parse(text);
       return Value.Check(publishedHarnessSchema, value) &&
         decodeHarnessPackage(value.package).kind === 'Accepted' &&

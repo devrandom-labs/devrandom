@@ -1,3 +1,7 @@
+import {
+  preparePortableHarnessVerification,
+  prepareEvidenceArtifact as preparePortableFixtureArtifact,
+} from '@devrandom/protocol';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,8 +23,33 @@ describe('clean-profile private harness fork custody', () => {
       behavior: { kind: 'Instruction', text: 'Run public verification before completion.' },
     });
     if (prepared.kind !== 'Prepared') throw new Error('package');
+    const verificationBytes = Buffer.from('{"kind":"PublicPortableFixture"}');
+    const verificationArtifact = preparePortableFixtureArtifact(
+      verificationBytes,
+      'application/json',
+    );
+    if (verificationArtifact.kind !== 'Prepared') throw new Error('verification artifact');
+    const verification = preparePortableHarnessVerification({
+      packageSaid: prepared.package.d,
+      checks: [
+        'Sanitization',
+        'CapabilityIsolation',
+        'PortableBehavior',
+        'FreshPublicVerification',
+        'ProtectedRegression',
+      ].map((name) => ({ name, evidenceSaid: verificationArtifact.artifact.d })),
+      rawEvidence: [
+        {
+          artifact: verificationArtifact.artifact,
+          bytesBase64Url: verificationBytes.toString('base64url'),
+        },
+      ],
+    });
+    if (verification.kind !== 'Prepared') throw new Error('verification');
+
     const published: PublishedHarness = {
       package: prepared.package,
+      verification: verification.verification,
       signature: { exchange: {}, signatures: ['A'.repeat(88)], keyStateSaid: `E${'c'.repeat(43)}` },
     };
     expect(await files.retainVerified(published)).toBe('Retained');

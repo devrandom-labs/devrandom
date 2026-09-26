@@ -1,3 +1,7 @@
+import {
+  preparePortableHarnessVerification,
+  prepareEvidenceArtifact as preparePortableFixtureArtifact,
+} from '@devrandom/protocol';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { prepareHarnessPackage, type PublishedHarness } from '@devrandom/protocol';
@@ -10,8 +14,33 @@ describe('public publication HTTP boundary', () => {
       behavior: { kind: 'Instruction', text: 'Run public verification before completion.' },
     });
     if (prepared.kind !== 'Prepared') throw new Error('package');
+    const verificationBytes = Buffer.from('{"kind":"PublicPortableFixture"}');
+    const verificationArtifact = preparePortableFixtureArtifact(
+      verificationBytes,
+      'application/json',
+    );
+    if (verificationArtifact.kind !== 'Prepared') throw new Error('verification artifact');
+    const verification = preparePortableHarnessVerification({
+      packageSaid: prepared.package.d,
+      checks: [
+        'Sanitization',
+        'CapabilityIsolation',
+        'PortableBehavior',
+        'FreshPublicVerification',
+        'ProtectedRegression',
+      ].map((name) => ({ name, evidenceSaid: verificationArtifact.artifact.d })),
+      rawEvidence: [
+        {
+          artifact: verificationArtifact.artifact,
+          bytesBase64Url: verificationBytes.toString('base64url'),
+        },
+      ],
+    });
+    if (verification.kind !== 'Prepared') throw new Error('verification');
+
     const published: PublishedHarness = {
       package: prepared.package,
+      verification: verification.verification,
       signature: { exchange: {}, signatures: ['A'.repeat(88)], keyStateSaid: `E${'c'.repeat(43)}` },
     };
     const authorize = vi.fn().mockResolvedValue({ kind: 'Denied' });

@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+import {
+  bootstrapAtlasHarnessPublication,
+  openServerAtlasPublication,
+  type ServerAtlasPublication,
+} from './publication/composition/server-atlas-publication.js';
+import { workAccessHostedEvaluationAuthorizer } from './access/infrastructure/work-access-hosted-evaluation-authorizer.js';
 
 import { randomUUID } from 'node:crypto';
 
@@ -206,6 +212,8 @@ async function runBootstrap(environment: DevrandomServerEnvironment): Promise<nu
         await new MongoEvidenceBootstrap(hostedWorkMongo.db()).bootstrap();
         storageStage = 'evaluation';
         await new MongoEvaluationBootstrap(hostedWorkMongo.db()).bootstrap();
+        storageStage = 'harness-publication';
+        await bootstrapAtlasHarnessPublication(loadAtlasExperienceConfiguration(environment));
       } catch (cause) {
         const failure = cause instanceof Error ? cause.name : typeof cause;
         process.stderr.write(
@@ -307,6 +315,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
   let hostedWorkMongo: MongoClient | undefined;
   let hostedWorkCandidate: MongoClient | undefined;
   let serverAtlas: ServerAtlasExperience | undefined;
+  let serverAtlasPublication: ServerAtlasPublication | undefined;
   let hostedWork: HostedWorkCapabilities = { kind: 'Unavailable' };
   let workAccessPolicyManifest = manifestWorkAccessPolicy(workAccessPolicy);
   let hostedWorkReadiness: HostedWorkReadinessProbe = {
@@ -574,6 +583,21 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
           }),
       },
     });
+    serverAtlasPublication = await openServerAtlasPublication(
+      loadAtlasExperienceConfiguration(environment),
+      {
+        signatures: result.infrastructure.publicationSignatures,
+        activation: hostedActivation.reading,
+      },
+    );
+    const hostedPublication =
+      serverAtlasPublication.kind === 'Available'
+        ? {
+            access: workAccessHostedEvaluationAuthorizer(attempts),
+            publication: serverAtlasPublication.publication,
+            now: () => new Date().toISOString(),
+          }
+        : undefined;
     hostedWorkMongo = hostedWorkCandidate;
     const terminalCalibration = {
       access: workAccessEvidenceAuthorizer(attempts),
@@ -593,6 +617,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       terminalCalibration,
       ...hostedEvaluation,
       activation: hostedActivation,
+      ...(hostedPublication === undefined ? {} : { publication: hostedPublication }),
     };
     hostedWorkReadiness = {
       async verify() {
@@ -608,6 +633,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await evidenceBootstrap.verify();
         await evaluationBootstrap.verify();
         await serverAtlas?.verify();
+        if (serverAtlasPublication?.kind === 'Available') await serverAtlasPublication.verify();
         await result.infrastructure.taskMandateSchemaAvailability.verify();
         await result.infrastructure.taskMandateV2SchemaAvailability.verify();
         await result.infrastructure.promotionMandateSchemaAvailability.verify();
@@ -617,6 +643,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     };
   } catch {
     await serverAtlas?.close();
+    await serverAtlasPublication?.close();
     await hostedWorkCandidate?.close();
   }
   const server = buildDevrandomServer(
@@ -664,6 +691,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     await mongo.close();
     await hostedWorkMongo?.close();
     await serverAtlas?.close();
+    await serverAtlasPublication?.close();
     const failure = new IssuerFailure({
       kind: 'issuer-server-failed',
       reason: cause instanceof Error ? cause.message : 'unknown listener failure',
@@ -683,6 +711,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       if (serverAtlas !== undefined) {
         shutdown.push(serverAtlas.close());
       }
+      if (serverAtlasPublication !== undefined) shutdown.push(serverAtlasPublication.close());
       void Promise.all(shutdown).then(
         () => {
           resolve(0);

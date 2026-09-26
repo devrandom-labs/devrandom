@@ -1,3 +1,7 @@
+import {
+  preparePortableHarnessVerification,
+  prepareEvidenceArtifact as preparePortableFixtureArtifact,
+} from '@devrandom/protocol';
 import { exchange, ready, Signer, SignifyClient, Tier } from 'signify-ts';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -17,12 +21,37 @@ describe('native publication signature verification', () => {
       behavior: { kind: 'Instruction', text: 'Run public verification before completion.' },
     });
     if (prepared.kind !== 'Prepared') throw new Error('package');
+    const verificationBytes = Buffer.from('{"kind":"PublicPortableFixture"}');
+    const verificationArtifact = preparePortableFixtureArtifact(
+      verificationBytes,
+      'application/json',
+    );
+    if (verificationArtifact.kind !== 'Prepared') throw new Error('verification artifact');
+    const verification = preparePortableHarnessVerification({
+      packageSaid: prepared.package.d,
+      checks: [
+        'Sanitization',
+        'CapabilityIsolation',
+        'PortableBehavior',
+        'FreshPublicVerification',
+        'ProtectedRegression',
+      ].map((name) => ({ name, evidenceSaid: verificationArtifact.artifact.d })),
+      rawEvidence: [
+        {
+          artifact: verificationArtifact.artifact,
+          bytesBase64Url: verificationBytes.toString('base64url'),
+        },
+      ],
+    });
+    if (verification.kind !== 'Prepared') throw new Error('verification');
+
     const [native] = exchange(
       publicationExchangeRoute,
       {
         version: 1,
         kind: 'HarnessPublication',
         packageSaid: prepared.package.d,
+        verificationSaid: verification.verification.d,
         keyStateSaid: said,
       },
       said,
@@ -32,6 +61,7 @@ describe('native publication signature verification', () => {
     const signature = signer.sign(new TextEncoder().encode(native.raw), 0);
     const published: PublishedHarness = {
       package: prepared.package,
+      verification: verification.verification,
       signature: { exchange: native.sad, signatures: [signature.qb64], keyStateSaid: said },
     };
     const client = new SignifyClient('http://127.0.0.1:3901', '0123456789abcdefghijk', Tier.low);

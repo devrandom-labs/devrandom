@@ -1,3 +1,7 @@
+import {
+  publicationRoutes,
+  type PublicationRoutesConfiguration,
+} from './publication/route/publication-routes.js';
 import { randomUUID } from 'node:crypto';
 
 import swagger from '@fastify/swagger';
@@ -72,6 +76,7 @@ export type HostedWorkCapabilities =
       readonly evidenceReading?: EvidenceReadRoutesConfiguration;
       readonly experience?: ExperienceRoutesConfiguration;
       readonly activation?: ActivationRoutesConfiguration;
+      readonly publication?: PublicationRoutesConfiguration;
     }
   | { readonly kind: 'Unavailable' };
 
@@ -243,6 +248,17 @@ function unavailableActivationRoutes(): ActivationRoutesConfiguration {
   };
 }
 
+function unavailablePublicationRoutes(): PublicationRoutesConfiguration {
+  return {
+    access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
+    publication: {
+      publish: () => Promise.resolve({ kind: 'Unavailable' }),
+      read: () => Promise.resolve({ kind: 'Unavailable' }),
+    },
+    now: () => new Date().toISOString(),
+  };
+}
+
 export function buildDevrandomServer(
   issuer: VerifiedDevrandomIssuer,
   registration: DevrandomServerRegistration,
@@ -337,6 +353,13 @@ export function buildDevrandomServer(
       hostedWork.kind === 'Available' && hostedWork.activation !== undefined
         ? hostedWork.activation
         : unavailableActivationRoutes(),
+    ),
+  );
+  void server.register(
+    publicationRoutes(
+      hostedWork.kind === 'Available' && hostedWork.publication !== undefined
+        ? hostedWork.publication
+        : unavailablePublicationRoutes(),
     ),
   );
   void server.register(schemaOobiRoute);

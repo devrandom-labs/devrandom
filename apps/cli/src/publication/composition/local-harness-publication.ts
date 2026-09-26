@@ -1,3 +1,4 @@
+import { NodePortableBehaviorReference } from '../infrastructure/node-portable-behavior-reference.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { derivePortableBehavior } from '@devrandom/domain';
@@ -114,11 +115,12 @@ export async function publishLocalHarness(
       sourceRevisionSaid: pointer.activeRevisionSaid,
       behavior: portable.behavior,
     });
-    if (
-      prepared.kind !== 'Prepared' ||
-      (await evaluatePortableBehavior(prepared.package)) !== 'Passed'
-    )
-      return { kind: 'Rejected' };
+    if (prepared.kind !== 'Prepared') return { kind: 'Rejected' };
+    const evaluated = await evaluatePortableBehavior(
+      prepared.package,
+      new NodePortableBehaviorReference(),
+    );
+    if (evaluated.kind !== 'Passed') return { kind: 'Rejected' };
     const connected = await connect(input);
     if (
       connected === undefined ||
@@ -140,6 +142,7 @@ export async function publishLocalHarness(
     } else {
       const signed = await signatures.sign({
         package: prepared.package,
+        verification: evaluated.verification,
         senderAlias: devrandomUserAlias,
         recipientAid: input.identity.issuerAid,
         preparedAt: Date.now(),
@@ -161,7 +164,11 @@ export async function publishLocalHarness(
                 'base64',
               ),
             }),
-        published: { package: prepared.package, signature: signed.signature },
+        published: {
+          package: prepared.package,
+          verification: evaluated.verification,
+          signature: signed.signature,
+        },
       };
       if ((await files.stage(next)) !== 'Staged') return { kind: 'Conflict' };
       command = next;
@@ -213,7 +220,12 @@ export async function fetchPublishedHarness(
       decodeHarnessPackage(fetched.published.package).kind !== 'Accepted' ||
       (await signifyHarnessPublicationSignatures(connected.client).verify(fetched.published)) !==
         'Verified' ||
-      (await evaluatePortableBehavior(fetched.published.package)) !== 'Passed'
+      (
+        await evaluatePortableBehavior(
+          fetched.published.package,
+          new NodePortableBehaviorReference(),
+        )
+      ).kind !== 'Passed'
     )
       return { kind: 'Rejected' };
     return (await new PrivatePublicationFiles(input.stateRoot).retainVerified(

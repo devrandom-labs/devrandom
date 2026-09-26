@@ -585,11 +585,15 @@
                               {
                                 "type": "string",
                                 "const": "activation:commit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "harness:publish"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 16,
+                          "maxItems": 17,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -1097,11 +1101,15 @@
                               {
                                 "type": "string",
                                 "const": "activation:commit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "harness:publish"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 16,
+                          "maxItems": 17,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -1965,11 +1973,15 @@
                               {
                                 "type": "string",
                                 "const": "activation:commit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "harness:publish"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 16,
+                          "maxItems": 17,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -2477,11 +2489,15 @@
                               {
                                 "type": "string",
                                 "const": "activation:commit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "harness:publish"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 16,
+                          "maxItems": 17,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -3492,11 +3508,15 @@
                               {
                                 "type": "string",
                                 "const": "activation:commit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "harness:publish"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 16,
+                          "maxItems": 17,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -4004,11 +4024,15 @@
                               {
                                 "type": "string",
                                 "const": "activation:commit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "harness:publish"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 16,
+                          "maxItems": 17,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -9406,6 +9430,10 @@
                                 {
                                   "type": "string",
                                   "const": "activation:commit"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "harness:publish"
                                 }
                               ]
                             }
@@ -10198,6 +10226,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -12023,6 +12055,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -13060,6 +13096,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -17987,6 +18027,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -20957,6 +21001,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -23295,6 +23343,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -26754,6 +26806,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -27521,6 +27577,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -28659,6 +28719,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -29711,6 +29775,17 @@
                                 "kind": {
                                   "type": "string",
                                   "const": "PublicTaskVerifier"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": ["kind"],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "ProtectedTaskVerifier"
                                 }
                               },
                               "additionalProperties": false
@@ -34263,6 +34338,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -35552,6 +35631,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -36558,6 +36641,17 @@
                                       "kind": {
                                         "type": "string",
                                         "const": "PublicTaskVerifier"
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "required": ["kind"],
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "ProtectedTaskVerifier"
                                       }
                                     },
                                     "additionalProperties": false
@@ -38575,6 +38669,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -39517,6 +39615,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -40274,6 +40376,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -41281,6 +41387,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -48334,6 +48444,17 @@
                                   "properties": {
                                     "kind": {
                                       "type": "string",
+                                      "const": "ProtectedTaskVerifier"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": ["kind"],
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
                                       "const": "EvidenceRecorder"
                                     }
                                   },
@@ -52885,6 +53006,10 @@
                             {
                               "type": "string",
                               "const": "activation:commit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "harness:publish"
                             }
                           ]
                         }
@@ -55081,6 +55206,1694 @@
                     }
                   },
                   "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/harness-packages/{packageSaid}": {
+      "put": {
+        "operationId": "publishHarnessPackage",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "commandId",
+                  "taskId",
+                  "activationReceiptSaid",
+                  "sourceRevision",
+                  "configurationBase64",
+                  "published"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "number",
+                    "const": 1
+                  },
+                  "commandId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
+                  "taskId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
+                  "activationReceiptSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "sourceRevision": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "version",
+                          "d",
+                          "kind",
+                          "parentRevisionSaid",
+                          "h0Said",
+                          "taskRevisionSaid",
+                          "sourceInventorySaid",
+                          "executionProfileSaid",
+                          "configurationArtifactSaid",
+                          "arm",
+                          "treatment"
+                        ],
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "ReviewedSuccessor"
+                          },
+                          "parentRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "h0Said": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "taskRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "sourceInventorySaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "executionProfileSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "configurationArtifactSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "arm": {
+                            "type": "string",
+                            "const": "C1"
+                          },
+                          "treatment": {
+                            "type": "object",
+                            "required": ["kind"],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "Instruction"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "version",
+                          "d",
+                          "kind",
+                          "parentRevisionSaid",
+                          "h0Said",
+                          "taskRevisionSaid",
+                          "sourceInventorySaid",
+                          "executionProfileSaid",
+                          "configurationArtifactSaid",
+                          "arm",
+                          "treatment"
+                        ],
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "ReviewedSuccessor"
+                          },
+                          "parentRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "h0Said": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "taskRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "sourceInventorySaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "executionProfileSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "configurationArtifactSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "arm": {
+                            "type": "string",
+                            "const": "C2"
+                          },
+                          "treatment": {
+                            "type": "object",
+                            "required": [
+                              "kind",
+                              "reviewedImplementationSaid",
+                              "publicReplayReceiptSaid"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "ReviewedWorkflow"
+                              },
+                              "reviewedImplementationSaid": {
+                                "type": "string",
+                                "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                              },
+                              "publicReplayReceiptSaid": {
+                                "type": "string",
+                                "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "version",
+                          "d",
+                          "kind",
+                          "parentRevisionSaid",
+                          "h0Said",
+                          "taskRevisionSaid",
+                          "sourceInventorySaid",
+                          "executionProfileSaid",
+                          "configurationArtifactSaid",
+                          "arm",
+                          "treatment"
+                        ],
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "ReviewedSuccessor"
+                          },
+                          "parentRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "h0Said": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "taskRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "sourceInventorySaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "executionProfileSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "configurationArtifactSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "arm": {
+                            "type": "string",
+                            "const": "C3"
+                          },
+                          "treatment": {
+                            "type": "object",
+                            "required": [
+                              "kind",
+                              "reviewedImplementationSaid",
+                              "publicReplayReceiptSaid"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "ContextSelection"
+                              },
+                              "reviewedImplementationSaid": {
+                                "type": "string",
+                                "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                              },
+                              "publicReplayReceiptSaid": {
+                                "type": "string",
+                                "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "configurationBase64": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 45000
+                  },
+                  "implementationBase64": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 175000
+                  },
+                  "published": {
+                    "type": "object",
+                    "required": ["package", "verification", "signature"],
+                    "properties": {
+                      "package": {
+                        "type": "object",
+                        "required": [
+                          "version",
+                          "d",
+                          "kind",
+                          "publisherAid",
+                          "sourceRevisionSaid",
+                          "behavior",
+                          "requiredCapabilities",
+                          "portabilityProfile",
+                          "compatibility"
+                        ],
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "PortableHarness"
+                          },
+                          "publisherAid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "sourceRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "behavior": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["kind", "text"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "Instruction"
+                                  },
+                                  "text": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 8192
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["kind", "trigger", "steps"],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "RecoveryWorkflow"
+                                  },
+                                  "trigger": {
+                                    "type": "string",
+                                    "const": "QualifiedRetainedFailure"
+                                  },
+                                  "steps": {
+                                    "type": "array",
+                                    "additionalItems": false,
+                                    "items": [
+                                      {
+                                        "type": "string",
+                                        "const": "RetrieveExperience"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "ReadExactSource"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "Replan"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "FreshPublicVerify"
+                                      }
+                                    ],
+                                    "minItems": 4
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "kind",
+                                  "algorithm",
+                                  "formatMarker",
+                                  "triggerPaths",
+                                  "priority",
+                                  "maximumItems",
+                                  "maximumContextBytes"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "VersionedFormatContextSelection"
+                                  },
+                                  "algorithm": {
+                                    "type": "string",
+                                    "const": "ExactPublicHistoryV1"
+                                  },
+                                  "formatMarker": {
+                                    "type": "object",
+                                    "required": ["parameter"],
+                                    "properties": {
+                                      "parameter": {
+                                        "type": "string",
+                                        "const": "formatMarker"
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  "triggerPaths": {
+                                    "type": "object",
+                                    "required": ["parameter"],
+                                    "properties": {
+                                      "parameter": {
+                                        "type": "string",
+                                        "const": "formatPaths"
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  "priority": {
+                                    "type": "array",
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "const": "Failure"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "const": "Contract"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "const": "Edit"
+                                        }
+                                      ]
+                                    },
+                                    "minItems": 3,
+                                    "maxItems": 3,
+                                    "uniqueItems": true
+                                  },
+                                  "maximumItems": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 8
+                                  },
+                                  "maximumContextBytes": {
+                                    "type": "integer",
+                                    "minimum": 128,
+                                    "maximum": 32768
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "requiredCapabilities": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "maxItems": 3
+                          },
+                          "portabilityProfile": {
+                            "type": "string",
+                            "const": "PortableBehaviorV1"
+                          },
+                          "compatibility": {
+                            "type": "object",
+                            "required": ["model", "runtime", "tools", "environment"],
+                            "properties": {
+                              "model": {
+                                "type": "string",
+                                "const": "ConsumerSelected"
+                              },
+                              "runtime": {
+                                "type": "string",
+                                "const": "DevrandomPiV1"
+                              },
+                              "tools": {
+                                "type": "string",
+                                "const": "DeclaredCapabilities"
+                              },
+                              "environment": {
+                                "type": "string",
+                                "const": "ConsumerProvidedRepository"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "verification": {
+                        "type": "object",
+                        "required": [
+                          "version",
+                          "d",
+                          "kind",
+                          "suite",
+                          "packageSaid",
+                          "checks",
+                          "rawEvidence"
+                        ],
+                        "properties": {
+                          "version": {
+                            "type": "number",
+                            "const": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "PortableHarnessVerification"
+                          },
+                          "suite": {
+                            "type": "string",
+                            "const": "CleanPublicReferenceV1"
+                          },
+                          "packageSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "checks": {
+                            "type": "array",
+                            "additionalItems": false,
+                            "items": [
+                              {
+                                "type": "object",
+                                "required": ["name", "evidenceSaid"],
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "const": "Sanitization"
+                                  },
+                                  "evidenceSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["name", "evidenceSaid"],
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "const": "CapabilityIsolation"
+                                  },
+                                  "evidenceSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["name", "evidenceSaid"],
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "const": "PortableBehavior"
+                                  },
+                                  "evidenceSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["name", "evidenceSaid"],
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "const": "FreshPublicVerification"
+                                  },
+                                  "evidenceSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["name", "evidenceSaid"],
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "const": "ProtectedRegression"
+                                  },
+                                  "evidenceSaid": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            ],
+                            "minItems": 5
+                          },
+                          "rawEvidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": ["artifact", "bytesBase64Url"],
+                              "properties": {
+                                "artifact": {
+                                  "type": "object",
+                                  "required": [
+                                    "version",
+                                    "d",
+                                    "mediaType",
+                                    "byteLength",
+                                    "contentDigest"
+                                  ],
+                                  "properties": {
+                                    "version": {
+                                      "type": "number",
+                                      "const": 1
+                                    },
+                                    "d": {
+                                      "type": "string",
+                                      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                    },
+                                    "mediaType": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "const": "application/octet-stream"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "const": "application/json"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "const": "text/plain; charset=utf-8"
+                                        },
+                                        {
+                                          "type": "string",
+                                          "const": "text/x-diff; charset=utf-8"
+                                        }
+                                      ]
+                                    },
+                                    "byteLength": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 524288
+                                    },
+                                    "contentDigest": {
+                                      "type": "string",
+                                      "pattern": "^sha256:[a-f0-9]{64}$"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "bytesBase64Url": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 90000
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "minItems": 1,
+                            "maxItems": 32
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "signature": {
+                        "type": "object",
+                        "required": ["exchange", "signatures", "keyStateSaid"],
+                        "properties": {
+                          "exchange": {},
+                          "signatures": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 88,
+                              "maxLength": 200
+                            },
+                            "minItems": 1,
+                            "maxItems": 1
+                          },
+                          "keyStateSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "in": "path",
+            "name": "packageSaid",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer [A-Za-z0-9_-]{43}$"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "fetchHarnessPackage",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "in": "path",
+            "name": "packageSaid",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["package", "verification", "signature"],
+                  "properties": {
+                    "package": {
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "d",
+                        "kind",
+                        "publisherAid",
+                        "sourceRevisionSaid",
+                        "behavior",
+                        "requiredCapabilities",
+                        "portabilityProfile",
+                        "compatibility"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "d": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "PortableHarness"
+                        },
+                        "publisherAid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "sourceRevisionSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "behavior": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "required": ["kind", "text"],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "Instruction"
+                                },
+                                "text": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 8192
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": ["kind", "trigger", "steps"],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "RecoveryWorkflow"
+                                },
+                                "trigger": {
+                                  "type": "string",
+                                  "const": "QualifiedRetainedFailure"
+                                },
+                                "steps": {
+                                  "type": "array",
+                                  "additionalItems": false,
+                                  "items": [
+                                    {
+                                      "type": "string",
+                                      "const": "RetrieveExperience"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "ReadExactSource"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "Replan"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "FreshPublicVerify"
+                                    }
+                                  ],
+                                  "minItems": 4
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "algorithm",
+                                "formatMarker",
+                                "triggerPaths",
+                                "priority",
+                                "maximumItems",
+                                "maximumContextBytes"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "VersionedFormatContextSelection"
+                                },
+                                "algorithm": {
+                                  "type": "string",
+                                  "const": "ExactPublicHistoryV1"
+                                },
+                                "formatMarker": {
+                                  "type": "object",
+                                  "required": ["parameter"],
+                                  "properties": {
+                                    "parameter": {
+                                      "type": "string",
+                                      "const": "formatMarker"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "triggerPaths": {
+                                  "type": "object",
+                                  "required": ["parameter"],
+                                  "properties": {
+                                    "parameter": {
+                                      "type": "string",
+                                      "const": "formatPaths"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "priority": {
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "Failure"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "Contract"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "Edit"
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 3,
+                                  "maxItems": 3,
+                                  "uniqueItems": true
+                                },
+                                "maximumItems": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 8
+                                },
+                                "maximumContextBytes": {
+                                  "type": "integer",
+                                  "minimum": 128,
+                                  "maximum": 32768
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "requiredCapabilities": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "maxItems": 3
+                        },
+                        "portabilityProfile": {
+                          "type": "string",
+                          "const": "PortableBehaviorV1"
+                        },
+                        "compatibility": {
+                          "type": "object",
+                          "required": ["model", "runtime", "tools", "environment"],
+                          "properties": {
+                            "model": {
+                              "type": "string",
+                              "const": "ConsumerSelected"
+                            },
+                            "runtime": {
+                              "type": "string",
+                              "const": "DevrandomPiV1"
+                            },
+                            "tools": {
+                              "type": "string",
+                              "const": "DeclaredCapabilities"
+                            },
+                            "environment": {
+                              "type": "string",
+                              "const": "ConsumerProvidedRepository"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "verification": {
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "d",
+                        "kind",
+                        "suite",
+                        "packageSaid",
+                        "checks",
+                        "rawEvidence"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "d": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "PortableHarnessVerification"
+                        },
+                        "suite": {
+                          "type": "string",
+                          "const": "CleanPublicReferenceV1"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "checks": {
+                          "type": "array",
+                          "additionalItems": false,
+                          "items": [
+                            {
+                              "type": "object",
+                              "required": ["name", "evidenceSaid"],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "const": "Sanitization"
+                                },
+                                "evidenceSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": ["name", "evidenceSaid"],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "const": "CapabilityIsolation"
+                                },
+                                "evidenceSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": ["name", "evidenceSaid"],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "const": "PortableBehavior"
+                                },
+                                "evidenceSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": ["name", "evidenceSaid"],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "const": "FreshPublicVerification"
+                                },
+                                "evidenceSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": ["name", "evidenceSaid"],
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "const": "ProtectedRegression"
+                                },
+                                "evidenceSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          ],
+                          "minItems": 5
+                        },
+                        "rawEvidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": ["artifact", "bytesBase64Url"],
+                            "properties": {
+                              "artifact": {
+                                "type": "object",
+                                "required": [
+                                  "version",
+                                  "d",
+                                  "mediaType",
+                                  "byteLength",
+                                  "contentDigest"
+                                ],
+                                "properties": {
+                                  "version": {
+                                    "type": "number",
+                                    "const": 1
+                                  },
+                                  "d": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "mediaType": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "const": "application/octet-stream"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "application/json"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "text/plain; charset=utf-8"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "const": "text/x-diff; charset=utf-8"
+                                      }
+                                    ]
+                                  },
+                                  "byteLength": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 524288
+                                  },
+                                  "contentDigest": {
+                                    "type": "string",
+                                    "pattern": "^sha256:[a-f0-9]{64}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "bytesBase64Url": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 90000
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "minItems": 1,
+                          "maxItems": 32
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "signature": {
+                      "type": "object",
+                      "required": ["exchange", "signatures", "keyStateSaid"],
+                      "properties": {
+                        "exchange": {},
+                        "signatures": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 88,
+                            "maxLength": 200
+                          },
+                          "minItems": 1,
+                          "maxItems": 1
+                        },
+                        "keyStateSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Published"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "packageSaid"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "AlreadyPublished"
+                        },
+                        "packageSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Rejected"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Conflict"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Unavailable"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               }
             }
