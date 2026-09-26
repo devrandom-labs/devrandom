@@ -30,6 +30,76 @@ const event = {
 };
 
 describe('native evaluation evidence stream', () => {
+  it('binds each non-byte budget debit and the final coverage cursor to the native chain', () => {
+    const debit = prepareEvaluationEvidenceEvent({
+      ...event,
+      detail: {
+        kind: 'EvaluationBudgetDebited',
+        budget: 'providerRequests',
+        amount: 1,
+        consumed: 1,
+        receiptArtifactSaid: said('r'),
+        sourceEventSaid: said('u'),
+      },
+    });
+    expect(debit.kind).toBe('Prepared');
+    if (debit.kind !== 'Prepared') return;
+    expect(decodeEvaluationEvidenceEvent(debit.event)).toEqual({
+      kind: 'Accepted',
+      event: debit.event,
+    });
+    expect(
+      prepareEvaluationEvidenceEvent({
+        ...event,
+        detail: { ...debit.event.detail, budget: 'evidencePlusArtifactsPerRunBytes' },
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'SchemaInvalid' });
+    const coverageDetail = {
+      kind: 'EvaluationBudgetCovered',
+      throughSequence: 0,
+      throughHeadSaid: debit.event.d,
+      totals: {
+        providerRequests: 1,
+        providerInputTokens: 12,
+        providerOutputTokens: 4,
+        providerSpendMicroUsd: 5,
+        runWallTimeSeconds: 1,
+        toolProposals: 0,
+        aggregateChildCommandTimeSeconds: 0,
+        changedFiles: 0,
+        changedWorktreeBytes: 0,
+      },
+      providerUsageEventSaids: [said('u')],
+    } as const;
+    const coverage = prepareEvaluationEvidenceEvent({
+      ...event,
+      sequence: 1,
+      previous: { kind: 'Previous', eventSaid: debit.event.d },
+      detail: coverageDetail,
+    });
+    expect(coverage.kind).toBe('Prepared');
+    if (coverage.kind !== 'Prepared') return;
+    expect(decodeEvaluationEvidenceEvent(coverage.event)).toEqual({
+      kind: 'Accepted',
+      event: coverage.event,
+    });
+    expect(
+      decodeEvaluationEvidenceEvent({
+        ...coverage.event,
+        detail: { ...coverage.event.detail, throughHeadSaid: said('z') },
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'ChainInvalid' });
+    expect(
+      decodeEvaluationEvidenceEvent({
+        ...coverage.event,
+        detail: {
+          ...coverage.event.detail,
+          totals: { ...coverageDetail.totals, providerRequests: 2 },
+        },
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'SaidMismatch' });
+  });
+
   it('binds an immutable event to a distinct evaluation and exact trial slot', () => {
     const prepared = prepareEvaluationEvidenceEvent(event);
     expect(prepared.kind).toBe('Prepared');

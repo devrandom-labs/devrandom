@@ -136,9 +136,12 @@ function referencedArtifacts(event: EvaluationEvidenceEvent): readonly string[] 
     case 'SourceRead':
       return [event.detail.rawArtifactSaid];
     case 'UsageDebited':
+    case 'EvaluationBudgetCovered':
     case 'TrialStopped':
     case 'DataWithheld':
       return [];
+    case 'EvaluationBudgetDebited':
+      return [event.detail.receiptArtifactSaid];
   }
 }
 

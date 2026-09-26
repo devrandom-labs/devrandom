@@ -7,6 +7,35 @@ const uuid = Type.String({
   pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 });
 const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
+const budget = Type.Union(
+  (
+    [
+      'providerRequests',
+      'providerInputTokens',
+      'providerOutputTokens',
+      'providerSpendMicroUsd',
+      'runWallTimeSeconds',
+      'toolProposals',
+      'aggregateChildCommandTimeSeconds',
+      'changedFiles',
+      'changedWorktreeBytes',
+    ] as const
+  ).map((name) => Type.Literal(name)),
+);
+const budgetTotals = Type.Object(
+  {
+    providerRequests: count,
+    providerInputTokens: count,
+    providerOutputTokens: count,
+    providerSpendMicroUsd: count,
+    runWallTimeSeconds: count,
+    toolProposals: count,
+    aggregateChildCommandTimeSeconds: count,
+    changedFiles: count,
+    changedWorktreeBytes: count,
+  },
+  { additionalProperties: false },
+);
 const phase = Type.Union([
   Type.Object(
     {
@@ -78,6 +107,27 @@ const detail = Type.Union([
       cacheWriteTokens: count,
       spendMicroUsd: count,
       elapsedMilliseconds: count,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal('EvaluationBudgetDebited'),
+      budget,
+      amount: count,
+      consumed: count,
+      receiptArtifactSaid: said,
+      sourceEventSaid: Type.Optional(said),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      kind: Type.Literal('EvaluationBudgetCovered'),
+      throughSequence: count,
+      throughHeadSaid: said,
+      totals: budgetTotals,
+      providerUsageEventSaids: Type.Array(said, { uniqueItems: true }),
     },
     { additionalProperties: false },
   ),
@@ -161,6 +211,19 @@ function invalidEvent(
   )
     return 'SchemaInvalid';
   if ((input.sequence === 0) !== (input.previous.kind === 'Genesis')) return 'ChainInvalid';
+  if (
+    input.detail.kind === 'EvaluationBudgetCovered' &&
+    (input.sequence === 0 ||
+      input.detail.throughSequence !== input.sequence - 1 ||
+      input.previous.kind !== 'Previous' ||
+      input.detail.throughHeadSaid !== input.previous.eventSaid)
+  )
+    return 'ChainInvalid';
+  if (
+    input.detail.kind === 'EvaluationBudgetDebited' &&
+    input.detail.consumed < input.detail.amount
+  )
+    return 'SchemaInvalid';
   if (
     input.phase.kind === 'Trial' &&
     input.phase.arm !== 'H1TaskSearch' &&

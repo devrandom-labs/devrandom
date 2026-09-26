@@ -38616,6 +38616,177 @@
                             },
                             {
                               "type": "object",
+                              "required": [
+                                "kind",
+                                "budget",
+                                "amount",
+                                "consumed",
+                                "receiptArtifactSaid"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "EvaluationBudgetDebited"
+                                },
+                                "budget": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "const": "providerRequests"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "providerInputTokens"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "providerOutputTokens"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "providerSpendMicroUsd"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "runWallTimeSeconds"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "toolProposals"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "aggregateChildCommandTimeSeconds"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "changedFiles"
+                                    },
+                                    {
+                                      "type": "string",
+                                      "const": "changedWorktreeBytes"
+                                    }
+                                  ]
+                                },
+                                "amount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "consumed": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "receiptArtifactSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "sourceEventSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "throughSequence",
+                                "throughHeadSaid",
+                                "totals",
+                                "providerUsageEventSaids"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "EvaluationBudgetCovered"
+                                },
+                                "throughSequence": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "throughHeadSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "totals": {
+                                  "type": "object",
+                                  "required": [
+                                    "providerRequests",
+                                    "providerInputTokens",
+                                    "providerOutputTokens",
+                                    "providerSpendMicroUsd",
+                                    "runWallTimeSeconds",
+                                    "toolProposals",
+                                    "aggregateChildCommandTimeSeconds",
+                                    "changedFiles",
+                                    "changedWorktreeBytes"
+                                  ],
+                                  "properties": {
+                                    "providerRequests": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "providerInputTokens": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "providerOutputTokens": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "providerSpendMicroUsd": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "runWallTimeSeconds": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "toolProposals": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "aggregateChildCommandTimeSeconds": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "changedFiles": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "changedWorktreeBytes": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                "providerUsageEventSaids": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                  },
+                                  "uniqueItems": true
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
                               "required": ["kind", "artifactSaid", "custody"],
                               "properties": {
                                 "kind": {
