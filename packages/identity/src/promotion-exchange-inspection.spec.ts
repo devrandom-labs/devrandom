@@ -94,7 +94,7 @@ describe('issuer promotion exchange inspection', () => {
     ).resolves.toMatchObject({ kind: 'Rejected' });
     get.mockImplementationOnce(() =>
       Promise.resolve({
-        exn: { ...proposalExn.sad, a: { ...proposalExn.sad.a, hypothesisSaid: said('x') } },
+        exn: { ...proposalExn.sad, a: { i: issuer, ...proposal, hypothesisSaid: said('x') } },
         pathed: {},
       }),
     );
