@@ -168,5 +168,8 @@ export {
 } from './context/application/verified-context.js';
 export * from './evaluation/application/run-protected-trial.js';
 export * from './evaluation/application/observe-protected-trial-artifact.js';
+export * from './evaluation/application/prepare-comparison-measurements.js';
+export * from './evaluation/application/prepare-evaluation-budget-coverage.js';
+export * from './evaluation/application/prepare-measured-trial-observation.js';
 export { FileEvaluationCaseInventory } from './evaluation/infrastructure/file-evaluation-case-inventory.js';
 export * from './harness/application/materialize-successor.js';
