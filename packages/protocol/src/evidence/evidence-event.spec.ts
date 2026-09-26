@@ -274,3 +274,17 @@ describe('evidence event protocol', () => {
     });
   });
 });
+
+it('attributes protected final verification separately from original public Task verification', () => {
+  const prepared = prepareEvidenceEvent({
+    ...draft(),
+    producer: { kind: 'ProtectedTaskVerifier' },
+    event: { kind: 'Observation', source: 'Verifier', artifactSaid: 'E' + 'x'.repeat(43) },
+  });
+  expect(prepared.kind).toBe('Prepared');
+  if (prepared.kind !== 'Prepared') throw new Error('protected verification attribution');
+  expect(decodeEvidenceEvent(prepared.event)).toMatchObject({
+    kind: 'Accepted',
+    event: { producer: { kind: 'ProtectedTaskVerifier' } },
+  });
+});

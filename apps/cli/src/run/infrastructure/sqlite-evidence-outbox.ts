@@ -1530,15 +1530,40 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
   readPredecessor(
     input: Parameters<RunPredecessorReading['readPredecessor']>[0],
   ): ReturnType<RunPredecessorReading['readPredecessor']> {
-    const { run, stream } = input;
+    if (input.run.lifecycle.kind !== 'Active' || input.run.lifecycle.phase.kind !== 'Blocked')
+      return { kind: 'Rejected' };
+    return this.#readSealed(input);
+  }
+
+  readSubmission(
+    input: Parameters<RunPredecessorReading['readPredecessor']>[0],
+  ): ReturnType<RunPredecessorReading['readPredecessor']> {
     if (
-      run.lifecycle.kind !== 'Active' ||
-      run.lifecycle.phase.kind !== 'Blocked' ||
+      input.run.lifecycle.kind !== 'Ended' ||
+      input.run.lifecycle.outcome.kind !== 'Submitted' ||
+      input.run.submissionVerification.kind !== 'Accepted'
+    )
+      return { kind: 'Rejected' };
+    return this.#readSealed(input);
+  }
+
+  #readSealed(
+    input: Parameters<RunPredecessorReading['readPredecessor']>[0],
+  ): ReturnType<RunPredecessorReading['readPredecessor']> {
+    const { run, stream } = input;
+    const checkpointSaid =
+      run.lifecycle.kind === 'Active' && run.lifecycle.phase.kind === 'Blocked'
+        ? run.lifecycle.phase.checkpointSaid
+        : run.lifecycle.kind === 'Ended'
+          ? run.lifecycle.outcome.checkpointSaid
+          : undefined;
+    if (
+      checkpointSaid === undefined ||
       run.lease.kind !== 'Held' ||
       stream.seal.kind !== 'Sealed' ||
       stream.cursor.kind !== 'Accepted' ||
       stream.checkpoint.kind !== 'Accepted' ||
-      stream.checkpoint.checkpointSaid !== run.lifecycle.phase.checkpointSaid ||
+      stream.checkpoint.checkpointSaid !== checkpointSaid ||
       stream.runId !== run.binding.runId ||
       stream.evidenceStreamId !==
         (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId)

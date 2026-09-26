@@ -15,6 +15,7 @@ export type EvidenceProducer =
   | { readonly kind: 'PiExecutor' }
   | { readonly kind: 'ToolGateway' }
   | { readonly kind: 'PublicTaskVerifier' }
+  | { readonly kind: 'ProtectedTaskVerifier' }
   | { readonly kind: 'EvidenceRecorder' };
 
 export interface EvidenceObservation {

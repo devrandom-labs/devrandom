@@ -47,3 +47,5 @@ export * from './task/task-http.js';
 export * from './work-access.js';
 
 export * from './run/continuation-predecessor.js';
+
+export * from './run/terminal-verification.js';

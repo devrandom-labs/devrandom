@@ -384,6 +384,7 @@ const eventBody = {
     Type.Object({ kind: Type.Literal('PiExecutor') }, { additionalProperties: false }),
     Type.Object({ kind: Type.Literal('ToolGateway') }, { additionalProperties: false }),
     Type.Object({ kind: Type.Literal('PublicTaskVerifier') }, { additionalProperties: false }),
+    Type.Object({ kind: Type.Literal('ProtectedTaskVerifier') }, { additionalProperties: false }),
     Type.Object({ kind: Type.Literal('EvidenceRecorder') }, { additionalProperties: false }),
   ]),
   event: evidenceEventDetailSchema,

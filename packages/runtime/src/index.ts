@@ -230,3 +230,4 @@ export * from './run/current-run-history.js';
 export { inspectConcentrateProviderReport } from './evaluation/infrastructure/concentrate-provider-report.js';
 
 export * from './evaluation/application/finalization-elapsed.js';
+export { assessProtectedCesrCase } from './evaluation/application/assess-protected-cesr-case.js';
