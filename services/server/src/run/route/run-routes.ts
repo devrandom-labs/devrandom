@@ -1,6 +1,8 @@
 import { taskBudgetCeilings } from '@devrandom/domain';
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import {
+  decodeRunProjection,
+  decodeRunSuccessorSegment,
   runAdmissionCommandSchema,
   runAdmissionForbiddenProblemSchema,
   runAdmissionPendingProjectionSchema,
@@ -676,8 +678,12 @@ export function runRoutes(configuration: RunRoutesConfiguration): FastifyPluginC
           ownerAid: owner.ownerAid,
           ...request.params,
         });
-        if (outcome?.kind === 'Found') {
-          await reply.code(200).send(outcome.segment);
+        if (
+          outcome?.kind === 'Found' &&
+          decodeRunSuccessorSegment(outcome.segment).kind === 'Accepted'
+        ) {
+          // Content-addressed JSON retains its producer order across transport.
+          await reply.code(200).serializer(JSON.stringify).send(outcome.segment);
         } else {
           await sendInspectionOutcome(
             reply,
@@ -730,8 +736,16 @@ export function runRoutes(configuration: RunRoutesConfiguration): FastifyPluginC
           command: request.body,
         });
         const correlationId = configuration.newCorrelationId();
-        if (outcome?.kind === 'Admitted' || outcome?.kind === 'Equivalent') {
-          await reply.code(outcome.kind === 'Admitted' ? 201 : 200).send(outcome.receipt);
+        if (
+          (outcome?.kind === 'Admitted' || outcome?.kind === 'Equivalent') &&
+          Check(runContinuationReceiptSchema, outcome.receipt) &&
+          decodeRunProjection(outcome.receipt.run).kind === 'Accepted' &&
+          decodeRunSuccessorSegment(outcome.receipt.segment).kind === 'Accepted'
+        ) {
+          await reply
+            .code(outcome.kind === 'Admitted' ? 201 : 200)
+            .serializer(JSON.stringify)
+            .send(outcome.receipt);
         } else if (outcome?.kind === 'RunNotFound') {
           await sendProblem(reply, {
             type: 'https://devrandom.example/problems/run-resource-not-found',

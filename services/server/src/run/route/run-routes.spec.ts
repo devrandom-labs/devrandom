@@ -4,7 +4,15 @@ import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 
-import { projectRun, runContinuationRequestSchema } from '@devrandom/protocol';
+import {
+  projectRun,
+  runContinuationRequestSchema,
+  prepareRunSuccessorSegment,
+  decodeRunSuccessorSegment,
+  decodeRunProjection,
+} from '@devrandom/protocol';
+import { continueCalibrationRun } from '@devrandom/domain';
+import { sealedRunPredecessorFixture } from '../test/sealed-run-predecessor-fixture.js';
 import Value from 'typebox/value';
 
 import { runFixture } from '../test/run-fixture.js';
@@ -70,6 +78,113 @@ async function server(configurationInput: RunRoutesConfiguration) {
 }
 
 describe('Run HTTP routes', () => {
+  it.each(['Admitted', 'Equivalent'] as const)(
+    'preserves producer-ordered signed calibration JSON for %s and history over HTTP',
+    async (disposition) => {
+      const prior = sealedRunPredecessorFixture([], 'ContextLimitReached');
+      const { run, stream, checkpoint } = prior;
+      const baseline = {
+        pointerVersion: 1 as const,
+        harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+      };
+      const predecessor = {
+        incarnationId: stream.binding.incarnationId,
+        evidenceStreamId: run.binding.evidenceStreamId,
+        checkpointSaid: checkpoint.d,
+        sealExchangeSaid: prior.sealExchangeSaid,
+        finalSequence: stream.cursor.acceptedThrough,
+        chainHeadSaid: stream.cursor.chainHeadSaid,
+      };
+      const successor = {
+        incarnationId: randomUUID(),
+        evidenceStreamId: randomUUID(),
+        harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+      };
+      const admittedAt = '2026-09-24T20:01:00.000Z';
+      // Mongo admission places baseline before the common fields, unlike schema order.
+      const prepared = prepareRunSuccessorSegment({
+        version: 2,
+        kind: 'CalibrationContinuationSegment',
+        baseline,
+        runId: run.binding.runId,
+        taskId: run.binding.taskId,
+        taskRevisionSaid: run.binding.taskRevisionSaid,
+        ownerAid: run.binding.ownerAid,
+        personalAgentAid: run.binding.personalAgentAid,
+        taskMandateSaid: run.binding.taskMandateSaid,
+        fromRunVersion: run.version,
+        predecessor,
+        successor,
+        consumedBudget: run.consumedBudget,
+        admittedAt,
+      });
+      if (prepared.kind !== 'Prepared') throw new Error('segment fixture');
+      const segment = prepared.segment;
+      const continued = continueCalibrationRun(run, {
+        expectedRunVersion: run.version,
+        serverTime: admittedAt,
+        predecessor,
+        successor: { ...successor, segmentSaid: segment.d },
+        baseline,
+        effects: 'Settled',
+      });
+      if (continued.kind !== 'Admitted') throw new Error('continuation fixture');
+      const receipt = { version: 1 as const, disposition, run: projectRun(continued.run), segment };
+      let deliveredSegment = segment;
+      const instance = await server(
+        configuration({
+          successors: { read: () => Promise.resolve({ kind: 'Found', segment: deliveredSegment }) },
+          continuation: { admit: () => Promise.resolve({ kind: disposition, receipt }) },
+        }),
+      );
+      try {
+        const address = await instance.listen({ host: '127.0.0.1', port: 0 });
+        const headers = {
+          authorization: `Bearer ${bearerSecret}`,
+          'content-type': 'application/json',
+        };
+        const response = await fetch(`${address}/api/runs/${run.binding.runId}/continuations`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            version: 2,
+            kind: 'CalibrationContinuation',
+            expectedRunVersion: run.version,
+            predecessorCheckpointSaid: checkpoint.d,
+            predecessorSealSaid: prior.sealExchangeSaid,
+            predecessorHeadSaid: stream.cursor.chainHeadSaid,
+            successorIncarnationId: successor.incarnationId,
+            successorStreamId: successor.evidenceStreamId,
+            expectedHarnessRevisionSaid: baseline.harnessRevisionSaid,
+          }),
+        });
+        expect(response.status).toBe(disposition === 'Admitted' ? 201 : 200);
+        const body: unknown = await response.json();
+        expect(body).toEqual(receipt);
+        const received = body as typeof receipt;
+        expect(decodeRunProjection(received.run).kind).toBe('Accepted');
+        expect(decodeRunSuccessorSegment(received.segment).kind).toBe('Accepted');
+        expect(JSON.stringify(received.segment)).toBe(JSON.stringify(segment));
+        const history = await fetch(
+          `${address}/api/runs/${run.binding.runId}/continuations/${segment.d}`,
+          { headers },
+        );
+        expect(history.status).toBe(200);
+        const historical: unknown = await history.json();
+        expect(decodeRunSuccessorSegment(historical).kind).toBe('Accepted');
+        expect(JSON.stringify(historical)).toBe(JSON.stringify(segment));
+        deliveredSegment = { ...segment, d: `E${'z'.repeat(43)}` };
+        const corrupted = await fetch(
+          `${address}/api/runs/${run.binding.runId}/continuations/${segment.d}`,
+          { headers },
+        );
+        expect(corrupted.status).toBe(503);
+      } finally {
+        await instance.close();
+      }
+    },
+  );
+
   it('reads an exact continuation segment under the authenticated owner and run:read scope', async () => {
     const read = vi.fn().mockResolvedValue({ kind: 'NotFound' });
     const authorize = vi.fn().mockResolvedValue({ kind: 'RunAccessAuthorized', owner });
