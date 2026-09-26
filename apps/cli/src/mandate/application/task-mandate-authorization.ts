@@ -1,4 +1,5 @@
 import {
+  taskBudgetCeilings,
   verifyPromotionMandate,
   verifyExactPromotionMandate,
   verifyTaskMandate,
@@ -24,8 +25,11 @@ import {
   promotionMandateSchemaSaid,
   promotionMandateV2SchemaSaid,
   promotionMandateV3SchemaSaid,
+  promotionMandateV4SchemaSaid,
+  promotionMandateV5SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
   type MandatePresentationProblem,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -759,7 +763,12 @@ export class TaskMandateAuthorization {
             issueeAid: input.governance.personalAgentAid,
             registryId: input.governance.mandateRegistryId,
             schemaSaid:
-              input.task.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
+              input.task.revision.version === 2
+                ? input.task.revision.budgets.runsPerAdmittedUser >
+                  taskBudgetCeilings.runsPerAdmittedUser
+                  ? taskMandateV3SchemaSaid
+                  : taskMandateV2SchemaSaid
+                : taskMandateSchemaSaid,
             credentialSaid: inspection.value.credential.credentialSaid,
           },
           task,
@@ -791,7 +800,12 @@ export class TaskMandateAuthorization {
           issueeAid: input.governance.personalAgentAid,
           registryId: input.governance.mandateRegistryId,
           schemaSaid:
-            input.task.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
+            input.task.revision.version === 2
+              ? input.task.revision.budgets.runsPerAdmittedUser >
+                taskBudgetCeilings.runsPerAdmittedUser
+                ? taskMandateV3SchemaSaid
+                : taskMandateV2SchemaSaid
+              : taskMandateSchemaSaid,
           credentialSaid: taskMandateReference.credential.credentialSaid,
         },
         task,
@@ -809,9 +823,15 @@ export class TaskMandateAuthorization {
         registryId: input.governance.mandateRegistryId,
         schemaSaid:
           input.exactPromotionManifestSaid !== undefined
-            ? promotionMandateV3SchemaSaid
+            ? input.task.revision.budgets.runsPerAdmittedUser >
+              taskBudgetCeilings.runsPerAdmittedUser
+              ? promotionMandateV5SchemaSaid
+              : promotionMandateV3SchemaSaid
             : input.task.revision.version === 2
-              ? promotionMandateV2SchemaSaid
+              ? input.task.revision.budgets.runsPerAdmittedUser >
+                taskBudgetCeilings.runsPerAdmittedUser
+                ? promotionMandateV4SchemaSaid
+                : promotionMandateV2SchemaSaid
               : promotionMandateSchemaSaid,
         credentialSaid: inspection.value.credential.credentialSaid,
       },

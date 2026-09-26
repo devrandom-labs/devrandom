@@ -1,4 +1,5 @@
 import {
+  taskBudgetCeilings,
   verifyTaskMandate,
   verifyExactPromotionMandate,
   type MandateTask,
@@ -8,7 +9,9 @@ import {
 import { credentialSaid, type LocalMandateCustody } from '@devrandom/identity';
 import {
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
   promotionMandateV3SchemaSaid,
+  promotionMandateV5SchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
 import type { ExactPromotionAuthority } from '@devrandom/runtime';
@@ -133,7 +136,10 @@ export class SignifyExactPromotionAuthority implements ExactPromotionAuthority {
             issuerAid: t.ownerAid,
             issueeAid: a.binding.personalAgentAid,
             registryId: a.binding.mandateRegistryId,
-            schemaSaid: taskMandateV2SchemaSaid,
+            schemaSaid:
+              task.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
+                ? taskMandateV3SchemaSaid
+                : taskMandateV2SchemaSaid,
             credentialSaid: a.stage.taskMandate.credential.credentialSaid,
           },
           task,
@@ -148,7 +154,10 @@ export class SignifyExactPromotionAuthority implements ExactPromotionAuthority {
             issuerAid: t.ownerAid,
             issueeAid: a.binding.governorAid,
             registryId: a.binding.mandateRegistryId,
-            schemaSaid: promotionMandateV3SchemaSaid,
+            schemaSaid:
+              task.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
+                ? promotionMandateV5SchemaSaid
+                : promotionMandateV3SchemaSaid,
             credentialSaid: a.stage.promotionMandate.credential.credentialSaid,
           },
           task,

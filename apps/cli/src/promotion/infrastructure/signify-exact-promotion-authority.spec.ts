@@ -19,7 +19,9 @@ import {
 import {
   prepareTaskCommandV2,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
   promotionMandateV3SchemaSaid,
+  promotionMandateV5SchemaSaid,
 } from '@devrandom/protocol';
 import { expect, it, vi } from 'vitest';
 import {
@@ -35,7 +37,7 @@ import { SignifyExactPromotionAuthority } from './signify-exact-promotion-author
 const said = (letter: string) => `E${letter.repeat(43)}`;
 const manifestSaid = said('M');
 const closureSaid = said('C');
-function fixture() {
+function fixture(quota = 6) {
   const source = taskSourceFixture();
   const prepared = prepareTaskCommandV2(
     {
@@ -51,7 +53,7 @@ function fixture() {
         },
       },
       requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
-      budgets: { ...taskEvaluationBudgetCeilings },
+      budgets: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: quota },
     },
     '97e16745-4b76-4de3-9ae5-a183496e73e8',
     preparedRepositoryFixture,
@@ -124,7 +126,11 @@ function fixture() {
     issuerAnchor: { kind: 'Anchored', eventSaid: said('A') },
   });
   const taskInspection: TaskMandateInspection = {
-    credential: credential(agent, said('A'), taskMandateV2SchemaSaid),
+    credential: credential(
+      agent,
+      said('A'),
+      quota > 6 ? taskMandateV3SchemaSaid : taskMandateV2SchemaSaid,
+    ),
     authority: 'ExecutePrivateTask',
     taskId: task.taskId,
     taskRevisionSaid: task.revisionSaid,
@@ -138,7 +144,11 @@ function fixture() {
     expiresAt: task.revision.expiresAt,
   };
   const promotionInspection: ExactPromotionMandateInspection = {
-    credential: credential(governor, said('B'), promotionMandateV3SchemaSaid),
+    credential: credential(
+      governor,
+      said('B'),
+      quota > 6 ? promotionMandateV5SchemaSaid : promotionMandateV3SchemaSaid,
+    ),
     authority: 'ActivateEvaluatedSuccessor',
     taskId: task.taskId,
     taskRevisionSaid: task.revisionSaid,
@@ -258,3 +268,37 @@ it('rejects expired authority and a revoked Task Mandate even when exact-M promo
   });
   expect(f.inspectCredential).toHaveBeenCalledTimes(4);
 });
+
+it.each([6, 8])(
+  'accepts exact schema for %s Runs and rejects substituted schema',
+  async (quota) => {
+    const f = fixture(quota);
+    const authority = new SignifyExactPromotionAuthority(f.options);
+    expect(await authority.verify(f.input)).toMatchObject({ kind: 'Current' });
+    const original = f.inspectCredential.getMockImplementation();
+    if (original === undefined) throw new Error('fixture');
+    for (const target of ['TaskMandate', 'PromotionMandate']) {
+      f.inspectCredential.mockImplementation(async (request) => {
+        const reply = await original(request);
+        if (reply.kind !== target) return reply;
+        const schemaSaid =
+          target === 'TaskMandate'
+            ? quota > 6
+              ? taskMandateV2SchemaSaid
+              : taskMandateV3SchemaSaid
+            : quota > 6
+              ? promotionMandateV3SchemaSaid
+              : promotionMandateV5SchemaSaid;
+        const credential = {
+          ...reply.value.credential,
+          schemaSaid,
+          schemaDocument: { kind: 'Resolved' as const, schemaSaid },
+        };
+        return reply.kind === 'TaskMandate'
+          ? { kind: 'TaskMandate', value: { ...reply.value, credential } }
+          : { kind: 'PromotionMandate', value: { ...reply.value, credential } };
+      });
+      expect(await authority.verify(f.input)).toEqual({ kind: 'Invalid' });
+    }
+  },
+);

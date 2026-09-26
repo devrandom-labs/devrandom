@@ -23,8 +23,11 @@ import {
   promotionMandateSchemaSaid,
   promotionMandateV2SchemaSaid,
   promotionMandateV3SchemaSaid,
+  promotionMandateV4SchemaSaid,
+  promotionMandateV5SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
 } from '@devrandom/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -101,7 +104,11 @@ function inspection(issuance: StableMandateIssuance, said: string): MandateInspe
           credential: evidence(
             issuance,
             said,
-            'experience' in issuance.claims ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
+            'experience' in issuance.claims
+              ? issuance.claims.budgets.runsPerAdmittedUser > 6
+                ? taskMandateV3SchemaSaid
+                : taskMandateV2SchemaSaid
+              : taskMandateSchemaSaid,
           ),
           ...issuance.claims,
         },
@@ -114,9 +121,13 @@ function inspection(issuance: StableMandateIssuance, said: string): MandateInspe
             issuance,
             said,
             'evaluationManifestSaid' in issuance.claims
-              ? promotionMandateV3SchemaSaid
+              ? issuance.claims.budgetCeiling.runsPerAdmittedUser > 6
+                ? promotionMandateV5SchemaSaid
+                : promotionMandateV3SchemaSaid
               : 'experience' in issuance.claims
-                ? promotionMandateV2SchemaSaid
+                ? issuance.claims.budgetCeiling.runsPerAdmittedUser > 6
+                  ? promotionMandateV4SchemaSaid
+                  : promotionMandateV2SchemaSaid
                 : promotionMandateSchemaSaid,
           ),
           ...issuance.claims,
@@ -274,88 +285,92 @@ function presentationsFixture(): HostedMandatePresentations {
 }
 
 describe('Task mandate authorization', () => {
-  it('issues and confirms a separate exact-M v3 Promotion Mandate after the v2 Task authority', async () => {
-    const source = taskSourceFixture();
-    const prepared = prepareTaskCommandV2(
-      {
-        ...source,
-        version: 2,
-        constraints: {
-          ...source.constraints,
-          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
-          experience: {
-            corpusSaid: 'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-            repositoryResourceSaid: 'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
-            disclosure: 'AuthorizedAnalogy',
+  it.each([6, 8])(
+    'issues and confirms separately versioned pre-M and exact-M authority for %s Runs',
+    async (quota) => {
+      const source = taskSourceFixture();
+      const prepared = prepareTaskCommandV2(
+        {
+          ...source,
+          version: 2,
+          budgets: { ...source.budgets, runsPerAdmittedUser: quota },
+          constraints: {
+            ...source.constraints,
+            dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+            experience: {
+              corpusSaid: 'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              repositoryResourceSaid: 'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+              disclosure: 'AuthorizedAnalogy',
+            },
           },
+          requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
         },
-        requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
-      },
-      '97e16745-4b76-4de3-9ae5-a183496e73e8',
-      preparedRepositoryFixture,
-    );
-    if (prepared.kind !== 'Prepared') throw new Error('v2 Task fixture rejected');
-    const task = {
-      ...taskProjectionFixture(),
-      revision: prepared.command.revision,
-      revisionSaid: prepared.command.revision.d,
-    };
-    const fixture = custodyFixture();
-    fixture.releaseFirstObservation();
-    const initialRecords = new MemoryTaskAuthorizationRecords();
-    const initialInput = {
-      userAlias: 'devrandom-user',
-      task,
-      governance,
-      issuerAid: server,
-      workAccessExpiresAt: grantExpiresAt,
-    };
-    const initial = await new TaskMandateAuthorization({
-      records: initialRecords,
-      custody: fixture.custody,
-      presentations: presentationsFixture(),
-      now: () => issuedAt,
-      wait: () => Promise.resolve(),
-      maximumObservations: 20,
-    }).authorize(initialInput);
-    expect(initial.kind).toBe('Ready');
-    if (initial.kind !== 'Ready') return;
-    const exactRecords = new MemoryTaskAuthorizationRecords();
-    const manifestSaid = 'ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
-    const exactInput = {
-      ...initialInput,
-      exactPromotionManifestSaid: manifestSaid,
-      initialReadyAuthorization: initial.authorization,
-    };
-    const exact = new TaskMandateAuthorization({
-      records: exactRecords,
-      custody: fixture.custody,
-      presentations: presentationsFixture(),
-      now: () => issuedAt,
-      wait: () => Promise.resolve(),
-      maximumObservations: 20,
-    });
-    const result = await exact.authorize(exactInput);
-    expect(result.kind).toBe('Ready');
-    if (result.kind !== 'Ready') return;
-    expect(result.authorization.stage.promotionMandate.credential.credentialSaid).toBe(
-      exactPromotionCredential,
-    );
-    expect(fixture.submittedIssuances).toHaveLength(3);
-    expect(fixture.submittedIssuances[2]).toMatchObject({
-      kind: 'PromotionMandate',
-      claims: { evaluationManifestSaid: manifestSaid },
-    });
-    expect(fixture.submittedGrants).toHaveLength(6);
-    await expect(exact.authorize(exactInput)).resolves.toMatchObject({ kind: 'Ready' });
-    expect(fixture.submittedIssuances).toHaveLength(3);
-    await expect(
-      exact.authorize({
-        ...exactInput,
-        exactPromotionManifestSaid: 'EDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
-      }),
-    ).resolves.toMatchObject({ kind: 'BindingRejected' });
-  });
+        '97e16745-4b76-4de3-9ae5-a183496e73e8',
+        preparedRepositoryFixture,
+      );
+      if (prepared.kind !== 'Prepared') throw new Error('v2 Task fixture rejected');
+      const task = {
+        ...taskProjectionFixture(),
+        revision: prepared.command.revision,
+        revisionSaid: prepared.command.revision.d,
+      };
+      const fixture = custodyFixture();
+      fixture.releaseFirstObservation();
+      const initialRecords = new MemoryTaskAuthorizationRecords();
+      const initialInput = {
+        userAlias: 'devrandom-user',
+        task,
+        governance,
+        issuerAid: server,
+        workAccessExpiresAt: grantExpiresAt,
+      };
+      const initial = await new TaskMandateAuthorization({
+        records: initialRecords,
+        custody: fixture.custody,
+        presentations: presentationsFixture(),
+        now: () => issuedAt,
+        wait: () => Promise.resolve(),
+        maximumObservations: 20,
+      }).authorize(initialInput);
+      expect(initial.kind).toBe('Ready');
+      if (initial.kind !== 'Ready') return;
+      const exactRecords = new MemoryTaskAuthorizationRecords();
+      const manifestSaid = 'ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+      const exactInput = {
+        ...initialInput,
+        exactPromotionManifestSaid: manifestSaid,
+        initialReadyAuthorization: initial.authorization,
+      };
+      const exact = new TaskMandateAuthorization({
+        records: exactRecords,
+        custody: fixture.custody,
+        presentations: presentationsFixture(),
+        now: () => issuedAt,
+        wait: () => Promise.resolve(),
+        maximumObservations: 20,
+      });
+      const result = await exact.authorize(exactInput);
+      expect(result.kind).toBe('Ready');
+      if (result.kind !== 'Ready') return;
+      expect(result.authorization.stage.promotionMandate.credential.credentialSaid).toBe(
+        exactPromotionCredential,
+      );
+      expect(fixture.submittedIssuances).toHaveLength(3);
+      expect(fixture.submittedIssuances[2]).toMatchObject({
+        kind: 'PromotionMandate',
+        claims: { evaluationManifestSaid: manifestSaid },
+      });
+      expect(fixture.submittedGrants).toHaveLength(6);
+      await expect(exact.authorize(exactInput)).resolves.toMatchObject({ kind: 'Ready' });
+      expect(fixture.submittedIssuances).toHaveLength(3);
+      await expect(
+        exact.authorize({
+          ...exactInput,
+          exactPromotionManifestSaid: 'EDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
+        }),
+      ).resolves.toMatchObject({ kind: 'BindingRejected' });
+    },
+  );
   it('checkpoints every stable protocol identity and resumes without duplicate authority', async () => {
     const records = new MemoryTaskAuthorizationRecords();
     const fixture = custodyFixture();

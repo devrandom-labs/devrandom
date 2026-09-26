@@ -2,10 +2,20 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { TaskMandateInspection } from '@devrandom/domain';
 import type { LocalMandateCustody } from '@devrandom/identity';
-import { taskMandateSchemaSaid, type TaskProjection } from '@devrandom/protocol';
+import {
+  prepareTaskCommandV2,
+  taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
+  taskMandateSchemaSaid,
+  type TaskProjection,
+} from '@devrandom/protocol';
 
 import { harnessPersonalAgentAid } from '../../../test/baseline-harness-fixture.js';
-import { taskProjectionFixture } from '../../../test/task-source-fixture.js';
+import {
+  taskSourceFixture,
+  preparedRepositoryFixture,
+  taskProjectionFixture,
+} from '../../../test/task-source-fixture.js';
 import { SignifyTaskToolMandate } from './signify-task-tool-mandate.js';
 
 const mandateRegistryId = `E${'r'.repeat(43)}`;
@@ -45,8 +55,11 @@ function inspection(
   };
 }
 
-function mandate(observed: TaskMandateInspection, now: string = '2026-09-24T20:00:00.000Z') {
-  const task = taskProjectionFixture();
+function mandate(
+  observed: TaskMandateInspection,
+  now: string = '2026-09-24T20:00:00.000Z',
+  task: TaskProjection = taskProjectionFixture(),
+) {
   const inspectCredential = vi.fn<LocalMandateCustody['inspectCredential']>(() =>
     Promise.resolve({ kind: 'TaskMandate', value: observed }),
   );
@@ -131,3 +144,64 @@ describe('Signify current Task Mandate for the Tool Gateway', () => {
     await expect(unavailable.inspect(exactRead)).resolves.toEqual({ kind: 'Unavailable' });
   });
 });
+
+it.each([6, 8])(
+  'uses exact Task schema for %s Runs and rejects the other schema',
+  async (quota) => {
+    const source = taskSourceFixture();
+    const prepared = prepareTaskCommandV2(
+      {
+        ...source,
+        version: 2,
+        budgets: { ...source.budgets, runsPerAdmittedUser: quota },
+        constraints: {
+          ...source.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience: {
+            corpusSaid: `E${'c'.repeat(43)}`,
+            repositoryResourceSaid: `E${'r'.repeat(43)}`,
+            disclosure: 'AuthorizedAnalogy',
+          },
+        },
+        requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
+      },
+      '97e16745-4b76-4de3-9ae5-a183496e73e8',
+      preparedRepositoryFixture,
+    );
+    if (prepared.kind !== 'Prepared') throw new Error('fixture');
+    const task = {
+      ...taskProjectionFixture(),
+      revision: prepared.command.revision,
+      revisionSaid: prepared.command.revision.d,
+    };
+    const original = inspection(task);
+    const correct = quota > 6 ? taskMandateV3SchemaSaid : taskMandateV2SchemaSaid;
+    const substitute = quota > 6 ? taskMandateV2SchemaSaid : taskMandateV3SchemaSaid;
+    for (const schemaSaid of [correct, substitute]) {
+      const observed = {
+        ...original,
+        experience: task.revision.constraints.experience,
+        credential: {
+          ...original.credential,
+          schemaSaid,
+          schemaDocument: { kind: 'Resolved' as const, schemaSaid },
+        },
+      };
+      const current = mandate(observed, '2026-09-24T20:00:00.000Z', task);
+      const outcome = await current.mandate.inspect({
+        ...exactRead,
+        taskRevisionSaid: task.revisionSaid,
+      });
+      expect(outcome).toMatchObject(
+        schemaSaid === correct
+          ? {
+              kind: 'Current',
+              allowedCapabilities: task.revision.requestedCapabilities.filter(
+                (capability) => capability !== 'ReadTaskMemory',
+              ),
+            }
+          : { kind: 'Unavailable' },
+      );
+    }
+  },
+);
