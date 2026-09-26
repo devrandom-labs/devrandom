@@ -6,32 +6,25 @@ import {
   type EvaluationPreparationDocument,
 } from './mongo-evaluation-reservations.js';
 import type { CurrentEvaluationSourceScopes } from './current-evaluation-source-scopes.js';
-import { evidenceCollectionNames } from '../../evidence/infrastructure/evidence-storage-contract.js';
-import type { EvidenceCheckpointDocument } from '../../evidence/infrastructure/evidence-checkpoint-document.js';
-import type { EvidenceEventDocument } from '../../evidence/infrastructure/evidence-event-document.js';
 import {
-  decodeEvidenceStreamDocument,
-  type EvidenceStreamDocument,
-} from '../../evidence/infrastructure/evidence-stream-document.js';
-import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
-import { decodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
+  MongoFailureQualification,
+  type FailureQualificationReading,
+} from './mongo-failure-qualification.js';
 
-/** Current source rights and the retained failure are checked before complete campaign qualification. */
+/** Current source rights, exact six-Run qualification, then a separate residual allowance gate. */
 export class CurrentEvaluationEligibility implements EvaluationEligibility {
   readonly #sources: CurrentEvaluationSourceScopes;
   readonly #preparations: Collection<EvaluationPreparationDocument>;
-  readonly #runs: Collection<RunDocument>;
-  readonly #streams: Collection<EvidenceStreamDocument>;
-  readonly #checkpoints: Collection<EvidenceCheckpointDocument>;
-  readonly #events: Collection<EvidenceEventDocument>;
+  readonly #qualification: FailureQualificationReading;
 
-  constructor(database: Db, sources: CurrentEvaluationSourceScopes) {
+  constructor(
+    database: Db,
+    sources: CurrentEvaluationSourceScopes,
+    qualification: FailureQualificationReading = new MongoFailureQualification(database),
+  ) {
     this.#sources = sources;
     this.#preparations = database.collection(evaluationCollectionNames.preparations);
-    this.#runs = database.collection(runsCollectionName);
-    this.#streams = database.collection(evidenceCollectionNames.streams);
-    this.#checkpoints = database.collection(evidenceCollectionNames.checkpoints);
-    this.#events = database.collection(evidenceCollectionNames.events);
+    this.#qualification = qualification;
   }
 
   async inspect(
@@ -58,63 +51,28 @@ export class CurrentEvaluationEligibility implements EvaluationEligibility {
         'sourceInventory.d': command.sourceInventorySaid,
         'executionProfile.d': command.executionProfileSaid,
       });
-      if (preparation === null || preparation.command.taskRevisionSaid !== command.taskRevisionSaid)
+      if (
+        preparation === null ||
+        preparation.command.taskRevisionSaid !== command.taskRevisionSaid ||
+        preparation.executionProfile.d !== command.executionProfileSaid
+      )
         return { kind: 'Blocked', gate: 'Profile' };
-      const locatedRun = await this.#runs.findOne({ _id: command.originRunId, ownerAid });
-      if (locatedRun === null) return { kind: 'Blocked', gate: 'Qualification' };
-      const run = decodeRunDocument(locatedRun).run;
-      if (
-        run.binding.purpose.kind !== 'Retained' ||
-        run.binding.taskId !== command.taskId ||
-        run.binding.taskRevisionSaid !== command.taskRevisionSaid ||
-        run.binding.personalAgentAid !== command.personalAgentAid ||
-        run.binding.taskMandateSaid !== command.taskMandateSaid ||
-        run.binding.initialHarnessRevisionSaid !== command.expectedActiveRevisionSaid ||
-        run.lifecycle.kind !== 'Active' ||
-        run.lifecycle.phase.kind !== 'Blocked' ||
-        run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
-        preparation.executionProfile.sourceGitCommit !== run.binding.repository.commit ||
-        preparation.executionProfile.sourceGitTree !== run.binding.repository.tree
-      )
-        return { kind: 'Blocked', gate: 'Qualification' };
-      const streamDocument = await this.#streams.findOne({
-        _id: run.binding.evidenceStreamId,
-        'binding.runId': command.originRunId,
-      });
-      if (streamDocument === null) return { kind: 'Blocked', gate: 'Evidence' };
-      const stream = decodeEvidenceStreamDocument(streamDocument);
-      if (
-        stream.seal.kind !== 'Sealed' ||
-        stream.seal.exchangeSaid !== command.retainedSealSaid ||
-        stream.cursor.kind !== 'Continued'
-      )
-        return { kind: 'Blocked', gate: 'Evidence' };
-      const checkpoint = await this.#checkpoints.findOne({
-        _id: command.retainedCheckpointSaid,
+      const qualification = await this.#qualification.assess({
         ownerAid,
-        runId: command.originRunId,
+        taskId: command.taskId,
+        taskRevisionSaid: command.taskRevisionSaid,
+        retainedRunId: command.originRunId,
+        retainedCheckpointSaid: command.retainedCheckpointSaid,
+        retainedSealSaid: command.retainedSealSaid,
+        executionProfileSaid: command.executionProfileSaid,
+        personalAgentAid: command.personalAgentAid,
+        taskMandateSaid: command.taskMandateSaid,
+        expectedActiveRevisionSaid: command.expectedActiveRevisionSaid,
       });
-      if (
-        checkpoint === null ||
-        checkpoint.evidenceStreamId !== run.binding.evidenceStreamId ||
-        checkpoint.checkpoint.taskRevisionSaid !== command.taskRevisionSaid ||
-        checkpoint.checkpoint.runId !== command.originRunId ||
-        checkpoint.checkpoint.personalAgentAid !== command.personalAgentAid ||
-        checkpoint.checkpoint.harnessRevisionSaid !== command.expectedActiveRevisionSaid ||
-        checkpoint.checkpoint.evidence.finalSequence > stream.cursor.acceptedThrough ||
-        checkpoint.checkpoint.evidence.eventCount > stream.cursor.acceptedThrough + 1
-      )
-        return { kind: 'Blocked', gate: 'Evidence' };
-      const checkpointHead = await this.#events.findOne({
-        ownerAid,
-        runId: command.originRunId,
-        sequence: checkpoint.checkpoint.evidence.finalSequence,
-        'event.d': checkpoint.checkpoint.evidence.chainHeadSaid,
-      });
-      if (checkpointHead === null) return { kind: 'Blocked', gate: 'Evidence' };
-      // The five sealed calibration Runs and all six ordinal bindings are not yet sourced here.
-      // A sixth retained failure alone cannot qualify a comparison.
-      return { kind: 'Blocked', gate: 'Qualification' };
+      if (qualification.kind === 'Unavailable') return { kind: 'Unavailable' };
+      if (qualification.kind === 'Blocked') return qualification;
+      // Qualification does not prove the transaction-safe residual Task allowance.
+      return { kind: 'Blocked', gate: 'Budget' };
     } catch {
       return { kind: 'Unavailable' };
     }
