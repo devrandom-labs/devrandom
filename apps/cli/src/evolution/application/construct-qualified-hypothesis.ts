@@ -9,6 +9,7 @@ import {
   type EvaluationSourceInventory,
   type EvidenceTimelinePage,
   type EvolutionHypothesis,
+  type PublicVerifierReceipt,
   type QualifiedFailureWindowPreparation,
 } from '@devrandom/protocol';
 import {
@@ -57,6 +58,19 @@ type FailurePrefix = {
   readonly receiptSaid: string;
   readonly precedingEventSaids: readonly string[];
 };
+
+export type QualifiedFailureInspection =
+  | {
+      readonly kind: 'Inspected';
+      readonly qualified: Qualified;
+      readonly failureEventSaid: string;
+      readonly receipt: PublicVerifierReceipt;
+      readonly window: Extract<QualifiedFailureWindowPreparation, { kind: 'Prepared' }>;
+    }
+  | {
+      readonly kind: 'Blocked';
+      readonly gate: 'Qualification' | 'Timeline' | 'Receipt' | 'Window';
+    };
 
 function sameStream(
   first: EvidenceTimelinePage['stream'],
@@ -162,49 +176,43 @@ async function readFailurePrefix(
   return undefined;
 }
 
-/** E3 H0: Q, exact public failure evidence and causal source replay precede any mutation. */
-export async function constructQualifiedEvolutionHypothesis(
-  input: {
-    readonly qualification: QualificationInput;
-    readonly hypothesis: EvolutionHypothesis;
-    readonly inventory: EvaluationSourceInventory;
-  },
-  ports: QualifiedHypothesisConversations,
-): Promise<QualifiedHypothesisOutcome> {
-  if (interrupted(input.qualification.signal)) return { kind: 'Blocked', gate: 'Qualification' };
+/** One genuine Q inspection binds the exact retained failure prefix and public verifier bytes. */
+export async function inspectQualifiedFailure(
+  qualification: QualificationInput,
+  qualificationPort: RunQualification,
+): Promise<QualifiedFailureInspection> {
+  if (interrupted(qualification.signal)) return { kind: 'Blocked', gate: 'Qualification' };
   let qualified: Awaited<ReturnType<RunQualification['inspect']>>;
   try {
-    qualified = await ports.qualification.inspect(input.qualification);
+    qualified = await qualificationPort.inspect(qualification);
   } catch {
     return { kind: 'Blocked', gate: 'Qualification' };
   }
   if (
     qualified.kind !== 'Qualified' ||
-    interrupted(input.qualification.signal) ||
-    qualified.taskId !== input.qualification.task.taskId ||
-    qualified.taskRevisionSaid !== input.qualification.task.revisionSaid ||
-    qualified.originRunId !== input.qualification.originRunId ||
-    qualified.expectedActiveRevisionSaid !== input.qualification.expectedActiveRevisionSaid
+    interrupted(qualification.signal) ||
+    qualified.taskId !== qualification.task.taskId ||
+    qualified.taskRevisionSaid !== qualification.task.revisionSaid ||
+    qualified.originRunId !== qualification.originRunId ||
+    qualified.expectedActiveRevisionSaid !== qualification.expectedActiveRevisionSaid
   )
     return { kind: 'Blocked', gate: 'Qualification' };
-  const decodedHypothesis = decodeEvolutionHypothesis(input.hypothesis);
-  if (decodedHypothesis.kind !== 'Accepted') return { kind: 'Blocked', gate: 'Hypothesis' };
   let failure: FailurePrefix | undefined;
   try {
-    failure = await readFailurePrefix(input.qualification, qualified);
+    failure = await readFailurePrefix(qualification, qualified);
   } catch {
     return { kind: 'Blocked', gate: 'Timeline' };
   }
-  if (failure === undefined || interrupted(input.qualification.signal))
+  if (failure === undefined || interrupted(qualification.signal))
     return { kind: 'Blocked', gate: 'Timeline' };
-  const evidence = input.qualification.evidence;
+  const evidence = qualification.evidence;
   if (evidence.readVerifierReceipt === undefined) return { kind: 'Blocked', gate: 'Receipt' };
   let receipt: Awaited<ReturnType<NonNullable<typeof evidence.readVerifierReceipt>>>;
   try {
     receipt = await evidence.readVerifierReceipt(
       qualified.originRunId,
       failure.receiptSaid,
-      input.qualification.signal,
+      qualification.signal,
     );
   } catch {
     return { kind: 'Blocked', gate: 'Receipt' };
@@ -214,7 +222,7 @@ export async function constructQualifiedEvolutionHypothesis(
     receipt.checkpointSaid !== qualified.retainedCheckpointSaid ||
     receipt.receipt.d !== failure.receiptSaid ||
     decodePublicVerifierReceipt(receipt.receipt).kind !== 'Accepted' ||
-    interrupted(input.qualification.signal)
+    interrupted(qualification.signal)
   )
     return { kind: 'Blocked', gate: 'Receipt' };
   const window = prepareQualifiedFailureWindow({
@@ -229,11 +237,32 @@ export async function constructQualifiedEvolutionHypothesis(
     verifierReceiptSaid: receipt.receipt.d,
     precedingEventSaids: failure.precedingEventSaids,
   });
-  if (
-    window.kind !== 'Prepared' ||
-    input.hypothesis.publicReplay.failureWindowSaid !== window.artifact.d
-  )
+  if (window.kind !== 'Prepared') return { kind: 'Blocked', gate: 'Window' };
+  return {
+    kind: 'Inspected',
+    qualified,
+    failureEventSaid: failure.eventSaid,
+    receipt: receipt.receipt,
+    window,
+  };
+}
+
+/** E3 H0: Q, exact public failure evidence and causal source replay precede any mutation. */
+export async function constructQualifiedEvolutionHypothesis(
+  input: {
+    readonly qualification: QualificationInput;
+    readonly hypothesis: EvolutionHypothesis;
+    readonly inventory: EvaluationSourceInventory;
+  },
+  ports: QualifiedHypothesisConversations,
+): Promise<QualifiedHypothesisOutcome> {
+  const inspected = await inspectQualifiedFailure(input.qualification, ports.qualification);
+  if (inspected.kind === 'Blocked') return inspected;
+  const decodedHypothesis = decodeEvolutionHypothesis(input.hypothesis);
+  if (decodedHypothesis.kind !== 'Accepted') return { kind: 'Blocked', gate: 'Hypothesis' };
+  if (input.hypothesis.publicReplay.failureWindowSaid !== inspected.window.artifact.d)
     return { kind: 'Blocked', gate: 'Window' };
+  const { qualified, window } = inspected;
   const influence = await reviewEvolutionHypothesisInfluence(
     {
       hypothesis: input.hypothesis,
@@ -246,8 +275,8 @@ export async function constructQualifiedEvolutionHypothesis(
         retainedSealSaid: qualified.retainedSealSaid,
         parentRevisionSaid: qualified.expectedActiveRevisionSaid,
         personalAgentAid: qualified.personalAgentAid,
-        failureEventSaid: failure.eventSaid,
-        failureRawEvidenceSaid: receipt.receipt.d,
+        failureEventSaid: inspected.failureEventSaid,
+        failureRawEvidenceSaid: inspected.receipt.d,
       },
     },
     ports,
