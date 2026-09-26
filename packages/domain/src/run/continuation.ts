@@ -158,3 +158,60 @@ function continueIncarnation(
     },
   };
 }
+
+/** Recover receipt delivery for an admission that never began execution; not lease renewal. */
+export function recoverUnstartedRunContinuation(
+  run: Run,
+  input: {
+    readonly segmentSaid: string;
+    readonly incarnationId: string;
+    readonly evidenceStreamId: string;
+    readonly expectedRunVersion: number;
+    readonly consumedBudget: Run['consumedBudget'];
+    readonly serverTime: string;
+    readonly execution: 'NeverStarted' | 'Uncertain';
+  },
+):
+  { readonly kind: 'Recovered' | 'Equivalent'; readonly run: Run } | { readonly kind: 'Rejected' } {
+  const now = Date.parse(input.serverTime);
+  if (
+    input.execution !== 'NeverStarted' ||
+    !Number.isFinite(now) ||
+    new Date(now).toISOString() !== input.serverTime ||
+    run.lifecycle.kind !== 'Active' ||
+    run.lifecycle.phase.kind !== 'Preparing' ||
+    run.currentExecution?.segmentSaid !== input.segmentSaid ||
+    run.currentExecution.evidenceStreamId !== input.evidenceStreamId ||
+    run.lease.kind !== 'Held' ||
+    run.lease.segmentSaid !== input.segmentSaid ||
+    run.lease.incarnationId !== input.incarnationId ||
+    taskBudgetNames.some((name) => run.consumedBudget[name] !== input.consumedBudget[name])
+  )
+    return { kind: 'Rejected' };
+  if (run.version === input.expectedRunVersion && Date.parse(run.lease.expiresAt) > now)
+    return { kind: 'Equivalent', run };
+  if (
+    run.lease.lastChange.kind === 'Renewed' &&
+    run.lease.lastChange.fromRunVersion === input.expectedRunVersion &&
+    Date.parse(run.lease.expiresAt) > now
+  )
+    return { kind: 'Equivalent', run };
+  if (
+    run.version !== input.expectedRunVersion ||
+    Date.parse(run.lease.expiresAt) > now ||
+    !Number.isFinite(Date.parse(run.lease.expiresAt))
+  )
+    return { kind: 'Rejected' };
+  return {
+    kind: 'Recovered',
+    run: {
+      ...run,
+      version: run.version + 1,
+      lease: {
+        ...run.lease,
+        expiresAt: new Date(now + runLeasePolicy.leaseSeconds * 1000).toISOString(),
+        lastChange: { kind: 'Renewed', fromRunVersion: run.version },
+      },
+    },
+  };
+}

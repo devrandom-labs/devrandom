@@ -20,7 +20,12 @@ import {
   type ActiveHarnessPointer,
   type EvidenceStreamProjection,
 } from '@devrandom/protocol';
-import { createRun, continueRun } from '@devrandom/domain';
+import {
+  createRun,
+  continueRun,
+  continueCalibrationRun,
+  recoverUnstartedRunContinuation,
+} from '@devrandom/domain';
 import { resumeTask } from './resume-task.js';
 
 const runOwnerAid = `E${'a'.repeat(43)}`;
@@ -507,4 +512,159 @@ it('requests a same-H1 calibration incarnation only after exact sealed checkpoin
     predecessorCheckpointSaid: input.predecessor.checkpoint.d,
   });
   expect(outcome).toEqual({ kind: 'AdmissionRejected' });
+});
+
+it('recovers an unstarted calibration admission with fresh authenticated lease time and exact unchanged pending identity', async () => {
+  const original = preparation(true);
+  const run = original.run;
+  if (run.lease.kind !== 'Held' || original.predecessor.checkpoint.version !== 1)
+    throw new Error('calibration fixture');
+  const successor = {
+    incarnationId: '10000000-0000-4000-8000-000000000011',
+    evidenceStreamId: '10000000-0000-4000-8000-000000000012',
+    harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+  };
+  const segment = prepareRunSuccessorSegment({
+    version: 2,
+    kind: 'CalibrationContinuationSegment',
+    runId: run.binding.runId,
+    taskId: run.binding.taskId,
+    taskRevisionSaid: run.binding.taskRevisionSaid,
+    ownerAid: run.binding.ownerAid,
+    personalAgentAid: run.binding.personalAgentAid,
+    taskMandateSaid: run.binding.taskMandateSaid,
+    fromRunVersion: run.version,
+    predecessor: {
+      incarnationId: run.lease.incarnationId,
+      evidenceStreamId: run.binding.evidenceStreamId,
+      checkpointSaid: original.predecessor.checkpoint.d,
+      sealExchangeSaid:
+        original.predecessor.stream.seal.kind === 'Sealed'
+          ? original.predecessor.stream.seal.sealExchangeSaid
+          : '',
+      chainHeadSaid: original.predecessor.events.at(-1)?.d ?? '',
+      finalSequence: original.predecessor.events.length - 1,
+    },
+    successor,
+    baseline: { pointerVersion: 1, harnessRevisionSaid: run.binding.initialHarnessRevisionSaid },
+    consumedBudget: run.consumedBudget,
+    admittedAt: '2026-09-24T20:01:00.000Z',
+  });
+  if (segment.kind !== 'Prepared') throw new Error('segment fixture');
+  const admitted = continueCalibrationRun(run, {
+    expectedRunVersion: run.version,
+    serverTime: segment.segment.admittedAt,
+    predecessor: segment.segment.predecessor,
+    successor: { ...successor, segmentSaid: segment.segment.d },
+    baseline: { pointerVersion: 1, harnessRevisionSaid: successor.harnessRevisionSaid },
+    effects: 'Settled',
+  });
+  if (admitted.kind !== 'Admitted') throw new Error('admission fixture');
+  const now = '2026-09-24T20:03:00.000Z';
+  const recovered = recoverUnstartedRunContinuation(admitted.run, {
+    segmentSaid: segment.segment.d,
+    incarnationId: successor.incarnationId,
+    evidenceStreamId: successor.evidenceStreamId,
+    expectedRunVersion: admitted.run.version,
+    consumedBudget: run.consumedBudget,
+    serverTime: now,
+    execution: 'NeverStarted',
+  });
+  if (recovered.kind !== 'Recovered') throw new Error('recovery fixture');
+  let transmissions = 0;
+  let hostedRun = recovered.run;
+  let expectedRunVersion = admitted.run.version;
+  let neverStarted = true;
+  let serverTime: string | undefined = now;
+  const input = {
+    ...original,
+    unstartedSuccessor: { run: admitted.run, segment: segment.segment },
+  };
+  const dependencies: Parameters<typeof resumeTask>[1] = {
+    authority: { verify: () => Promise.resolve({ kind: 'Current' }) },
+    repository: {
+      capture: () =>
+        Promise.resolve({
+          kind: 'Captured',
+          changedWorktreeBytes: 0,
+          repository:
+            original.predecessor.checkpoint.version === 1
+              ? original.predecessor.checkpoint.repository
+              : { objectFormat: 'sha1', baseCommit: '', baseTree: '', changedFiles: [] },
+          artifacts: [],
+        }),
+    },
+    commands: {
+      acquire: ({ command }) =>
+        Promise.resolve({
+          kind: 'Recorded',
+          command: {
+            ...command,
+            successorIncarnationId: successor.incarnationId,
+            successorStreamId: successor.evidenceStreamId,
+          },
+        }),
+      verifyUnstarted: () => Promise.resolve(neverStarted ? 'NeverStarted' : 'Uncertain'),
+      recordReceipt: (_runId, command) => {
+        expect('unstartedSuccessor' in command).toBe(false);
+        return Promise.resolve({ kind: 'Recorded' });
+      },
+    },
+    hosted: {
+      admitContinuation: (_runId, command) => {
+        transmissions++;
+        expect(command.version === 2 && command.unstartedSuccessor).toEqual({
+          segmentSaid: segment.segment.d,
+          expectedRunVersion,
+        });
+        return Promise.resolve({
+          kind: 'Equivalent',
+          receipt: {
+            version: 1,
+            disposition: 'Equivalent',
+            run: projectRun(hostedRun),
+            segment: segment.segment,
+          },
+          ...(serverTime === undefined ? {} : { serverTime }),
+        });
+      },
+    },
+    now: () => now,
+    monotonicNow: () => 123,
+  };
+  expect(await resumeTask(input, dependencies, new AbortController().signal)).toMatchObject({
+    kind: 'Admitted',
+    run: recovered.run,
+    leaseServerTime: now,
+    leaseRequestStartedAt: 123,
+  });
+  // A lost refresh response is retried against the authenticated current Renewed projection.
+  expectedRunVersion = recovered.run.version;
+  const retry = { ...input, unstartedSuccessor: { run: recovered.run, segment: segment.segment } };
+  expect(await resumeTask(retry, dependencies, new AbortController().signal)).toMatchObject({
+    kind: 'Admitted',
+    run: recovered.run,
+    leaseServerTime: now,
+  });
+  hostedRun = {
+    ...recovered.run,
+    consumedBudget: {
+      ...recovered.run.consumedBudget,
+      providerRequests: recovered.run.consumedBudget.providerRequests + 1,
+    },
+  };
+  expect(await resumeTask(retry, dependencies, new AbortController().signal)).toEqual({
+    kind: 'AdmissionRejected',
+  });
+  hostedRun = recovered.run;
+  expectedRunVersion = admitted.run.version;
+  serverTime = undefined;
+  expect(await resumeTask(input, dependencies, new AbortController().signal)).toEqual({
+    kind: 'AdmissionRejected',
+  });
+  neverStarted = false;
+  expect(await resumeTask(input, dependencies, new AbortController().signal)).toEqual({
+    kind: 'PredecessorRejected',
+  });
+  expect(transmissions).toBe(4);
 });

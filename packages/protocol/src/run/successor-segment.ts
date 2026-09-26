@@ -33,6 +33,12 @@ export const calibrationRunContinuationRequestSchema = Type.Object(
   {
     version: Type.Literal(2),
     kind: Type.Literal('CalibrationContinuation'),
+    unstartedSuccessor: Type.Optional(
+      Type.Object(
+        { segmentSaid: said, expectedRunVersion: position },
+        { additionalProperties: false },
+      ),
+    ),
     expectedRunVersion: position,
     predecessorCheckpointSaid: said,
     predecessorSealSaid: said,
@@ -162,4 +168,12 @@ export function decodeRunSuccessorSegment(
   return prepared.kind === 'Prepared' && prepared.segment.d === input.d
     ? { kind: 'Accepted', segment: structuredClone(input) }
     : { kind: 'Rejected' };
+}
+
+/** Fresh server observation time; never replace the signed segment admission timestamp. */
+export const runContinuationServerTimeHeader = 'devrandom-continuation-server-time';
+export function decodeRunContinuationServerTime(value: string | null): string | undefined {
+  if (value === null || !Value.Check(instant, value)) return undefined;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString() === value ? value : undefined;
 }

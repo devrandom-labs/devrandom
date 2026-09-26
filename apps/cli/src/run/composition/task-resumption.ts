@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import type { Run } from '@devrandom/domain';
 import {
   decodeRunProjection,
+  decodeRunSuccessorSegment,
+  type RunSuccessorSegment,
   projectRun,
   type ActiveHarnessPointer,
   type EvidenceEvent,
@@ -70,14 +72,36 @@ export class TaskResumptionComposition {
         join(this.#options.stateRoot, 'continuations'),
         randomUUID,
       );
-      const pending =
+      let pending: Awaited<ReturnType<RunContinuationFile['readPredecessor']>>;
+      let unstartedSuccessor: { run: typeof run; segment: RunSuccessorSegment } | undefined;
+      if (
+        run.binding.purpose.kind === 'PreparedCompatibilityCalibration' &&
+        run.lifecycle.kind === 'Active' &&
+        run.lifecycle.phase.kind === 'Preparing' &&
+        run.currentExecution !== undefined &&
+        run.lease.kind === 'Held'
+      ) {
+        const readSegment = await input.runs.readSuccessorSegment?.(
+          input.runId,
+          run.currentExecution.segmentSaid,
+        );
+        if (readSegment?.kind !== 'Found') return { kind: 'PredecessorRejected' };
+        const segment = decodeRunSuccessorSegment(readSegment.segment);
+        if (segment.kind !== 'Accepted' || segment.segment.d !== run.currentExecution.segmentSaid)
+          return { kind: 'PredecessorRejected' };
+        pending = await commands.readPredecessor(input.runId, segment.segment.fromRunVersion);
+        if (pending === undefined) return { kind: 'PredecessorRejected' };
+        unstartedSuccessor = { run, segment: segment.segment };
+      } else if (
+        run.binding.purpose.kind === 'Retained' &&
         run.lifecycle.kind === 'Active' &&
         run.lifecycle.phase.kind === 'Preparing' &&
         run.currentExecution !== undefined &&
         run.lease.kind === 'Held' &&
         run.lease.lastChange.kind === 'Replaced'
-          ? await commands.readPredecessor(input.runId, run.lease.lastChange.fromRunVersion)
-          : undefined;
+      ) {
+        pending = await commands.readPredecessor(input.runId, run.lease.lastChange.fromRunVersion);
+      }
       if (pending !== undefined) {
         const previous = decodeRunProjection(pending.run);
         if (previous.kind !== 'Accepted') return { kind: 'PredecessorRejected' };
@@ -167,6 +191,7 @@ export class TaskResumptionComposition {
           run,
           activation: input.activation,
           predecessor: read.custody,
+          ...(unstartedSuccessor === undefined ? {} : { unstartedSuccessor }),
           worktree: {
             directory,
             branch: `devrandom/run/${input.runId}`,
@@ -199,7 +224,7 @@ export class TaskResumptionComposition {
             runId: input.runId,
             incarnationId: admitted.run.lease.incarnationId,
             runVersion: admitted.run.version,
-            serverTime: admitted.receipt.segment.admittedAt,
+            serverTime: admitted.leaseServerTime,
             expiresAt: admitted.run.lease.expiresAt,
           },
           signal,

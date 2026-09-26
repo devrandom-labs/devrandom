@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   continueRun,
   continueCalibrationRun,
+  recoverUnstartedRunContinuation,
   createEvidenceStream,
   type Run,
 } from '@devrandom/domain';
@@ -15,6 +16,7 @@ import {
   type RetainedRunContinuationRequest,
   type CalibrationRunContinuationRequest,
   type RunContinuationReceipt,
+  type RunSuccessorSegment,
   type TaskProjection,
 } from '@devrandom/protocol';
 
@@ -28,12 +30,20 @@ export interface HostedRunContinuations {
     runId: string,
     command: RunContinuationRequest,
   ): Promise<
-    | { readonly kind: 'Admitted' | 'Equivalent'; readonly receipt: RunContinuationReceipt }
+    | {
+        readonly kind: 'Admitted' | 'Equivalent';
+        readonly receipt: RunContinuationReceipt;
+        readonly serverTime?: string;
+      }
     | HostedRunFailure
   >;
 }
 
 export interface RunContinuationCommands {
+  verifyUnstarted?(
+    runId: string,
+    command: RunContinuationRequest,
+  ): Promise<'NeverStarted' | 'Uncertain'>;
   acquire(input: {
     readonly runId: string;
     readonly command:
@@ -57,6 +67,7 @@ export interface RunContinuationPreparation {
   readonly activation: ActiveHarnessPointer;
   readonly predecessor: RunPredecessorCustody;
   readonly worktree: PreparedRunWorktree;
+  readonly unstartedSuccessor?: { readonly run: Run; readonly segment: RunSuccessorSegment };
 }
 
 export type TaskResumption =
@@ -65,6 +76,7 @@ export type TaskResumption =
       readonly run: Run;
       readonly receipt: RunContinuationReceipt;
       readonly leaseRequestStartedAt: number;
+      readonly leaseServerTime: string;
     }
   | {
       readonly kind:
@@ -216,11 +228,31 @@ export async function resumeTask(
     signal.throwIfAborted();
     if (Date.parse(run.lease.expiresAt) > Date.parse(dependencies.now()))
       return { kind: 'LeaseStillHeld' };
+    const unstarted = input.unstartedSuccessor;
+    if (
+      unstarted !== undefined &&
+      (prepared.command.version !== 2 ||
+        unstarted.run.currentExecution?.segmentSaid !== unstarted.segment.d ||
+        unstarted.segment.version !== 2 ||
+        unstarted.segment.fromRunVersion !== run.version ||
+        unstarted.segment.successor.incarnationId !== prepared.command.successorIncarnationId ||
+        unstarted.segment.successor.evidenceStreamId !== prepared.command.successorStreamId ||
+        (await dependencies.commands.verifyUnstarted?.(run.binding.runId, prepared.command)) !==
+          'NeverStarted')
+    )
+      return { kind: 'PredecessorRejected' };
+    const request =
+      unstarted !== undefined && prepared.command.version === 2
+        ? {
+            ...prepared.command,
+            unstartedSuccessor: {
+              segmentSaid: unstarted.segment.d,
+              expectedRunVersion: unstarted.run.version,
+            },
+          }
+        : prepared.command;
     const leaseRequestStartedAt = dependencies.monotonicNow();
-    const admitted = await dependencies.hosted.admitContinuation(
-      run.binding.runId,
-      prepared.command,
-    );
+    const admitted = await dependencies.hosted.admitContinuation(run.binding.runId, request);
     if (admitted.kind !== 'Admitted' && admitted.kind !== 'Equivalent')
       return { kind: 'AdmissionRejected' };
     const segment = decodeRunSuccessorSegment(admitted.receipt.segment);
@@ -243,7 +275,7 @@ export async function resumeTask(
       },
       effects: 'Settled' as const,
     };
-    const expected =
+    let expected =
       activation.kind === 'Initial'
         ? continueCalibrationRun(run, {
             ...replacement,
@@ -257,6 +289,43 @@ export async function resumeTask(
               decisionReceiptSaid: activation.decisionReceiptSaid,
             },
           });
+    if (unstarted !== undefined) {
+      if (
+        expected.kind !== 'Admitted' ||
+        admitted.serverTime === undefined ||
+        unstarted.run.lease.kind !== 'Held' ||
+        expected.run.lease.kind !== 'Held'
+      )
+        return { kind: 'AdmissionRejected' };
+      const observed = unstarted.run;
+      if (observed.lease.kind !== 'Held') return { kind: 'AdmissionRejected' };
+      // Only authenticated prior lease-recovery metadata may differ from the immutable admission.
+      if (
+        !isDeepStrictEqual(
+          { ...expected.run, version: observed.version, lease: observed.lease },
+          observed,
+        ) ||
+        observed.lease.acquiredAt !== expected.run.lease.acquiredAt ||
+        observed.lease.segmentSaid !== segment.segment.d ||
+        observed.version < expected.run.version ||
+        (observed.version === expected.run.version
+          ? !isDeepStrictEqual(observed.lease, expected.run.lease)
+          : observed.lease.lastChange.kind !== 'Renewed' ||
+            observed.lease.lastChange.fromRunVersion !== observed.version - 1)
+      )
+        return { kind: 'AdmissionRejected' };
+      const recovered = recoverUnstartedRunContinuation(observed, {
+        segmentSaid: segment.segment.d,
+        incarnationId: prepared.command.successorIncarnationId,
+        evidenceStreamId: prepared.command.successorStreamId,
+        expectedRunVersion: observed.version,
+        consumedBudget: run.consumedBudget,
+        serverTime: admitted.serverTime,
+        execution: 'NeverStarted',
+      });
+      if (recovered.kind === 'Rejected') return { kind: 'AdmissionRejected' };
+      expected = { kind: 'Admitted', run: recovered.run };
+    }
     if (
       (activation.kind === 'Initial'
         ? segment.segment.version !== 2 ||
@@ -294,7 +363,13 @@ export async function resumeTask(
       ).kind !== 'Recorded'
     )
       return { kind: 'Unavailable' };
-    return { kind: 'Admitted', run: decoded.run, receipt: admitted.receipt, leaseRequestStartedAt };
+    return {
+      kind: 'Admitted',
+      run: decoded.run,
+      receipt: admitted.receipt,
+      leaseRequestStartedAt,
+      leaseServerTime: admitted.serverTime ?? admitted.receipt.segment.admittedAt,
+    };
   } catch {
     return { kind: 'Unavailable' };
   }

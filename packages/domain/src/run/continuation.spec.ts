@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { taskBudgetCeilings } from '../task/authority.js';
-import { continueRun, type RunContinuationInput } from './continuation.js';
+import {
+  recoverUnstartedRunContinuation,
+  continueRun,
+  type RunContinuationInput,
+} from './continuation.js';
 import { acquireFirstRunLease } from './lease.js';
 import { createRun } from './run.js';
 
@@ -263,4 +267,52 @@ it('continues one context-blocked calibration under exact H1 without changing pu
     kind: 'UnresolvedEffects',
   });
   expect(continueCalibrationRun(original, prepared)).toEqual({ kind: 'RunNotCalibration' });
+});
+
+it('recovers only an expired continuation admission proven never started, preserving Run and budget', () => {
+  const admitted = continueRun(pausedRun(), input());
+  if (admitted.kind !== 'Admitted') throw new Error('continuation fixture');
+  const request = {
+    segmentSaid: 'ESegment',
+    incarnationId: 'incarnation-2',
+    evidenceStreamId: 'stream-2',
+    expectedRunVersion: admitted.run.version,
+    consumedBudget: admitted.run.consumedBudget,
+    serverTime: '2026-09-24T20:02:00.000Z',
+    execution: 'NeverStarted' as const,
+  };
+  const recovered = recoverUnstartedRunContinuation(admitted.run, request);
+  expect(recovered).toMatchObject({
+    kind: 'Recovered',
+    run: {
+      binding: admitted.run.binding,
+      consumedBudget: admitted.run.consumedBudget,
+      currentExecution: admitted.run.currentExecution,
+      version: admitted.run.version + 1,
+      lease: {
+        incarnationId: 'incarnation-2',
+        acquiredAt: admitted.run.lease.kind === 'Held' ? admitted.run.lease.acquiredAt : '',
+        expiresAt: '2026-09-24T20:02:45.000Z',
+        lastChange: { kind: 'Renewed', fromRunVersion: admitted.run.version },
+      },
+    },
+  });
+  expect(
+    recoverUnstartedRunContinuation(admitted.run, { ...request, execution: 'Uncertain' }),
+  ).toEqual({ kind: 'Rejected' });
+  expect(
+    recoverUnstartedRunContinuation(admitted.run, { ...request, segmentSaid: 'EOther' }),
+  ).toEqual({ kind: 'Rejected' });
+  expect(
+    recoverUnstartedRunContinuation(admitted.run, {
+      ...request,
+      consumedBudget: { ...request.consumedBudget, providerRequests: 0 },
+    }),
+  ).toEqual({ kind: 'Rejected' });
+  expect(
+    recoverUnstartedRunContinuation(
+      { ...admitted.run, lifecycle: { kind: 'Active', phase: { kind: 'Running' } } },
+      request,
+    ),
+  ).toEqual({ kind: 'Rejected' });
 });

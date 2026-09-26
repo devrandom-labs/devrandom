@@ -1,6 +1,8 @@
 import {
   decodeRunProjection,
   decodeRunSuccessorSegment,
+  runContinuationServerTimeHeader,
+  decodeRunContinuationServerTime,
   runContinuationRequestSchema,
   runContinuationReceiptSchema,
   type RunContinuationRequest,
@@ -284,7 +286,16 @@ export class ServerRunHttp implements HostedRuns, HostedRunStatuses {
             segment.segment.baseline.harnessRevisionSaid !== command.expectedHarnessRevisionSaid)
       )
         return { kind: 'ResponseInvalid' };
-      return { kind: expected, receipt };
+      const serverTime = decodeRunContinuationServerTime(
+        response.headers.get(runContinuationServerTimeHeader),
+      );
+      if (
+        command.version === 2 &&
+        command.unstartedSuccessor !== undefined &&
+        serverTime === undefined
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: expected, receipt, ...(serverTime === undefined ? {} : { serverTime }) };
     } catch (cause) {
       return failure(cause);
     }

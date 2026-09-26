@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import Value from 'typebox/value';
 
 import { taskBudgetCeilings } from '@devrandom/domain';
 
-import { decodeRunSuccessorSegment, prepareRunSuccessorSegment } from './successor-segment.js';
+import {
+  decodeRunSuccessorSegment,
+  prepareRunSuccessorSegment,
+  runContinuationRequestSchema,
+  decodeRunContinuationServerTime,
+} from './successor-segment.js';
 
 const said = (character: string): string => `E${character.repeat(43)}`;
 
@@ -88,4 +94,31 @@ it('binds calibration continuation to exact H1 without inventing activation', ()
   expect(prepareRunSuccessorSegment({ ...draft, activation: input().activation })).toEqual({
     kind: 'Rejected',
   });
+});
+
+it('accepts only a closed explicit unstarted-successor claim and a canonical fresh lease time', () => {
+  const request = {
+    version: 2,
+    kind: 'CalibrationContinuation',
+    expectedRunVersion: 3,
+    predecessorCheckpointSaid: said('c'),
+    predecessorSealSaid: said('s'),
+    predecessorHeadSaid: said('h'),
+    successorIncarnationId: '55555555-5555-4555-8555-555555555555',
+    successorStreamId: '66666666-6666-4666-8666-666666666666',
+    expectedHarnessRevisionSaid: said('r'),
+    unstartedSuccessor: { segmentSaid: said('z'), expectedRunVersion: 4 },
+  };
+  expect(Value.Check(runContinuationRequestSchema, request)).toBe(true);
+  expect(
+    Value.Check(runContinuationRequestSchema, {
+      ...request,
+      unstartedSuccessor: { ...request.unstartedSuccessor, allowEffects: true },
+    }),
+  ).toBe(false);
+  expect(decodeRunContinuationServerTime('2026-09-26T13:31:00.000Z')).toBe(
+    '2026-09-26T13:31:00.000Z',
+  );
+  expect(decodeRunContinuationServerTime(null)).toBeUndefined();
+  expect(decodeRunContinuationServerTime('2026-09-26T13:31:00Z')).toBeUndefined();
 });

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, chmod, readFile, realpath } from 'node:fs/promises';
+import { mkdtemp, rm, chmod, readFile, realpath, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -48,6 +48,26 @@ describe('durable same-Run continuation identity', () => {
       await readFile(join(root, `${runId}-${checkpoint}.json`), 'utf8'),
     ) as { successorStreamId: string; successorIncarnationId: string };
     expect(stored.successorStreamId).not.toBe(stored.successorIncarnationId);
+  });
+  it('proves never-started custody only before a receipt or any successor directory exists', async () => {
+    const state = await directory();
+    const root = join(state, 'continuations');
+    let ordinal = 1;
+    const files = new RunContinuationFile(
+      root,
+      () => `20000000-0000-4000-8000-${String(ordinal++).padStart(12, '0')}`,
+    );
+    const acquired = await files.acquire({ runId, command });
+    if (acquired.kind !== 'Recorded') throw new Error('command fixture');
+    expect(await files.verifyUnstarted(runId, acquired.command)).toBe('NeverStarted');
+    await mkdir(
+      join(state, 'runs', runId, 'incarnations', acquired.command.successorIncarnationId),
+      { recursive: true },
+    );
+    expect(await files.verifyUnstarted(runId, acquired.command)).toBe('Uncertain');
+    await rm(join(state, 'runs'), { recursive: true });
+    await writeFile(join(root, `${runId}-${checkpoint}.receipt.json`), '{}', { mode: 0o600 });
+    expect(await files.verifyUnstarted(runId, acquired.command)).toBe('Uncertain');
   });
   it('does not trust world-readable command custody', async () => {
     const root = await directory();

@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { mkdir, open, lstat, realpath } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
@@ -156,6 +156,64 @@ export class RunContinuationFile implements RunContinuationCommands {
       return { run: value.run as RunProjection, stream: value.stream, events };
     } catch {
       return undefined;
+    }
+  }
+
+  async verifyUnstarted(
+    runId: string,
+    command: RunContinuationRequest,
+  ): Promise<'NeverStarted' | 'Uncertain'> {
+    try {
+      if (
+        !uuid.test(runId) ||
+        !Value.Check(runContinuationRequestSchema, command) ||
+        !(await this.#directoryReady())
+      )
+        return 'Uncertain';
+      const recorded = await read(
+        join(this.#directory, `${runId}-${command.predecessorCheckpointSaid}.json`),
+      );
+      if (!isDeepStrictEqual(recorded, command)) return 'Uncertain';
+      const stateRoot = dirname(this.#directory);
+      for (const path of [
+        stateRoot,
+        join(stateRoot, 'runs'),
+        join(stateRoot, 'runs', runId),
+        join(stateRoot, 'runs', runId, 'incarnations'),
+      ]) {
+        try {
+          const status = await lstat(path);
+          if (
+            !status.isDirectory() ||
+            status.isSymbolicLink() ||
+            (await realpath(path)) !== path ||
+            (process.getuid !== undefined && status.uid !== process.getuid())
+          )
+            return 'Uncertain';
+        } catch (cause) {
+          if (!absent(cause)) return 'Uncertain';
+        }
+      }
+      for (const path of [
+        join(this.#directory, `${runId}-${command.predecessorCheckpointSaid}.receipt.json`),
+        join(
+          dirname(this.#directory),
+          'runs',
+          runId,
+          'incarnations',
+          command.successorIncarnationId,
+        ),
+      ]) {
+        try {
+          await lstat(path);
+          return 'Uncertain';
+        } catch (cause) {
+          if (!absent(cause)) return 'Uncertain';
+        }
+      }
+      return 'NeverStarted';
+    } catch {
+      return 'Uncertain';
     }
   }
 
