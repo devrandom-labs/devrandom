@@ -1,9 +1,12 @@
 import { devrandomUserEligibilityClaims } from '@devrandom/domain';
-import { describe, expect, it } from 'vitest';
+import { SignifyClient, Tier } from 'signify-ts';
+import Type from 'typebox';
+import { describe, expect, it, vi } from 'vitest';
 
 import { IdentityFailure } from './identity-error.js';
 import {
   reconcileCredentialEvidence,
+  signifyDevrandomUserCredentialDelivery,
   reconcileGrantOperationEvidence,
   type StableCredentialIssuance,
 } from './credential-delivery.js';
@@ -39,6 +42,37 @@ function credential(credentialSaid: string, issueeAid = issuance.issueeAid) {
 }
 
 describe('credential delivery reconciliation', () => {
+  it('reconciles across mixed-schema pages through the Signify delivery boundary', async () => {
+    const client = new SignifyClient('http://keria.invalid', '0123456789abcdefghijk', Tier.low);
+    const credentials = client.credentials();
+    const operations = client.operations();
+    vi.spyOn(client, 'credentials').mockReturnValue(credentials);
+    vi.spyOn(client, 'operations').mockReturnValue(operations);
+    const unrelated = {
+      ...credential('EWork'),
+      sad: { ...credential('EWork').sad, s: 'EWorkSchema', a: { i: 'EAgent' } },
+    };
+    const list = vi
+      .spyOn(credentials, 'list')
+      .mockResolvedValueOnce(Array.from({ length: 1_000 }, () => unrelated))
+      .mockResolvedValueOnce([credential('EExpected')]);
+    vi.spyOn(operations, 'list').mockResolvedValue([]);
+    const delivery = signifyDevrandomUserCredentialDelivery(
+      client,
+      Type.Object({}, { $id: 'ESchema' }),
+    );
+    await expect(delivery.reconcileCredential(issuance)).resolves.toEqual({
+      kind: 'credential-submitted',
+      credentialSaid: 'EExpected',
+      operationName: 'credential-reconciled/EExpected',
+    });
+    expect(list).toHaveBeenNthCalledWith(2, { skip: 1_000, limit: 1_000 });
+    list.mockResolvedValueOnce([
+      { ...credential('EBroken'), sad: { ...credential('EBroken').sad, a: { i: 'EUser' } } },
+    ]);
+    await expect(delivery.reconcileCredential(issuance)).rejects.toThrow(IdentityFailure);
+  });
+
   it('correlates only the exact stable credential and its issuance operation', () => {
     expect(
       reconcileCredentialEvidence(
@@ -62,6 +96,33 @@ describe('credential delivery reconciliation', () => {
       credentialSaid: 'EExpected',
       operationName: 'credential.EExpectedOperation',
     });
+  });
+
+  it('reconciles a user credential alongside unrelated work credentials without user capabilities', () => {
+    const unrelated = {
+      ...credential('EWorkAccess'),
+      sad: { ...credential('EWorkAccess').sad, s: 'EWorkAccessSchema', a: { i: 'EAgent' } },
+    };
+    expect(reconcileCredentialEvidence([unrelated, credential('EExpected')], [], issuance)).toEqual(
+      {
+        kind: 'credential-submitted',
+        credentialSaid: 'EExpected',
+        operationName: 'credential-reconciled/EExpected',
+      },
+    );
+    expect(reconcileCredentialEvidence([unrelated], [], issuance)).toEqual({
+      kind: 'credential-not-found',
+    });
+  });
+
+  it('rejects malformed credentials claiming the requested user schema', () => {
+    const malformed = {
+      ...credential('EBroken'),
+      sad: { ...credential('EBroken').sad, a: { i: issuance.issueeAid } },
+    };
+    expect(() =>
+      reconcileCredentialEvidence([malformed, credential('EExpected')], [], issuance),
+    ).toThrow(IdentityFailure);
   });
 
   it('reports absence without converting a decoy into the expected credential', () => {

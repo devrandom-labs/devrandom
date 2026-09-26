@@ -105,6 +105,12 @@ const credentialRecordSchema = Type.Object(
 );
 
 const credentialRecordsSchema = Type.Array(credentialRecordSchema);
+const credentialSchemaReferences = Type.Array(
+  Type.Object(
+    { sad: Type.Object({ s: nonEmptyString }, { additionalProperties: true }) },
+    { additionalProperties: true },
+  ),
+);
 const credentialOperationsSchema = Type.Array(
   Type.Object(
     {
@@ -204,12 +210,16 @@ export function reconcileCredentialEvidence(
   input: StableCredentialIssuance,
 ): CredentialReconciliation {
   if (
-    !Value.Check(credentialRecordsSchema, credentialEvidence) ||
+    !Value.Check(credentialSchemaReferences, credentialEvidence) ||
     !Value.Check(credentialOperationsSchema, operationEvidence)
   ) {
     return invalidDelivery('credential reconciliation evidence is malformed');
   }
-  const credentials = credentialEvidence.filter((record) => matchingCredential(record, input));
+  const relevantEvidence = credentialEvidence.filter((record) => record.sad.s === input.schemaId);
+  if (!Value.Check(credentialRecordsSchema, relevantEvidence)) {
+    return invalidDelivery('credential reconciliation evidence is malformed');
+  }
+  const credentials = relevantEvidence.filter((record) => matchingCredential(record, input));
   const operations = operationEvidence.flatMap((operation) => {
     const envelope = operation.metadata?.ced;
     return Value.Check(credentialEnvelopeSchema, envelope) &&
@@ -405,7 +415,7 @@ async function listCredentials(client: SignifyClient): Promise<readonly unknown[
   const credentials: unknown[] = [];
   for (let skip = 0; ; skip += pageSize) {
     const page: unknown = await client.credentials().list({ skip, limit: pageSize });
-    if (!Value.Check(credentialRecordsSchema, page)) {
+    if (!Value.Check(credentialSchemaReferences, page)) {
       return invalidDelivery('credential reconciliation page is malformed');
     }
     credentials.push(...page);
