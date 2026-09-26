@@ -11,6 +11,7 @@ export * from './identity/user-credential.js';
 export * from './identity/user-principal.js';
 export * from './harness/baseline-harness.js';
 export * from './harness/initial-specialization.js';
+export * from './harness/successor-revision.js';
 export * from './mandate/mandate-verification.js';
 export * from './promotion/exact-mandate.js';
 export * from './promotion/selection.js';
