@@ -23,6 +23,7 @@ export * from './evidence/evidence-batch.js';
 export * from './evidence/evidence-event.js';
 export * from './evidence/evidence-http.js';
 export * from './evidence/evidence-seal.js';
+export * from './evidence/terminal-reconciliation-http.js';
 export * from './evidence/verified-checkpoint.js';
 export * from './issuer-health.js';
 export * from './harness/harness-http.js';
