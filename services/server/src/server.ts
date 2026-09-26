@@ -176,6 +176,10 @@ function unavailableEvaluationRoutes(): EvaluationRoutesConfiguration {
     access: { authorize: () => Promise.resolve(unavailable) },
     preparation: { prepare: () => Promise.resolve('Unavailable') },
     admission: { admit: () => Promise.resolve(unavailable) },
+    manifest: {
+      lock: () => Promise.resolve(unavailable),
+      inspect: () => Promise.resolve(unavailable),
+    },
     leases: { renew: () => Promise.resolve(unavailable) },
     evidence: {
       accept: () => Promise.resolve(unavailable),

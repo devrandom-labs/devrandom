@@ -53,6 +53,7 @@ import {
   type EvaluationDocument,
   type EvaluationPreparationDocument,
 } from './mongo-evaluation-reservations.js';
+import type { EvaluationManifestLockDocument } from './mongo-evaluation-manifest-locks.js';
 
 interface EvaluationBatchDocument {
   readonly _id: string;
@@ -272,6 +273,7 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
   readonly #batches: Collection<EvaluationBatchDocument>;
   readonly #events: Collection<EvaluationEventDocument>;
   readonly #artifacts: Collection<EvaluationArtifactDocument>;
+  readonly #manifestLocks: Collection<EvaluationManifestLockDocument>;
   readonly #usage: Collection<EvidenceUsageDocument>;
   readonly #preparations: Collection<EvaluationPreparationDocument>;
   readonly #runEvents: Collection<EvidenceEventDocument>;
@@ -283,6 +285,7 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
     this.#batches = database.collection(evaluationCollectionNames.batches);
     this.#events = database.collection(evaluationCollectionNames.events);
     this.#artifacts = database.collection(evaluationCollectionNames.artifacts);
+    this.#manifestLocks = database.collection(evaluationCollectionNames.manifests);
     this.#usage = database.collection(evidenceCollectionNames.usage);
     this.#preparations = database.collection(evaluationCollectionNames.preparations);
     this.#runEvents = database.collection(evidenceCollectionNames.events);
@@ -378,6 +381,37 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
             )
           )
             return { kind: 'Rejected' as const, reason: 'Binding' as const };
+          const trialEvents = events.filter((event) => event.phase.kind === 'Trial');
+          if (trialEvents.length > 0) {
+            const locked = await this.#manifestLocks.findOne(
+              { _id: evaluation._id, ownerAid },
+              { session },
+            );
+            if (
+              locked === null ||
+              trialEvents.some((event) => {
+                const phase = event.phase;
+                if (phase.kind !== 'Trial') return true;
+                const arm = phase.arm as 'H1' | 'C1' | 'C2' | 'C3' | 'H1TaskSearch';
+                const slot = locked.manifest.slots.find(
+                  (candidate) =>
+                    candidate.arm === arm &&
+                    candidate.repetition === phase.repetition &&
+                    candidate.attempt === phase.attempt,
+                );
+                const revision =
+                  arm === 'H1TaskSearch'
+                    ? locked.manifest.revisions.H1
+                    : locked.manifest.revisions[arm];
+                return (
+                  phase.manifestSaid !== locked.manifest.d ||
+                  slot === undefined ||
+                  event.harnessRevisionSaid !== revision
+                );
+              })
+            )
+              return { kind: 'Rejected' as const, reason: 'Binding' as const };
+          }
           if (batch.startingSequence !== evaluation.acceptedThroughSequence + 1)
             return batch.startingSequence > evaluation.acceptedThroughSequence + 1
               ? { kind: 'Gap' as const }

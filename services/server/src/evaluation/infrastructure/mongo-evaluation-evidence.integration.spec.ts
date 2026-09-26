@@ -375,6 +375,10 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
         access: { authorize: () => Promise.resolve({ kind: 'Authorized', ownerAid }) },
         preparation: { prepare: () => Promise.resolve('Unavailable') },
         admission: { admit: () => Promise.resolve({ kind: 'Unavailable' }) },
+        manifest: {
+          lock: () => Promise.resolve({ kind: 'Unavailable' }),
+          inspect: () => Promise.resolve({ kind: 'Unavailable' }),
+        },
         leases: {
           renew: (input) =>
             renewHostedEvaluationLease(input, {
@@ -576,7 +580,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
     ).toBe(1);
   });
 
-  it('accepts a Trial source read only when its exact frozen manifest bytes are in custody', async () => {
+  it('rejects a Trial source read before an immutable M is in custody', async () => {
     const state = await database
       .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
       .findOne({ _id: evaluationId, ownerAid });
@@ -615,43 +619,25 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
       authorization: `Bearer ${'a'.repeat(43)}`,
       'content-type': 'application/json',
     };
-    const accepted = await fetch(endpoint, {
+    const refused = await fetch(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(withBytes),
     });
-    expect(accepted.status).toBe(201);
+    expect(refused.status).toBe(400);
     expect(
       await database.collection(evaluationCollectionNames.artifacts).countDocuments({
         evaluationId,
         'artifact.d': prepared.artifact.d,
       }),
-    ).toBe(1);
-
-    const current = await database
-      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
-      .findOne({ _id: evaluationId, ownerAid });
-    if (current === null || current.chainHeadSaid === null)
-      throw new Error('accepted Trial source read missing');
-    const substituted = event(
-      current.acceptedThroughSequence + 1,
-      { kind: 'Previous', eventSaid: current.chainHeadSaid },
-      { kind: 'SourceRead', sourceSaid: said('x'), rawArtifactSaid: prepared.artifact.d },
-      phase,
-    );
-    const rejected = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(upload([substituted])),
-    });
-    expect(rejected.status).toBe(400);
+    ).toBe(0);
     expect(
       (
         await database
           .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
           .findOne({ _id: evaluationId, ownerAid })
       )?.acceptedThroughSequence,
-    ).toBe(current.acceptedThroughSequence);
+    ).toBe(state.acceptedThroughSequence);
   });
 
   it('renews only the current lease and reconciles one exact command across a lost reply', async () => {

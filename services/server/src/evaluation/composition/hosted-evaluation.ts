@@ -29,9 +29,14 @@ import { acceptEvaluationEvidence } from '../application/accept-evaluation-evide
 import { closeEvaluation } from '../application/close-evaluation.js';
 import { prepareEvaluation } from '../application/prepare-evaluation.js';
 import { renewHostedEvaluationLease } from '../application/renew-evaluation-lease.js';
+import {
+  inspectEvaluationManifest,
+  lockEvaluationManifest,
+} from '../application/lock-evaluation-manifest.js';
 import { CurrentEvaluationEligibility } from '../infrastructure/current-evaluation-eligibility.js';
 import { CurrentEvaluationSourceScopes } from '../infrastructure/current-evaluation-source-scopes.js';
 import { MongoEvaluationEvidence } from '../infrastructure/mongo-evaluation-evidence.js';
+import { MongoEvaluationManifestLocks } from '../infrastructure/mongo-evaluation-manifest-locks.js';
 import { KeriaEvaluationClosureAuthority } from '../infrastructure/keria-closure-authority.js';
 import {
   evaluationCollectionNames,
@@ -73,6 +78,7 @@ export function composeHostedEvaluation(input: {
   const preparations = new MongoEvaluationPreparations(input.database);
   const reservations = new MongoEvaluationReservations(input.client, input.database);
   const evidence = new MongoEvaluationEvidence(input.client, input.database);
+  const manifestLocks = new MongoEvaluationManifestLocks(input.client, input.database);
   const closureAuthority = new KeriaEvaluationClosureAuthority(input.database, {
     scopes: sources,
     exchanges: input.closureExchanges,
@@ -90,6 +96,23 @@ export function composeHostedEvaluation(input: {
     evaluationCollectionNames.evaluations,
   );
   const now = () => new Date().toISOString();
+  const manifestAuthority = {
+    async inspect(query: {
+      readonly ownerAid: string;
+      readonly taskId: string;
+      readonly sourceInventorySaid: string;
+    }) {
+      const current = await sources.inspectInventory(query);
+      if (current.kind !== 'Authorized') return current;
+      if (current.scope.mandate.kind !== 'AuthorizedExperience') return { kind: 'Denied' as const };
+      return {
+        kind: 'Authorized' as const,
+        taskRevisionSaid: current.scope.taskRevisionSaid,
+        personalAgentAid: current.personalAgentAid,
+        taskMandateSaid: current.scope.mandate.mandateSaid,
+      };
+    },
+  };
 
   return {
     evaluation: {
@@ -103,6 +126,15 @@ export function composeHostedEvaluation(input: {
       },
       admission: {
         admit: (request) => admitEvaluation(request, { eligibility, reservations }),
+      },
+      manifest: {
+        lock: (request) =>
+          lockEvaluationManifest(request, { authority: manifestAuthority, locks: manifestLocks }),
+        inspect: (request) =>
+          inspectEvaluationManifest(request, {
+            authority: manifestAuthority,
+            locks: manifestLocks,
+          }),
       },
       leases: {
         renew: (request) =>

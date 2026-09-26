@@ -9,6 +9,8 @@ import {
   evaluationEvidenceUploadSchema,
   evaluationLeaseRenewalCommandSchema,
   evaluationLeaseRenewalReceiptSchema,
+  evaluationManifestLockCommandSchema,
+  evaluationManifestLockReceiptSchema,
   evaluationPreparationCommandSchema,
   workAccessAuthorizationHeadersSchema,
 } from '@devrandom/protocol';
@@ -29,6 +31,11 @@ import type {
   EvaluationLeaseRenewalCommand,
   EvaluationLeaseRenewalReceipt,
 } from '../application/renew-evaluation-lease.js';
+import type {
+  EvaluationManifestInspection,
+  EvaluationManifestLockCommand,
+  EvaluationManifestLockOutcome,
+} from '../application/lock-evaluation-manifest.js';
 
 type EvaluationScope =
   | 'evaluation:prepare'
@@ -41,6 +48,13 @@ const evaluationIdParameters = Type.Object(
     evaluationId: Type.String({
       pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
     }),
+  },
+  { additionalProperties: false },
+);
+const manifestParameters = Type.Object(
+  {
+    evaluationId: evaluationIdParameters.properties.evaluationId,
+    manifestSaid: Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' }),
   },
   { additionalProperties: false },
 );
@@ -85,6 +99,17 @@ export interface EvaluationRoutesConfiguration {
       readonly ownerAid: string;
       readonly command: EvaluationLeaseRenewalCommand;
     }): Promise<EvaluationLeaseRenewalReceipt>;
+  };
+  readonly manifest: {
+    lock(input: {
+      readonly ownerAid: string;
+      readonly command: EvaluationManifestLockCommand;
+    }): Promise<EvaluationManifestLockOutcome>;
+    inspect(input: {
+      readonly ownerAid: string;
+      readonly evaluationId: string;
+      readonly manifestSaid: string;
+    }): Promise<EvaluationManifestInspection>;
   };
   readonly evidence: {
     accept(input: {
@@ -235,6 +260,87 @@ export function evaluationRoutes(
           result.kind === 'Blocked'
             ? `EvaluationBlocked${result.gate}`
             : `Evaluation${result.kind}`,
+        );
+      },
+    );
+
+    server.put(
+      '/api/evaluations/:evaluationId/manifest',
+      {
+        bodyLimit: taskBudgetCeilings.artifactRequestBodyBytes,
+        schema: {
+          operationId: 'lockEvaluationManifest',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: evaluationIdParameters,
+          body: evaluationManifestLockCommandSchema,
+          response: {
+            200: evaluationManifestLockReceiptSchema,
+            201: evaluationManifestLockReceiptSchema,
+            400: problem,
+            403: problem,
+            409: problem,
+            413: problem,
+            503: problem,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = await authorize(request.headers.authorization, 'evaluation:append');
+        if (access.kind !== 'Authorized')
+          return fail(reply, access.kind === 'Unavailable' ? 503 : 403, 'EvaluationAccessDenied');
+        if (request.params.evaluationId !== request.body.manifest.evaluationId)
+          return fail(reply, 400, 'EvaluationBindingRejected');
+        const result = await configuration.manifest.lock({
+          ownerAid: access.ownerAid,
+          command: request.body,
+        });
+        if (result.kind === 'Locked' || result.kind === 'AlreadyLocked')
+          return reply.code(result.kind === 'Locked' ? 201 : 200).send(result);
+        return fail(
+          reply,
+          result.kind === 'Invalid'
+            ? 400
+            : result.kind === 'QuotaExceeded'
+              ? 413
+              : result.kind === 'Conflict'
+                ? 409
+                : 503,
+          `EvaluationManifest${result.kind}`,
+        );
+      },
+    );
+
+    server.get(
+      '/api/evaluations/:evaluationId/manifest/:manifestSaid',
+      {
+        schema: {
+          operationId: 'inspectEvaluationManifest',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: manifestParameters,
+          response: {
+            200: evaluationManifestLockReceiptSchema,
+            400: problem,
+            403: problem,
+            409: problem,
+            503: problem,
+          },
+        },
+      },
+      async (request, reply) => {
+        const access = await authorize(request.headers.authorization, 'evaluation:append');
+        if (access.kind !== 'Authorized')
+          return fail(reply, access.kind === 'Unavailable' ? 503 : 403, 'EvaluationAccessDenied');
+        const result = await configuration.manifest.inspect({
+          ownerAid: access.ownerAid,
+          evaluationId: request.params.evaluationId,
+          manifestSaid: request.params.manifestSaid,
+        });
+        if (result.kind === 'Locked' || result.kind === 'AlreadyLocked')
+          return reply.code(200).send(result);
+        return fail(
+          reply,
+          result.kind === 'Unavailable' ? 503 : 409,
+          `EvaluationManifest${result.kind}`,
         );
       },
     );

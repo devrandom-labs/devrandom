@@ -58,6 +58,7 @@ export const evaluationCollectionNames = Object.freeze({
   batches: 'evaluationEvidenceBatches',
   events: 'evaluationEvidenceEvents',
   artifacts: 'evaluationEvidenceArtifacts',
+  manifests: 'evaluationManifestLocks',
   taskReservationFences: 'evaluationTaskReservationFences',
 });
 

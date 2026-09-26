@@ -118,6 +118,10 @@ describeMongo('CLI Evaluation outbox through listening Fastify and replica Mongo
         },
         preparation: { prepare: () => Promise.resolve('Unavailable') },
         admission: { admit: () => Promise.resolve({ kind: 'Unavailable' }) },
+        manifest: {
+          lock: () => Promise.resolve({ kind: 'Unavailable' }),
+          inspect: () => Promise.resolve({ kind: 'Unavailable' }),
+        },
         leases: { renew: () => Promise.resolve({ kind: 'Unavailable' }) },
         evidence: {
           accept: (input) => acceptEvaluationEvidence(input, { batches }),

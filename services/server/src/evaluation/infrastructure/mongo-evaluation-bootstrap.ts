@@ -10,6 +10,8 @@ import {
   evaluationEvidenceEventSchema,
   evaluationEvidenceUploadSchema,
   evaluationLeaseRenewalCommandSchema,
+  evaluationManifestSchema,
+  evaluationVerifierBundleSchema,
   evaluationExecutionProfileSchema,
   evaluationPreparationCommandSchema,
   evaluationSourceInventorySchema,
@@ -72,6 +74,42 @@ const lease = Type.Object(
 );
 
 const validators: Record<string, { $jsonSchema: MongoSchemaObject }> = {
+  [evaluationCollectionNames.manifests]: {
+    $jsonSchema: {
+      bsonType: 'object',
+      additionalProperties: false,
+      required: [
+        '_id',
+        'ownerAid',
+        'manifest',
+        'verifierBundle',
+        'verifierBytes',
+        'protectedArtifactSaids',
+        'leaseId',
+        'lockedAtLeaseVersion',
+        'lockedAtEvaluationVersion',
+        'commandId',
+        'fingerprint',
+        'acceptedAt',
+      ],
+      properties: {
+        _id: object(uuid),
+        ownerAid: object(said),
+        manifest: object(evaluationManifestSchema),
+        verifierBundle: object(evaluationVerifierBundleSchema),
+        verifierBytes: { bsonType: 'binData' },
+        protectedArtifactSaids: object(
+          Type.Array(said, { minItems: 4, maxItems: 4, uniqueItems: true }),
+        ),
+        leaseId: object(uuid),
+        lockedAtLeaseVersion: object(Type.Integer({ minimum: 1 })),
+        lockedAtEvaluationVersion: object(Type.Integer({ minimum: 2 })),
+        commandId: object(uuid),
+        fingerprint: object(Type.String({ pattern: '^sha256:[a-f0-9]{64}$' })),
+        acceptedAt: date,
+      },
+    },
+  },
   [evaluationCollectionNames.taskReservationFences]: {
     $jsonSchema: {
       bsonType: 'object',
