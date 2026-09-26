@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import * as protocol from '@devrandom/protocol';
 import {
   prepareEvaluationEvidenceEvent,
   prepareEvidenceArtifact,
@@ -31,8 +32,182 @@ const binding: EvaluationEvidenceBinding = {
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+
+it('reuses verified uploads across 130-event inspections without hiding external corruption', () => {
+  const stateRoot = root();
+  const outbox = open(stateRoot);
+  const database = new DatabaseSync(
+    join(stateRoot, 'evaluations', binding.evaluationId, 'outbox.sqlite'),
+  );
+  const decode = vi.spyOn(protocol, 'decodeEvaluationEvidenceBatch');
+  let previous: EvaluationEvidenceEvent | undefined;
+  try {
+    for (let index = 0; index < 130; index++) {
+      const bytes = Buffer.from(`observation ${String(index).padStart(3, '0')}`);
+      const raw = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
+      if (raw.kind !== 'Prepared') throw new Error('artifact');
+      const next = event(
+        index,
+        previous === undefined ? { kind: 'Genesis' } : { kind: 'Previous', eventSaid: previous.d },
+        { kind: 'ModelExchange', rawArtifactSaid: raw.artifact.d },
+      );
+      expect(
+        outbox.stage({
+          commandId: randomUUID(),
+          fingerprint: `sha256:${'a'.repeat(64)}`,
+          events: [next],
+          publicArtifacts: [{ artifact: raw.artifact, bytes }],
+          protectedArtifacts: [],
+        }).kind,
+      ).toBe('Staged');
+      previous = next;
+    }
+    expect(outbox.position().kind).toBe('Position');
+    decode.mockClear();
+    const started = performance.now();
+    for (let index = 0; index < 4; index++) {
+      expect(outbox.position()).toMatchObject({ kind: 'Position', nextSequence: 130 });
+      expect(outbox.following(null).kind).toBe('Found');
+    }
+    const repeatedDecodes = decode.mock.calls.length;
+    console.info(
+      JSON.stringify({
+        fixture: 'sqlite-130-events',
+        inspections: 8,
+        milliseconds: performance.now() - started,
+        repeatedDecodes,
+      }),
+    );
+
+    const pending = outbox.pending();
+    const found = outbox.following(null);
+    if (pending.kind !== 'Pending' || found.kind !== 'Found') throw new Error('upload');
+    const original = structuredClone(pending.upload);
+    pending.upload.events.splice(0);
+    found.upload.publicArtifacts.splice(0);
+    expect(outbox.pending()).toEqual({ kind: 'Pending', upload: original });
+    expect(outbox.position().kind).toBe('Position');
+
+    // Substitute independently valid bytes and descriptor while preserving the
+    // old event/batch identities. A cache keyed only by batch SAID misses this.
+    const replacementBytes = Buffer.from('observation BAD');
+    const replacement = prepareEvidenceArtifact(replacementBytes, 'text/plain; charset=utf-8');
+    if (replacement.kind !== 'Prepared') throw new Error('replacement');
+    const substituted = structuredClone(original);
+    substituted.publicArtifacts[0] = {
+      artifact: replacement.artifact,
+      bytesBase64Url: replacementBytes.toString('base64url'),
+    };
+    const encoded = JSON.stringify(substituted);
+    database
+      .prepare('UPDATE uploads SET encoded_upload = ?, encoded_bytes = ? WHERE batch_said = ?')
+      .run(encoded, Buffer.byteLength(encoded), original.batch.d);
+    expect(outbox.position()).toEqual({ kind: 'Corrupt' });
+    expect(outbox.following(null)).toEqual({ kind: 'Corrupt' });
+    const restored = JSON.stringify(original);
+    database
+      .prepare('UPDATE uploads SET encoded_upload = ?, encoded_bytes = ? WHERE batch_said = ?')
+      .run(restored, Buffer.byteLength(restored), original.batch.d);
+    expect(outbox.position().kind).toBe('Position');
+
+    for (const mutation of [
+      'UPDATE uploads SET starting_sequence = -1 WHERE starting_sequence = 0',
+      'UPDATE uploads SET ending_sequence = ending_sequence + 1 WHERE starting_sequence = 0',
+      "UPDATE uploads SET chain_head_said = 'invalid' WHERE starting_sequence = 0",
+      'UPDATE uploads SET encoded_bytes = encoded_bytes + 1 WHERE starting_sequence = 0',
+      "UPDATE uploads SET acknowledgement = '{}' WHERE starting_sequence = 0",
+      'UPDATE stream_state SET next_sequence = next_sequence + 1',
+      "UPDATE artifacts SET custody = 'ProtectedCiphertext' WHERE artifact_said = (SELECT artifact_said FROM artifacts LIMIT 1)",
+    ]) {
+      database.exec('BEGIN IMMEDIATE');
+      database.exec(mutation);
+      database.exec('COMMIT');
+      expect(outbox.position()).toEqual({ kind: 'Corrupt' });
+      // Restore the committed external mutation without relying on data_version.
+      database
+        .prepare(
+          'UPDATE uploads SET starting_sequence = 0, ending_sequence = ?, chain_head_said = ?, encoded_bytes = ?, acknowledgement = NULL WHERE batch_said = ?',
+        )
+        .run(
+          original.batch.endingSequence,
+          original.events.at(-1)?.d ?? '',
+          Buffer.byteLength(restored),
+          original.batch.d,
+        );
+      database.exec(
+        "UPDATE stream_state SET next_sequence = 130; UPDATE artifacts SET custody = 'Public'",
+      );
+      expect(outbox.position().kind).toBe('Position');
+    }
+    expect(repeatedDecodes).toBe(0);
+    decode.mockClear();
+    const independent = open(stateRoot);
+    expect(decode.mock.calls.length).toBe(130);
+    independent.close();
+  } finally {
+    database.close();
+    outbox.close();
+  }
+}, 60_000);
+
+it.each([
+  { reason: 'entry count', count: 4097, artifactBytes: 0 },
+  { reason: 'encoded bytes', count: 33, artifactBytes: 384 * 1024 },
+])(
+  'evicts verified uploads at the $reason bound and revalidates evicted bytes',
+  ({ count, artifactBytes }) => {
+    const outbox = open(root());
+    const decode = vi.spyOn(protocol, 'decodeEvaluationEvidenceBatch');
+    let previous: EvaluationEvidenceEvent | undefined;
+    try {
+      for (let index = 0; index < count; index++) {
+        const bytes = Buffer.alloc(artifactBytes, index);
+        const raw = prepareEvidenceArtifact(bytes, 'application/octet-stream');
+        if (raw.kind !== 'Prepared') throw new Error('artifact');
+        const next = event(
+          index,
+          previous === undefined
+            ? { kind: 'Genesis' }
+            : { kind: 'Previous', eventSaid: previous.d },
+          artifactBytes === 0
+            ? {
+                kind: 'UsageDebited',
+                providerRequests: 1,
+                inputTokens: 1,
+                outputTokens: 1,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                spendMicroUsd: 1,
+                elapsedMilliseconds: 1,
+              }
+            : { kind: 'ModelExchange', rawArtifactSaid: raw.artifact.d },
+        );
+        expect(
+          outbox.stage({
+            commandId: randomUUID(),
+            fingerprint: `sha256:${'a'.repeat(64)}`,
+            events: [next],
+            publicArtifacts: artifactBytes === 0 ? [] : [{ artifact: raw.artifact, bytes }],
+            protectedArtifacts: [],
+          }).kind,
+        ).toBe('Staged');
+        previous = next;
+      }
+      expect(outbox.position().kind).toBe('Position');
+      decode.mockClear();
+      expect(outbox.pending().kind).toBe('Pending');
+      expect(decode).toHaveBeenCalledTimes(1);
+      expect(outbox.pending().kind).toBe('Pending');
+      expect(decode).toHaveBeenCalledTimes(1);
+    } finally {
+      outbox.close();
+    }
+  },
+  60_000,
+);
 
 function root(): string {
   const path = mkdtempSync(join(tmpdir(), 'devrandom-evaluation-outbox-'));
@@ -511,6 +686,13 @@ it('reopens only hosted-acknowledged protected ciphertext by exact SAID and reje
   outbox.close();
 
   const reopened = open(stateRoot);
+  expect(reopened.protectedArtifact(prepared.artifact.d)).toEqual({
+    kind: 'Found',
+    artifact: prepared.artifact,
+  });
+  const exposed = reopened.protectedArtifact(prepared.artifact.d);
+  if (exposed.kind !== 'Found') throw new Error('protected artifact');
+  Object.assign(exposed.artifact, { ciphertext: 'changed' });
   expect(reopened.protectedArtifact(prepared.artifact.d)).toEqual({
     kind: 'Found',
     artifact: prepared.artifact,

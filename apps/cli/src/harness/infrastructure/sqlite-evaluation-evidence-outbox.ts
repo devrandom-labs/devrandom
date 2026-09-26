@@ -48,6 +48,10 @@ type Custody = 'Public' | 'ProtectedCiphertext';
 const saidPattern = /^[A-Z][A-Za-z0-9_-]{43}$/u;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const storageByteLimit = 256 * 1_024 * 1_024;
+// Bound both serialized content and per-entry object overhead. This is derived
+// decoding work only; SQLite remains the source on every inspection.
+const verifiedUploadByteLimit = 16 * 1_024 * 1_024;
+const verifiedUploadCountLimit = 4096;
 const integer = Type.Integer({ minimum: -1, maximum: Number.MAX_SAFE_INTEGER });
 const stateSchema = Type.Object(
   {
@@ -309,7 +313,11 @@ function createSchema(database: DatabaseSync, binding: EvaluationEvidenceBinding
     );
 }
 
-function validStoredState(database: DatabaseSync, binding: EvaluationEvidenceBinding): boolean {
+function validStoredState(
+  database: DatabaseSync,
+  binding: EvaluationEvidenceBinding,
+  decode: (row: UploadRow) => Upload | undefined = (row) => decodeStoredUpload(row, binding),
+): boolean {
   const integrity: unknown = database.prepare('PRAGMA integrity_check').get();
   const version: unknown = database.prepare('PRAGMA user_version').get();
   const row = state(database);
@@ -347,7 +355,7 @@ function validStoredState(database: DatabaseSync, binding: EvaluationEvidenceBin
   for (const candidate of rows) {
     const batch = uploadRow(candidate);
     if (batch === undefined) return false;
-    const upload = decodeStoredUpload(batch, binding);
+    const upload = decode(batch);
     if (
       upload === undefined ||
       batch.starting_sequence !== nextSequence ||
@@ -407,10 +415,58 @@ function validStoredState(database: DatabaseSync, binding: EvaluationEvidenceBin
 export class SqliteEvaluationEvidenceOutbox {
   readonly #database: DatabaseSync;
   readonly #binding: EvaluationEvidenceBinding;
+  readonly #verifiedUploads = new Map<
+    string,
+    { readonly row: Omit<UploadRow, 'acknowledgement'>; readonly upload: Upload }
+  >();
+  #verifiedUploadBytes = 0;
 
   private constructor(database: DatabaseSync, binding: EvaluationEvidenceBinding) {
     this.#database = database;
-    this.#binding = binding;
+    this.#binding = { ...binding };
+  }
+
+  #decodeUpload(row: UploadRow): Upload | undefined {
+    const verified = this.#verifiedUploads.get(row.batch_said);
+    if (verified !== undefined) {
+      // Read and compare exact bytes AND every immutable row field. Neither a
+      // stable SAID nor an unchanged SQLite connection implies unchanged data.
+      // ACKs are deliberately excluded: callers validate the current receipt.
+      if (
+        verified.row.encoded_upload === row.encoded_upload &&
+        verified.row.encoded_bytes === row.encoded_bytes &&
+        verified.row.starting_sequence === row.starting_sequence &&
+        verified.row.ending_sequence === row.ending_sequence &&
+        verified.row.chain_head_said === row.chain_head_said
+      )
+        return verified.upload;
+      this.#verifiedUploads.delete(row.batch_said);
+      this.#verifiedUploadBytes -= verified.row.encoded_bytes;
+    }
+    const upload = decodeStoredUpload(row, this.#binding);
+    if (upload === undefined || row.encoded_bytes > verifiedUploadByteLimit) return upload;
+    while (
+      this.#verifiedUploads.size >= verifiedUploadCountLimit ||
+      this.#verifiedUploadBytes + row.encoded_bytes > verifiedUploadByteLimit
+    ) {
+      const oldest = this.#verifiedUploads.entries().next().value;
+      if (oldest === undefined) break;
+      this.#verifiedUploads.delete(oldest[0]);
+      this.#verifiedUploadBytes -= oldest[1].row.encoded_bytes;
+    }
+    this.#verifiedUploads.set(row.batch_said, {
+      row: {
+        batch_said: row.batch_said,
+        starting_sequence: row.starting_sequence,
+        ending_sequence: row.ending_sequence,
+        chain_head_said: row.chain_head_said,
+        encoded_upload: row.encoded_upload,
+        encoded_bytes: row.encoded_bytes,
+      },
+      upload,
+    });
+    this.#verifiedUploadBytes += row.encoded_bytes;
+    return upload;
   }
 
   static open(
@@ -613,7 +669,8 @@ export class SqliteEvaluationEvidenceOutbox {
       }
     | { readonly kind: 'Corrupt' } {
     try {
-      if (!validStoredState(this.#database, this.#binding)) return { kind: 'Corrupt' };
+      if (!validStoredState(this.#database, this.#binding, (row) => this.#decodeUpload(row)))
+        return { kind: 'Corrupt' };
       const current = state(this.#database);
       if (current === undefined) return { kind: 'Corrupt' };
       return {
@@ -637,14 +694,15 @@ export class SqliteEvaluationEvidenceOutbox {
       }
     | { readonly kind: 'Empty' | 'Corrupt' } {
     try {
-      if (!validStoredState(this.#database, this.#binding)) return { kind: 'Corrupt' };
+      if (!validStoredState(this.#database, this.#binding, (row) => this.#decodeUpload(row)))
+        return { kind: 'Corrupt' };
       const rows: unknown[] = this.#database
         .prepare('SELECT * FROM uploads ORDER BY starting_sequence')
         .all();
       for (const candidate of rows) {
         const row = uploadRow(candidate);
         if (row === undefined) return { kind: 'Corrupt' };
-        const upload = decodeStoredUpload(row, this.#binding);
+        const upload = this.#decodeUpload(row);
         if (upload === undefined) return { kind: 'Corrupt' };
         const previous = upload.events[0]?.previous;
         if (
@@ -653,10 +711,11 @@ export class SqliteEvaluationEvidenceOutbox {
             : previous?.kind === 'Previous' && previous.eventSaid === predecessorSaid)
         )
           continue;
-        if (row.acknowledgement === null) return { kind: 'Found', upload, acknowledgement: null };
+        if (row.acknowledgement === null)
+          return { kind: 'Found', upload: structuredClone(upload), acknowledgement: null };
         const receipt: unknown = JSON.parse(row.acknowledgement);
         if (!matchingAcknowledgement(receipt, upload, this.#binding)) return { kind: 'Corrupt' };
-        return { kind: 'Found', upload, acknowledgement: receipt };
+        return { kind: 'Found', upload: structuredClone(upload), acknowledgement: receipt };
       }
       return { kind: 'Empty' };
     } catch {
@@ -672,7 +731,8 @@ export class SqliteEvaluationEvidenceOutbox {
     | { readonly kind: 'Missing' | 'Corrupt' } {
     if (!saidPattern.test(artifactSaid)) return { kind: 'Corrupt' };
     try {
-      if (!validStoredState(this.#database, this.#binding)) return { kind: 'Corrupt' };
+      if (!validStoredState(this.#database, this.#binding, (row) => this.#decodeUpload(row)))
+        return { kind: 'Corrupt' };
       const candidate: unknown = this.#database
         .prepare('SELECT * FROM artifacts WHERE artifact_said = ?')
         .get(artifactSaid);
@@ -685,7 +745,7 @@ export class SqliteEvaluationEvidenceOutbox {
           .get(candidate.batch_said),
       );
       if (row === undefined) return { kind: 'Corrupt' };
-      const upload = decodeStoredUpload(row, this.#binding);
+      const upload = this.#decodeUpload(row);
       if (upload === undefined) return { kind: 'Corrupt' };
       if (row.acknowledgement === null) return { kind: 'Missing' };
       const receipt: unknown = JSON.parse(row.acknowledgement);
@@ -693,7 +753,7 @@ export class SqliteEvaluationEvidenceOutbox {
       const artifact = upload.protectedArtifacts.find((item) => item.d === artifactSaid);
       if (artifact === undefined || decodeProtectedEvaluationArtifact(artifact).kind !== 'Accepted')
         return { kind: 'Corrupt' };
-      return { kind: 'Found', artifact };
+      return { kind: 'Found', artifact: structuredClone(artifact) };
     } catch {
       return { kind: 'Corrupt' };
     }
@@ -844,8 +904,10 @@ export class SqliteEvaluationEvidenceOutbox {
         .get();
       if (candidate === undefined) return { kind: 'Empty' };
       const row = uploadRow(candidate);
-      const upload = row === undefined ? undefined : decodeStoredUpload(row, this.#binding);
-      return upload === undefined ? { kind: 'Corrupt' } : { kind: 'Pending', upload };
+      const upload = row === undefined ? undefined : this.#decodeUpload(row);
+      return upload === undefined
+        ? { kind: 'Corrupt' }
+        : { kind: 'Pending', upload: structuredClone(upload) };
     } catch {
       return { kind: 'Corrupt' };
     }
@@ -873,7 +935,7 @@ export class SqliteEvaluationEvidenceOutbox {
         );
         this.#database.exec('ROLLBACK');
         if (prior === undefined || prior.acknowledgement === null) return { kind: 'Conflict' };
-        const upload = decodeStoredUpload(prior, this.#binding);
+        const upload = this.#decodeUpload(prior);
         let recorded: unknown;
         try {
           recorded = JSON.parse(prior.acknowledgement);
@@ -886,7 +948,7 @@ export class SqliteEvaluationEvidenceOutbox {
           ? { kind: 'AlreadyRecorded' }
           : { kind: 'Conflict' };
       }
-      const upload = decodeStoredUpload(oldest, this.#binding);
+      const upload = this.#decodeUpload(oldest);
       const current = state(this.#database);
       if (upload === undefined || current === undefined) throw new Error('outbox row invalid');
       if (
@@ -922,5 +984,7 @@ export class SqliteEvaluationEvidenceOutbox {
 
   close(): void {
     this.#database.close();
+    this.#verifiedUploads.clear();
+    this.#verifiedUploadBytes = 0;
   }
 }
