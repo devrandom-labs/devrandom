@@ -150,7 +150,7 @@ export const evaluationManifestLockCommandSchema = Type.Object(
     verifierBundle: evaluationVerifierBundleSchema,
     verifierBundleBytesBase64Url: Type.String({
       minLength: 2,
-      maxLength: 699_052,
+      maxLength: 1_048_576,
       pattern: '^[A-Za-z0-9_-]+$',
     }),
     protectedArtifacts: Type.Array(protectedEvaluationArtifactSchema, {
