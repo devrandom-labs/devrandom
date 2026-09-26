@@ -32,6 +32,42 @@ function draft(): EvidenceEventDraft {
 }
 
 describe('evidence event protocol', () => {
+  it('binds a Run to its exact Linux comparison profile artifact and managed worktree before execution', () => {
+    const profileSaid = `E${'p'.repeat(43)}`;
+    const profileArtifactSaid = `E${'q'.repeat(43)}`;
+    const prepared = prepareEvidenceEvent({
+      ...draft(),
+      sequence: 1,
+      predecessor: { kind: 'Previous', eventSaid: `E${'r'.repeat(43)}` },
+      event: {
+        kind: 'RunExecutionProfileBound',
+        executionProfileSaid: profileSaid,
+        profileArtifactSaid,
+        worktreeBranch: `devrandom/run/${binding.runId}`,
+      },
+    });
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') throw new Error('fixture profile event must prepare');
+    expect(evidenceArtifactReferences(prepared.event.event)).toEqual([profileArtifactSaid]);
+    expect(decodeEvidenceEvent(prepared.event)).toEqual({
+      kind: 'Accepted',
+      event: prepared.event,
+    });
+    expect(
+      prepareEvidenceEvent({
+        ...draft(),
+        sequence: 1,
+        predecessor: { kind: 'Previous', eventSaid: `E${'r'.repeat(43)}` },
+        event: {
+          kind: 'RunExecutionProfileBound',
+          executionProfileSaid: profileSaid,
+          profileArtifactSaid,
+          worktreeBranch: 'devrandom/run/00000000-0000-4000-8000-000000000001',
+        },
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'CausalPositionInvalid' });
+  });
+
   it('rejects impossible event times before they can authorize a historical effect', () => {
     expect(
       prepareEvidenceEvent({

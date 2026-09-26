@@ -74,6 +74,7 @@ function evidenceStoragePurpose(event: EvidenceObservation['event']): 'Execution
       return 'Closure';
     case 'RunStarted':
     case 'IncarnationStarted':
+    case 'RunExecutionProfileBound':
     case 'MandateVerified':
     case 'ModelRequest':
     case 'ModelMessageCompleted':

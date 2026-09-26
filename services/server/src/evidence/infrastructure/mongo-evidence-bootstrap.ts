@@ -154,23 +154,30 @@ export const evidenceEventCollectionValidator = Object.freeze({
 /** Exact event validator before the ArtifactUnavailable failure alternative was added. */
 export const previousEvidenceEventCollectionValidator = (() => {
   const previous = structuredClone(evidenceEventCollectionValidator);
-  let alternatives: unknown = previous;
-  for (const key of [
-    '$jsonSchema',
-    'properties',
-    'event',
-    'properties',
-    'event',
-    'anyOf',
-    10,
-    'properties',
-    'failure',
-    'anyOf',
-  ]) {
-    if (alternatives === null || typeof alternatives !== 'object') {
+  const property = (object: unknown, key: string): unknown => {
+    if (object === null || typeof object !== 'object') {
       throw new Error('Evidence event migration schema has drifted');
     }
-    alternatives = Reflect.get(alternatives, key) as unknown;
+    return Reflect.get(object, key) as unknown;
+  };
+  let alternatives: unknown = previous;
+  for (const key of ['$jsonSchema', 'properties', 'event', 'properties', 'event', 'anyOf']) {
+    alternatives = property(alternatives, key);
+  }
+  if (!Array.isArray(alternatives)) throw new Error('Evidence event migration schema has drifted');
+  const effectFailed: unknown = alternatives.find((candidate: unknown) => {
+    try {
+      return isDeepStrictEqual(
+        property(property(property(candidate, 'properties'), 'kind'), 'enum'),
+        ['EffectFailed'],
+      );
+    } catch {
+      return false;
+    }
+  });
+  alternatives = effectFailed;
+  for (const key of ['properties', 'failure', 'anyOf']) {
+    alternatives = property(alternatives, key);
   }
   if (!Array.isArray(alternatives)) throw new Error('Evidence event migration schema has drifted');
   const removed = alternatives.splice(4, 1);

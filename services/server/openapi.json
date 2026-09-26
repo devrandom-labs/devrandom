@@ -25833,6 +25833,34 @@
                             },
                             {
                               "type": "object",
+                              "required": [
+                                "kind",
+                                "executionProfileSaid",
+                                "profileArtifactSaid",
+                                "worktreeBranch"
+                              ],
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "RunExecutionProfileBound"
+                                },
+                                "executionProfileSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "profileArtifactSaid": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "worktreeBranch": {
+                                  "type": "string",
+                                  "pattern": "^devrandom/run/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
                               "required": ["kind", "mandateSaid", "disposition"],
                               "properties": {
                                 "kind": {
@@ -32630,6 +32658,34 @@
                                       "kind": {
                                         "type": "string",
                                         "const": "IncarnationStarted"
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "kind",
+                                      "executionProfileSaid",
+                                      "profileArtifactSaid",
+                                      "worktreeBranch"
+                                    ],
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "RunExecutionProfileBound"
+                                      },
+                                      "executionProfileSaid": {
+                                        "type": "string",
+                                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                      },
+                                      "profileArtifactSaid": {
+                                        "type": "string",
+                                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                      },
+                                      "worktreeBranch": {
+                                        "type": "string",
+                                        "pattern": "^devrandom/run/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
                                       }
                                     },
                                     "additionalProperties": false

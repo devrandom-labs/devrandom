@@ -102,6 +102,18 @@ export const evidenceEventDetailSchema = Type.Union([
   Type.Object({ kind: Type.Literal('IncarnationStarted') }, { additionalProperties: false }),
   Type.Object(
     {
+      kind: Type.Literal('RunExecutionProfileBound'),
+      executionProfileSaid: saidSchema,
+      profileArtifactSaid: saidSchema,
+      worktreeBranch: Type.String({
+        pattern:
+          '^devrandom/run/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+      }),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
       kind: Type.Literal('MandateVerified'),
       mandateSaid: saidSchema,
       disposition: Type.Literal('Current'),
@@ -416,6 +428,13 @@ function eventTimesAreExact(event: EvidenceEventDraft | EvidenceEvent): boolean 
 }
 
 function causalPositionIsValid(event: EvidenceEventDraft | EvidenceEvent): boolean {
+  if (
+    event.event.kind === 'RunExecutionProfileBound' &&
+    (event.sequence === 0 ||
+      event.producer.kind !== 'RunSupervisor' ||
+      event.event.worktreeBranch !== `devrandom/run/${event.runId}`)
+  )
+    return false;
   return event.sequence === 0
     ? event.predecessor.kind === 'Genesis'
     : event.predecessor.kind === 'Previous';
@@ -509,6 +528,8 @@ export function evidenceArtifactReferences(event: EvidenceEventDetail): readonly
       return [...event.outputArtifactSaids];
     case 'Observation':
       return [event.artifactSaid];
+    case 'RunExecutionProfileBound':
+      return [event.profileArtifactSaid];
     case 'ContextSummary':
       return [event.summaryArtifactSaid];
     case 'ResultSubmitted':

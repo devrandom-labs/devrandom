@@ -57,6 +57,7 @@ function effectRequiresAuthority(event: EvidenceEventDetail): boolean {
       return true;
     case 'RunStarted':
     case 'IncarnationStarted':
+    case 'RunExecutionProfileBound':
     case 'ModelMessageCompleted':
     case 'ToolProposed':
     case 'ToolRejected':
