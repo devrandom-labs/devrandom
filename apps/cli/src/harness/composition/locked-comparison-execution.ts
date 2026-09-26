@@ -584,6 +584,7 @@ export async function executeLockedComparison(
         activeBinding,
         new HostedEvaluationProviderCustody({
           http: hosted,
+          reading,
           ownerAid: manifest.ownerAid,
           admittedCommandId: input.admittedCommandId,
           manifest,

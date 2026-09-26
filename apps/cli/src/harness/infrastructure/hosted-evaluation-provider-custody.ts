@@ -27,6 +27,7 @@ export class HostedEvaluationProviderCustody implements EvaluationProviderCustod
 
   constructor(input: {
     readonly http: Hosted;
+    readonly reading?: HostedEvaluationEvidenceReading;
     readonly ownerAid: string;
     readonly admittedCommandId: string;
     readonly manifest: EvaluationManifest;
@@ -35,7 +36,7 @@ export class HostedEvaluationProviderCustody implements EvaluationProviderCustod
     this.#ownerAid = input.ownerAid;
     this.#commandId = input.admittedCommandId;
     this.#manifest = input.manifest;
-    this.#reading = new HostedEvaluationEvidenceReading(input.http);
+    this.#reading = input.reading ?? new HostedEvaluationEvidenceReading(input.http);
   }
 
   async inspect(

@@ -9,11 +9,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { EvaluationExecutionBinding } from '@devrandom/domain';
 import {
   prepareEvaluationManifest,
+  prepareEvaluationEvidenceEvent,
   prepareEvaluationPolicy,
   prepareEvidenceArtifact,
 } from '@devrandom/protocol';
 
 import { SqliteEvaluationProviderAllowance } from './sqlite-evaluation-provider-allowance.js';
+import { HostedEvaluationEvidenceReading } from './hosted-evaluation-evidence-reading.js';
 import { HostedEvaluationProviderCustody } from './hosted-evaluation-provider-custody.js';
 import { HostedEvaluationResearchProviderCustody } from './hosted-evaluation-research-provider-custody.js';
 
@@ -509,6 +511,101 @@ it('composes owner-scoped current position and M lock, refusing an unreadable ac
   throughSequence = 0;
   chainHeadSaid = said('x');
   expect(await custody.inspect(given.binding)).toEqual({ kind: 'Unavailable' });
+});
+
+it('reuses immutable prefixes across provider custodians while rechecking current authority', async () => {
+  const given = fixture();
+  const prepared = prepareEvaluationEvidenceEvent({
+    evaluationId: given.binding.evaluationId,
+    originRunId: given.binding.originRunId,
+    taskId: given.binding.taskId,
+    taskRevisionSaid: given.binding.taskRevisionSaid,
+    personalAgentAid: given.binding.personalAgentAid,
+    taskMandateSaid: given.binding.taskMandateSaid,
+    harnessRevisionSaid: given.binding.harnessRevisionSaid,
+    phase: given.binding.phase,
+    streamId: given.binding.evidenceStreamId,
+    sequence: 0,
+    previous: { kind: 'Genesis' },
+    occurredAt: '2026-09-26T12:00:00.000Z',
+    detail: { kind: 'TrialStopped', reason: 'Completed' },
+  });
+  if (prepared.kind !== 'Prepared') throw new Error(prepared.reason);
+  const head = prepared.event;
+  const throughSequence = 0;
+  const chainHeadSaid = head.d;
+  let available = true;
+  const http = {
+    readPosition: vi.fn(() =>
+      Promise.resolve(
+        available
+          ? {
+              kind: 'Read' as const,
+              position: {
+                version: 1 as const,
+                evaluationId: given.binding.evaluationId,
+                ownerAid: given.current.ownerAid,
+                commandId: given.current.admission.commandId,
+                originRunId: given.binding.originRunId,
+                streamId: given.binding.evidenceStreamId,
+                reservationSaid: given.current.admission.reservationSaid,
+                lease: given.current.lease,
+                acceptedThroughSequence: throughSequence,
+                chainHeadSaid,
+              },
+            }
+          : { kind: 'Unavailable' as const },
+      ),
+    ),
+    inspectManifestLock: () =>
+      Promise.resolve({
+        kind: 'Locked' as const,
+        receipt: {
+          kind: 'Locked' as const,
+          ...given.current.lock,
+          lockedAtLeaseVersion: 1,
+          lockedAtEvaluationVersion: 2,
+          currentEvaluationVersion: 2,
+        },
+      }),
+    readEvidencePage: vi.fn(() =>
+      Promise.resolve({
+        kind: 'Read' as const,
+        page: {
+          version: 1 as const,
+          evaluationId: given.binding.evaluationId,
+          streamId: given.binding.evidenceStreamId,
+          afterSequence: -1,
+          throughSequence,
+          throughHeadSaid: head.d,
+          events: [head],
+        },
+      }),
+    ),
+    readPublicArtifact: () => Promise.resolve({ kind: 'Missing' as const }),
+  };
+  const reading = new HostedEvaluationEvidenceReading(http);
+  for (let index = 0; index < 2; index += 1) {
+    const custody = new HostedEvaluationProviderCustody({
+      http,
+      reading,
+      ownerAid: given.current.ownerAid,
+      admittedCommandId: given.current.admission.commandId,
+      manifest: given.current.manifest,
+    });
+    expect(await custody.inspect(given.binding)).toMatchObject({ kind: 'Current' });
+  }
+  // Two fresh head reads, but only one immutable full-prefix read.
+  expect(http.readEvidencePage).toHaveBeenCalledTimes(3);
+  available = false;
+  const lost = new HostedEvaluationProviderCustody({
+    http,
+    reading,
+    ownerAid: given.current.ownerAid,
+    admittedCommandId: given.current.admission.commandId,
+    manifest: given.current.manifest,
+  });
+  expect(await lost.inspect(given.binding)).toEqual({ kind: 'Unavailable' });
 });
 
 it('starts each exact Trial slot at ordinal zero while retaining shared accounting and retry fences', async () => {
