@@ -35,14 +35,18 @@ const task = {
   },
 };
 
-function fixture() {
+function fixture(sharedOutput = false) {
   const runs = new Map<string, ReturnType<typeof runProjectionFixture>>();
   const pages = new Map<string, object>();
   const artifacts = new Map<string, { artifact: object; bytes: Uint8Array }>();
   const receipts = new Map<string, { receipt: PublicVerifierReceipt; checkpointSaid: string }>();
   const sources: { runId: string; eventSaid: string; rawSaid: string }[] = [];
   for (const [index, runId] of runIds.entries()) {
-    const bytes = new TextEncoder().encode(`public verifier legacy failure ${String(index + 1)}`);
+    const bytes = new TextEncoder().encode(
+      sharedOutput
+        ? 'public verifier legacy failure'
+        : `public verifier legacy failure ${String(index + 1)}`,
+    );
     const artifact = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
     if (artifact.kind !== 'Prepared') throw new Error('artifact fixture');
     const receipt = preparePublicVerifierReceipt({
@@ -227,7 +231,7 @@ describe('qualified source inventory preparation', () => {
   it('prepares five distinct exact public verifier sources under the current mandate', async () => {
     const test = fixture();
     const result = await prepareQualifiedSourceInventory(test.qualification as never, test.ports);
-    expect(result.kind).toBe('Prepared');
+    expect(result).toMatchObject({ kind: 'Prepared' });
     if (result.kind !== 'Prepared') return;
     expect(result.sources.map((source) => source.observationEventSaid)).toEqual(
       test.sources.map((source) => source.eventSaid),
@@ -236,6 +240,15 @@ describe('qualified source inventory preparation', () => {
       test.sources.map((source) => source.rawSaid),
     );
     expect(result.inventory.experienceMandateSaid).toBe(said('m'));
+  });
+
+  it('keeps five sealed Observation identities even when all public verifier bytes are identical', async () => {
+    const test = fixture(true);
+    const result = await prepareQualifiedSourceInventory(test.qualification as never, test.ports);
+    expect(result).toMatchObject({ kind: 'Prepared' });
+    if (result.kind !== 'Prepared') return;
+    expect(new Set(result.sources.map((source) => source.observationEventSaid)).size).toBe(5);
+    expect(new Set(result.sources.map((source) => source.rawEvidenceSaid)).size).toBe(1);
   });
 
   it('blocks a substituted raw artifact even when Q was previously qualified', async () => {

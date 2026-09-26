@@ -85,7 +85,6 @@ async function readCalibration(
   ordinal: number,
   input: QualificationInput,
   qualified: Qualified,
-  usedRawSaids: ReadonlySet<string>,
 ): Promise<SourceReading> {
   const inspected = await input.runs.inspect(runId);
   if (inspected.kind !== 'Found') return { kind: 'Blocked', gate: 'Timeline' };
@@ -232,7 +231,6 @@ async function readCalibration(
       return { kind: 'Blocked', gate: 'RawSource' };
     }
     if (text.length === 0 || text.length > 32 * 1024) continue;
-    if (usedRawSaids.has(rawEvidenceSaid)) continue;
     return {
       kind: 'Found',
       campaignId: run.binding.purpose.campaignId,
@@ -313,12 +311,11 @@ export async function prepareQualifiedSourceInventory(
   )
     return { kind: 'Blocked', gate: 'History' };
   const sources: QualifiedInventorySource[] = [];
-  const usedRawSaids = new Set<string>();
   let campaignId: string | undefined;
   for (const [index, runId] of history.runIds.entries()) {
     let read: SourceReading;
     try {
-      read = await readCalibration(runId, index + 1, input, qualified, usedRawSaids);
+      read = await readCalibration(runId, index + 1, input, qualified);
     } catch {
       return { kind: 'Blocked', gate: 'Timeline' };
     }
@@ -327,7 +324,6 @@ export async function prepareQualifiedSourceInventory(
       return { kind: 'Blocked', gate: 'Timeline' };
     campaignId = read.campaignId;
     sources.push(read.source);
-    usedRawSaids.add(read.source.rawEvidenceSaid);
   }
   const prepared = prepareEvaluationSourceInventory({
     taskId: task.taskId,

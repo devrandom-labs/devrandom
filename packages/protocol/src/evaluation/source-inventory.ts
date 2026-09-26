@@ -50,18 +50,15 @@ export type EvaluationSourceInventoryDecoding =
 
 function sourcesDenied(input: Type.Static<typeof evaluationSourceInventoryInputSchema>): boolean {
   const episodes = new Set<string>();
-  const raw = new Set<string>();
   for (const candidate of input.sources) {
     if (
       candidate.ownerAid !== input.ownerAid ||
       candidate.repositoryResourceSaid !== input.repositoryResourceSaid ||
       candidate.corpusSaid !== input.corpusSaid ||
-      episodes.has(candidate.episodeSaid) ||
-      raw.has(candidate.rawEvidenceSaid)
+      episodes.has(candidate.episodeSaid)
     )
       return true;
     episodes.add(candidate.episodeSaid);
-    raw.add(candidate.rawEvidenceSaid);
   }
   return false;
 }

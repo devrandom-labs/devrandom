@@ -37,6 +37,27 @@ describe('frozen source exposure inventory', () => {
     });
   });
 
+  it('keeps distinct observed episodes when their exact verifier bytes have the same SAID', () => {
+    const second = { ...input.sources[0], episodeSaid: said('z') };
+    const prepared = prepareEvaluationSourceInventory({
+      ...input,
+      sources: [input.sources[0], second],
+    });
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') return;
+    expect(prepared.inventory.sources.map((source) => source.rawEvidenceSaid)).toEqual([
+      said('a'),
+      said('a'),
+    ]);
+    expect(decodeEvaluationSourceInventory(prepared.inventory).kind).toBe('Accepted');
+    expect(
+      prepareEvaluationSourceInventory({
+        ...input,
+        sources: [input.sources[0], input.sources[0]],
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'SourceDenied' });
+  });
+
   it('rejects cross-owner, protected and unbound historical sources', () => {
     for (const source of [
       { ...input.sources[0], ownerAid: said('z') },
