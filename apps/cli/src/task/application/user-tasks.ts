@@ -9,12 +9,12 @@ import {
   type WorkAccessAcquisition,
 } from '../../work-access/application/work-access-acquisition.js';
 import {
-  prepareTaskCommand,
+  prepareAuthorizedTaskCommand,
   taskTimestampIsCanonical,
   taskLabelSchema,
-  taskSourceCommandSchema,
+  authorizedTaskSourceCommandSchema,
   type PreparedRepository,
-  type PreparedTaskCommand,
+  type AuthorizedPreparedTaskCommand,
   type SourceRepository,
   type TaskListProjection,
   type TaskListQuery,
@@ -76,7 +76,7 @@ export type HostedTaskInspection =
   { readonly kind: 'Inspected'; readonly task: TaskProjection } | HostedTaskFailure;
 
 export interface HostedTasks {
-  create(command: PreparedTaskCommand): Promise<HostedTaskCreation>;
+  create(command: AuthorizedPreparedTaskCommand): Promise<HostedTaskCreation>;
   list(query: TaskListQuery): Promise<HostedTaskListing>;
   inspect(label: string): Promise<HostedTaskInspection>;
 }
@@ -298,10 +298,10 @@ export class UserTasks {
     if (reading.kind === 'Rejected') {
       return { kind: 'TaskFileRejected', reason: reading.reason };
     }
-    if (!Value.Check(taskSourceCommandSchema, reading.document)) {
+    if (!Value.Check(authorizedTaskSourceCommandSchema, reading.document)) {
       return { kind: 'TaskContractRejected', reason: 'SchemaInvalid' };
     }
-    const source = Value.Parse(taskSourceCommandSchema, reading.document);
+    const source = Value.Parse(authorizedTaskSourceCommandSchema, reading.document);
     const sourceBytes = new TextEncoder().encode(JSON.stringify(source));
     if (this.#dependencies.protectedCredentials.inspect(sourceBytes).kind === 'WithheldSecret') {
       return { kind: 'TaskSecretDetected' };
@@ -326,7 +326,7 @@ export class UserTasks {
     } catch {
       return { kind: 'TaskCommandIdUnavailable' };
     }
-    const prepared = prepareTaskCommand(source, commandId, repository.repository);
+    const prepared = prepareAuthorizedTaskCommand(source, commandId, repository.repository);
     if (prepared.kind === 'Rejected') {
       return { kind: 'TaskContractRejected', reason: prepared.reason };
     }

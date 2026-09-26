@@ -332,6 +332,7 @@ export function scopesForEligibility(
       'evaluation:append',
       'evaluation:close',
       'evaluation:prepare',
+      'evaluation:renew',
       'evidence:append',
       'evidence:seal',
       'run:create',

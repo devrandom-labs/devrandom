@@ -8,7 +8,7 @@ import {
   taskBudgetCeilings,
   type BaselineHarnessRevision,
   type PublicVerifierReceipt,
-  type TaskProjection,
+  type TaskProjectionV1,
 } from '@devrandom/protocol';
 import { describe, expect, it } from 'vitest';
 
@@ -61,7 +61,7 @@ describe('prepared public verifier source custody', () => {
 });
 
 function fixture(): {
-  readonly task: TaskProjection;
+  readonly task: TaskProjectionV1;
   readonly harness: BaselineHarnessRevision;
   readonly run: Run;
 } {
@@ -118,7 +118,7 @@ function fixture(): {
     },
   );
   if (preparedTask.kind !== 'Prepared') throw new Error('Task fixture must prepare');
-  const task: TaskProjection = {
+  const task: TaskProjectionV1 = {
     version: 1,
     taskId,
     ownerAid: said('u'),

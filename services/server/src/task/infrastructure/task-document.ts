@@ -1,10 +1,10 @@
 import {
   decodeTaskProjection,
-  taskCommandFingerprint,
+  authorizedTaskCommandFingerprint,
   taskLifecycleSchema,
-  taskRevisionSchema,
+  authorizedTaskRevisionSchema,
   type TaskProjection,
-  type TaskRevision,
+  type AuthorizedTaskRevision,
 } from '@devrandom/protocol';
 import Type from 'typebox';
 import Value from 'typebox/value';
@@ -26,7 +26,7 @@ const taskDocumentValueSchema = Type.Object(
     ownerAid: keriIdentifierSchema,
     label: taskLabelSchema,
     harnessLineageId: uuidV4Schema,
-    revision: taskRevisionSchema,
+    revision: authorizedTaskRevisionSchema,
     lifecycle: taskLifecycleSchema,
     commandId: uuidV4Schema,
     commandFingerprint: commandFingerprintSchema,
@@ -43,7 +43,7 @@ export interface TaskDocument {
   readonly ownerAid: string;
   readonly label: string;
   readonly harnessLineageId: string;
-  readonly revision: TaskRevision;
+  readonly revision: AuthorizedTaskRevision;
   readonly lifecycle: TaskProjection['lifecycle'];
   readonly commandId: string;
   readonly commandFingerprint: string;
@@ -102,8 +102,8 @@ export function encodeTaskDocument(
   ) {
     throw new TaskDocumentInvalid();
   }
-  const recomputedFingerprint = taskCommandFingerprint({
-    version: 1,
+  const recomputedFingerprint = authorizedTaskCommandFingerprint({
+    version: document.revision.version,
     commandId: document.commandId,
     label: document.label,
     revision: document.revision,
@@ -134,8 +134,8 @@ export function decodeTaskDocument(input: unknown): DecodedTaskDocument {
   if (decodedTask.kind === 'Rejected') {
     throw new TaskDocumentInvalid();
   }
-  const recomputedFingerprint = taskCommandFingerprint({
-    version: 1,
+  const recomputedFingerprint = authorizedTaskCommandFingerprint({
+    version: decodedTask.projection.revision.version,
     commandId: decodedTask.projection.commandId,
     label: decodedTask.projection.label,
     revision: decodedTask.projection.revision,

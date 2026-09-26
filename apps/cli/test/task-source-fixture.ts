@@ -3,7 +3,7 @@ import {
   taskBudgetCeilings,
   type PreparedRepository,
   type PreparedTaskCommand,
-  type TaskProjection,
+  type TaskProjectionV1,
   type TaskSourceCommand,
 } from '@devrandom/protocol';
 
@@ -57,7 +57,7 @@ export function preparedTaskCommandFixture(): PreparedTaskCommand {
 
 export function taskProjectionFixture(
   prepared: PreparedTaskCommand = preparedTaskCommandFixture(),
-): TaskProjection {
+): TaskProjectionV1 {
   return {
     version: 1,
     taskId: '4df838a8-5109-49fd-bdad-805880a3ecee',

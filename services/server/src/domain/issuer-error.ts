@@ -45,7 +45,7 @@ export type IssuerError =
     }
   | {
       readonly kind: 'mandate-schema-catalog-invalid';
-      readonly schema: 'TaskMandate' | 'PromotionMandate';
+      readonly schema: 'TaskMandate' | 'TaskMandateV2' | 'PromotionMandate' | 'PromotionMandateV2';
       readonly expectedSaid: string;
     }
   | {

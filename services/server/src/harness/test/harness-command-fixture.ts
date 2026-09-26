@@ -1,3 +1,5 @@
+import type { TaskToolCapability } from '@devrandom/domain';
+
 import {
   identifyHarnessCompletionCommand,
   identifyHarnessInstruction,
@@ -55,6 +57,12 @@ export function baselineHarnessCommandFixture(
   const completionCommands = completion.flatMap((identified) =>
     identified.kind === 'Identified' ? [identified.command] : [],
   );
+  const toolCapabilities = selectedTask.revision.requestedCapabilities.flatMap(
+    (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+  );
+  const unavailableToolCapabilities = selectedTask.revision.unavailableCapabilities.flatMap(
+    (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+  );
   const prepared = prepareBaselineHarnessRevision({
     toolCommands: (selectedTask.revision.toolCommands ?? []).map((declaration) => {
       const identified = identifyHarnessToolCommand(declaration, '/usr/bin/just');
@@ -65,12 +73,12 @@ export function baselineHarnessCommandFixture(
       taskId: harnessTaskId,
       revisionSaid: selectedTask.revisionSaid,
       harnessLineageId,
-      requestedCapabilities: selectedTask.revision.requestedCapabilities,
+      requestedCapabilities: toolCapabilities,
     },
     authority: {
       personalAgentAid: harnessPersonalAgentAid,
       taskMandateSaid: harnessTaskMandateSaid,
-      allowedCapabilities: selectedTask.revision.requestedCapabilities,
+      allowedCapabilities: toolCapabilities,
     },
     repository: {
       ...selectedTask.revision.repository,
@@ -96,8 +104,8 @@ export function baselineHarnessCommandFixture(
       xstateVersion: '5.33.2',
     },
     capabilities: {
-      available: selectedTask.revision.requestedCapabilities,
-      unavailable: selectedTask.revision.unavailableCapabilities,
+      available: toolCapabilities,
+      unavailable: unavailableToolCapabilities,
     },
     budgetCeilings: {
       task: selectedTask.revision.budgets,

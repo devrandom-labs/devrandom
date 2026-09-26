@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   decodeTaskRevision,
+  decodeTaskRevisionV2,
   prepareTaskCommand,
+  prepareTaskCommandV2,
   taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
   taskCommandFingerprint,
   taskSourceCommandSchema,
   type PreparedRepository,
@@ -90,6 +93,37 @@ function source(): TaskSourceCommand {
 }
 
 describe('Task command schemas', () => {
+  it('prepares a separately versioned Task with bounded analogous experience and comparison authority', () => {
+    const old = source();
+    const fresh = {
+      ...old,
+      version: 2,
+      constraints: {
+        ...old.constraints,
+        dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+        experience: {
+          corpusSaid: `E${'c'.repeat(43)}`,
+          repositoryResourceSaid: `E${'r'.repeat(43)}`,
+          disclosure: 'AuthorizedAnalogy',
+        },
+      },
+      requestedCapabilities: [...old.requestedCapabilities, 'ReadTaskMemory'],
+      budgets: { ...old.budgets, ...taskEvaluationBudgetCeilings },
+    } as const;
+    expect(Value.Check(taskSourceCommandSchema, fresh)).toBe(false);
+    const prepared = prepareTaskCommandV2(fresh, commandId, binding);
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') throw new Error('expected v2 task');
+    expect(prepared.command.revision.version).toBe(2);
+    expect(decodeTaskRevisionV2(prepared.command.revision)).toEqual({
+      kind: 'Accepted',
+      revision: prepared.command.revision,
+    });
+    expect(decodeTaskRevision(prepared.command.revision)).toEqual({
+      kind: 'Rejected',
+      reason: 'SchemaInvalid',
+    });
+  });
   it('rejects two repository deliverables naming the same path under different IDs', () => {
     const duplicatePath = source();
     duplicatePath.deliverables = [

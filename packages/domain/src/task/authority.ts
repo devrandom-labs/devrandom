@@ -16,6 +16,12 @@ export const taskToolCapabilities: readonly [
 
 export type TaskToolCapability = (typeof taskToolCapabilities)[number];
 
+export const taskEvaluationCapabilities = Object.freeze([
+  ...taskToolCapabilities,
+  'ReadTaskMemory',
+] as const);
+export type TaskEvaluationCapability = (typeof taskEvaluationCapabilities)[number];
+
 export const taskEvolutionClasses: readonly ['C1', 'C2', 'C3'] = Object.freeze(['C1', 'C2', 'C3']);
 
 export type TaskEvolutionClass = (typeof taskEvolutionClasses)[number];
@@ -142,4 +148,18 @@ export const taskBudgetCeilings: Readonly<TaskBudgets> = Object.freeze({
   changedFiles: 256,
   changedWorktreeBytes: 16_777_216,
   providerSpendMicroUsd: 5_000_000,
+});
+
+/** A new PRD03 Task must opt into these finite ceilings; v1 Tasks retain their signed limits. */
+export const taskEvaluationBudgetCeilings: Readonly<TaskBudgets> = Object.freeze({
+  ...taskBudgetCeilings,
+  artifactRequestBodyBytes: 1_048_576,
+  evidencePlusArtifactsPerRunBytes: 134_217_728,
+  runWallTimeSeconds: 14_400,
+  providerRequests: 256,
+  providerInputTokens: 2_500_000,
+  providerOutputTokens: 500_000,
+  toolProposals: 3_000,
+  aggregateChildCommandTimeSeconds: 7_200,
+  providerSpendMicroUsd: 25_000_000,
 });

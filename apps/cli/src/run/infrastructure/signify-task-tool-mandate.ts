@@ -4,7 +4,11 @@ import {
   type LocalMandateCustody,
   type MandateInspection,
 } from '@devrandom/identity';
-import { taskMandateSchemaSaid, type TaskProjection } from '@devrandom/protocol';
+import {
+  taskMandateSchemaSaid,
+  taskMandateV2SchemaSaid,
+  type TaskProjection,
+} from '@devrandom/protocol';
 import type { CurrentToolMandate, CurrentToolMandateInspection } from '@devrandom/runtime';
 
 export interface SignifyTaskToolMandateOptions {
@@ -35,6 +39,7 @@ function mandateTask(task: TaskProjection): MandateTask {
     budgets: task.revision.budgets,
     evolutionClasses: task.revision.evolutionClasses,
     expiresAt: task.revision.expiresAt,
+    ...(task.revision.version === 2 ? { experience: task.revision.constraints.experience } : {}),
   };
 }
 
@@ -94,7 +99,10 @@ export class SignifyTaskToolMandate implements CurrentToolMandate {
             issuerAid: this.#options.task.ownerAid,
             issueeAid: this.#options.personalAgentAid,
             registryId: this.#options.mandateRegistryId,
-            schemaSaid: taskMandateSchemaSaid,
+            schemaSaid:
+              this.#options.task.revision.version === 2
+                ? taskMandateV2SchemaSaid
+                : taskMandateSchemaSaid,
             credentialSaid: this.#options.taskMandateSaid,
           },
           task: mandateTask(this.#options.task),
@@ -118,7 +126,11 @@ export class SignifyTaskToolMandate implements CurrentToolMandate {
       return {
         kind: 'Current',
         mandateSaid: verification.mandate.credential.credentialSaid,
-        allowedCapabilities: exactRequest ? verification.mandate.allowedCapabilities : [],
+        allowedCapabilities: exactRequest
+          ? verification.mandate.allowedCapabilities.flatMap((capability): TaskToolCapability[] =>
+              capability === 'ReadTaskMemory' ? [] : [capability],
+            )
+          : [],
       };
     } catch {
       return { kind: 'Unavailable' };

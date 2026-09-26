@@ -4,7 +4,7 @@ import { promotionEvidenceClasses } from '@devrandom/domain';
 import {
   promotionMandateSchemaSaid,
   taskMandateSchemaSaid,
-  type TaskProjection,
+  type TaskProjectionV1,
 } from '@devrandom/protocol';
 
 import { taskCommandFixture } from '../../task/test/task-command-fixture.js';
@@ -29,7 +29,7 @@ const expiresAt = '2026-09-24T12:30:00.000Z';
 const taskId = '4df838a8-5109-49fd-bdad-805880a3ecee';
 const harnessLineageId = '5ebf49b9-df26-4a49-9194-da868f97cf9d';
 const taskCommand = taskCommandFixture('2026-09-24T14:00:00.000Z');
-const task: TaskProjection = {
+const task: TaskProjectionV1 = {
   version: 1,
   taskId,
   ownerAid,

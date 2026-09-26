@@ -2,8 +2,8 @@ import {
   taskBudgetNames,
   type TaskBudgetName,
   type TaskBudgets,
+  type TaskEvaluationCapability,
   type TaskEvolutionClass,
-  type TaskToolCapability,
 } from '../task/authority.js';
 
 export const promotionEvidenceClasses: readonly [
@@ -89,11 +89,29 @@ export interface MandateTask {
   readonly revisionSaid: string;
   readonly harnessLineageId: string;
   readonly repository: MandateRepository;
-  readonly requestedCapabilities: readonly TaskToolCapability[];
-  readonly unavailableCapabilities: readonly TaskToolCapability[];
+  readonly requestedCapabilities: readonly TaskEvaluationCapability[];
+  readonly unavailableCapabilities: readonly TaskEvaluationCapability[];
   readonly budgets: TaskBudgets;
   readonly evolutionClasses: readonly TaskEvolutionClass[];
   readonly expiresAt: string;
+  readonly experience?: MandateExperienceScope;
+}
+
+export interface MandateExperienceScope {
+  readonly corpusSaid: string;
+  readonly repositoryResourceSaid: string;
+  readonly disclosure: 'AuthorizedAnalogy';
+}
+
+function sameExperienceScope(
+  expected: MandateExperienceScope | undefined,
+  actual: MandateExperienceScope | undefined,
+): boolean {
+  if (expected === undefined || actual === undefined) return expected === actual;
+  return (
+    expected.corpusSaid === actual.corpusSaid &&
+    expected.repositoryResourceSaid === actual.repositoryResourceSaid
+  );
 }
 
 export interface TaskMandateInspection {
@@ -103,11 +121,12 @@ export interface TaskMandateInspection {
   readonly taskRevisionSaid: string;
   readonly harnessLineageId: string;
   readonly repository: MandateRepository;
-  readonly allowedCapabilities: readonly TaskToolCapability[];
+  readonly allowedCapabilities: readonly TaskEvaluationCapability[];
   readonly budgets: TaskBudgets;
   readonly allowedEvolutionClasses: readonly TaskEvolutionClass[];
   readonly notBefore: string;
   readonly expiresAt: string;
+  readonly experience?: MandateExperienceScope;
 }
 
 export interface PromotionMandateInspection {
@@ -116,10 +135,11 @@ export interface PromotionMandateInspection {
   readonly taskId: string;
   readonly taskRevisionSaid: string;
   readonly harnessLineageId: string;
-  readonly capabilityCeiling: readonly TaskToolCapability[];
+  readonly capabilityCeiling: readonly TaskEvaluationCapability[];
   readonly budgetCeiling: TaskBudgets;
   readonly evolutionClassCeiling: readonly TaskEvolutionClass[];
   readonly requiredEvidenceClasses: readonly PromotionEvidenceClass[];
+  readonly experience?: MandateExperienceScope;
   readonly notBefore: string;
   readonly expiresAt: string;
 }
@@ -174,15 +194,16 @@ export type MandateInvalidity =
       readonly actual: MandateAuthority;
     }
   | { readonly kind: 'RepositoryBindingMismatch' }
-  | { readonly kind: 'DuplicateCapability'; readonly capability: TaskToolCapability }
-  | { readonly kind: 'CapabilityOutsideTask'; readonly capability: TaskToolCapability }
+  | { readonly kind: 'ExperienceScopeMismatch' }
+  | { readonly kind: 'DuplicateCapability'; readonly capability: TaskEvaluationCapability }
+  | { readonly kind: 'CapabilityOutsideTask'; readonly capability: TaskEvaluationCapability }
   | { readonly kind: 'BudgetOutsideTask'; readonly budget: TaskBudgetName }
   | { readonly kind: 'BudgetInvalid'; readonly budget: TaskBudgetName }
   | { readonly kind: 'DuplicateEvolutionClass'; readonly evolutionClass: TaskEvolutionClass }
   | { readonly kind: 'EvolutionClassOutsideTask'; readonly evolutionClass: TaskEvolutionClass }
   | {
       readonly kind: 'CapabilityCeilingOutsideTaskMandate';
-      readonly capability: TaskToolCapability;
+      readonly capability: TaskEvaluationCapability;
     }
   | { readonly kind: 'BudgetCeilingOutsideTaskMandate'; readonly budget: TaskBudgetName }
   | {
@@ -440,6 +461,12 @@ export function verifyTaskMandate(
   if (!sameRepository(inspection.repository, expected.task.repository)) {
     return invalid({ kind: 'RepositoryBindingMismatch' });
   }
+  if (
+    !sameExperienceScope(expected.task.experience, inspection.experience) ||
+    (expected.task.experience !== undefined &&
+      !inspection.allowedCapabilities.includes('ReadTaskMemory'))
+  )
+    return invalid({ kind: 'ExperienceScopeMismatch' });
   const duplicateCapability = firstDuplicate(inspection.allowedCapabilities);
   if (duplicateCapability !== undefined) {
     return invalid({ kind: 'DuplicateCapability', capability: duplicateCapability });
@@ -491,6 +518,9 @@ export function verifyTaskMandate(
     allowedCapabilities: Object.freeze([...inspection.allowedCapabilities]),
     budgets: freezeBudgets(inspection.budgets),
     allowedEvolutionClasses: Object.freeze([...inspection.allowedEvolutionClasses]),
+    ...(inspection.experience === undefined
+      ? {}
+      : { experience: Object.freeze({ ...inspection.experience }) }),
     kind: 'TaskMandate',
     [currentTaskMandate]: currentTaskMandate,
   };
@@ -534,6 +564,9 @@ export function verifyPromotionMandate(
   const resourceFailure = resourceInvalidity(expected.task, inspection);
   if (resourceFailure !== undefined) {
     return invalid(resourceFailure);
+  }
+  if (!sameExperienceScope(expected.task.experience, inspection.experience)) {
+    return invalid({ kind: 'ExperienceScopeMismatch' });
   }
   const duplicateCapability = firstDuplicate(inspection.capabilityCeiling);
   if (duplicateCapability !== undefined) {
@@ -594,6 +627,9 @@ export function verifyPromotionMandate(
     budgetCeiling: freezeBudgets(inspection.budgetCeiling),
     evolutionClassCeiling: Object.freeze([...inspection.evolutionClassCeiling]),
     requiredEvidenceClasses: promotionEvidenceClasses,
+    ...(inspection.experience === undefined
+      ? {}
+      : { experience: Object.freeze({ ...inspection.experience }) }),
     kind: 'PromotionMandate',
     [currentPromotionMandate]: currentPromotionMandate,
   };

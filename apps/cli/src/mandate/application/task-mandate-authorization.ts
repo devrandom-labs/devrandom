@@ -19,7 +19,9 @@ import {
 } from '@devrandom/identity';
 import {
   promotionMandateSchemaSaid,
+  promotionMandateV2SchemaSaid,
   taskMandateSchemaSaid,
+  taskMandateV2SchemaSaid,
   type MandatePresentationProblem,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -703,7 +705,8 @@ export class TaskMandateAuthorization {
             issuerAid: input.governance.userAid,
             issueeAid: input.governance.personalAgentAid,
             registryId: input.governance.mandateRegistryId,
-            schemaSaid: taskMandateSchemaSaid,
+            schemaSaid:
+              input.task.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
             credentialSaid: inspection.value.credential.credentialSaid,
           },
           task,
@@ -734,7 +737,8 @@ export class TaskMandateAuthorization {
           issuerAid: input.governance.userAid,
           issueeAid: input.governance.personalAgentAid,
           registryId: input.governance.mandateRegistryId,
-          schemaSaid: taskMandateSchemaSaid,
+          schemaSaid:
+            input.task.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
           credentialSaid: taskMandateReference.credential.credentialSaid,
         },
         task,
@@ -751,7 +755,10 @@ export class TaskMandateAuthorization {
           issuerAid: input.governance.userAid,
           issueeAid: input.governance.governorAid,
           registryId: input.governance.mandateRegistryId,
-          schemaSaid: promotionMandateSchemaSaid,
+          schemaSaid:
+            input.task.revision.version === 2
+              ? promotionMandateV2SchemaSaid
+              : promotionMandateSchemaSaid,
           credentialSaid: inspection.value.credential.credentialSaid,
         },
         task,
@@ -804,6 +811,7 @@ function mandateTask(task: TaskProjection): MandateTask {
     budgets: task.revision.budgets,
     evolutionClasses: task.revision.evolutionClasses,
     expiresAt: task.revision.expiresAt,
+    ...(task.revision.version === 2 ? { experience: task.revision.constraints.experience } : {}),
   };
 }
 

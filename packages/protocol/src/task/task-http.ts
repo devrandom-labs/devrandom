@@ -10,11 +10,13 @@ import {
   workAccessGrantScopeRejectedProblemSchema,
 } from '../work-access.js';
 import {
-  decodeTaskRevision,
-  preparedTaskCommandSchema,
+  decodeAuthorizedTaskRevision,
+  authorizedPreparedTaskCommandSchema,
+  authorizedTaskRevisionSchema,
   taskLabelSchema,
-  taskRevisionSchema,
   type TaskRevisionInvalidity,
+  type TaskRevision,
+  type TaskRevisionV2,
 } from './task-command.js';
 
 const uuidV4Schema = Type.String({
@@ -25,7 +27,7 @@ const timestampSchema = Type.String({
   pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$',
 });
 
-export const createTaskBodySchema = preparedTaskCommandSchema;
+export const createTaskBodySchema = authorizedPreparedTaskCommandSchema;
 export type CreateTaskBody = Type.Static<typeof createTaskBodySchema>;
 
 export const taskLifecycleSchema = Type.Union([
@@ -50,12 +52,18 @@ const taskProperties = {
 export const taskProjectionSchema = Type.Object(
   {
     ...taskProperties,
-    revision: taskRevisionSchema,
+    revision: authorizedTaskRevisionSchema,
   },
   { additionalProperties: false },
 );
 
 export type TaskProjection = Type.Static<typeof taskProjectionSchema>;
+export type TaskProjectionV1 = Omit<TaskProjection, 'revision'> & {
+  readonly revision: TaskRevision;
+};
+export type TaskProjectionV2 = Omit<TaskProjection, 'revision'> & {
+  readonly revision: TaskRevisionV2;
+};
 
 export type TaskProjectionDecoding =
   | { readonly kind: 'Accepted'; readonly projection: TaskProjection }
@@ -72,7 +80,7 @@ export function decodeTaskProjection(input: unknown): TaskProjectionDecoding {
   if (!Value.Check(taskProjectionSchema, input)) {
     return { kind: 'Rejected', reason: 'SchemaInvalid' };
   }
-  const revision = decodeTaskRevision(input.revision);
+  const revision = decodeAuthorizedTaskRevision(input.revision);
   if (revision.kind === 'Rejected') {
     return {
       kind: 'Rejected',

@@ -1,4 +1,4 @@
-import type { AdmittedUser } from '@devrandom/domain';
+import type { AdmittedUser, TaskToolCapability } from '@devrandom/domain';
 import type {
   EstablishedLocalPrincipals,
   IssuerAid,
@@ -178,7 +178,9 @@ function mandateSummary(
     harnessAuthority: {
       personalAgentAid: governance.personalAgentAid,
       taskMandateSaid: authorization.stage.taskMandate.credential.credentialSaid,
-      allowedCapabilities: taskPlan.issuance.claims.allowedCapabilities,
+      allowedCapabilities: taskPlan.issuance.claims.allowedCapabilities.flatMap(
+        (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+      ),
       mandateBudgets: taskPlan.issuance.claims.budgets,
     },
     runAuthority: {

@@ -1,4 +1,10 @@
-import { taskBudgetCeilings, taskEvolutionClasses, taskToolCapabilities } from '@devrandom/domain';
+import {
+  taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
+  taskEvolutionClasses,
+  taskToolCapabilities,
+  type TaskEvaluationCapability,
+} from '@devrandom/domain';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
 import { Value } from 'typebox/value';
@@ -146,6 +152,7 @@ export const checkpointExpectationSchema = Type.Union([
 ]);
 
 export { taskBudgetCeilings };
+export { taskEvaluationBudgetCeilings };
 
 export const taskBudgetsSchema = Type.Object(
   {
@@ -295,6 +302,112 @@ export const preparedTaskCommandSchema = Type.Object(
 
 export type PreparedTaskCommand = Type.Static<typeof preparedTaskCommandSchema>;
 
+export const taskEvaluationBudgetsSchema = Type.Object(
+  {
+    ...taskBudgetsSchema.properties,
+    artifactRequestBodyBytes: safeInteger(taskEvaluationBudgetCeilings.artifactRequestBodyBytes),
+    evidencePlusArtifactsPerRunBytes: safeInteger(
+      taskEvaluationBudgetCeilings.evidencePlusArtifactsPerRunBytes,
+    ),
+    runWallTimeSeconds: safeInteger(taskEvaluationBudgetCeilings.runWallTimeSeconds),
+    providerRequests: safeInteger(taskEvaluationBudgetCeilings.providerRequests),
+    providerInputTokens: safeInteger(taskEvaluationBudgetCeilings.providerInputTokens),
+    providerOutputTokens: safeInteger(taskEvaluationBudgetCeilings.providerOutputTokens),
+    toolProposals: safeInteger(taskEvaluationBudgetCeilings.toolProposals),
+    aggregateChildCommandTimeSeconds: safeInteger(
+      taskEvaluationBudgetCeilings.aggregateChildCommandTimeSeconds,
+    ),
+    providerSpendMicroUsd: safeInteger(taskEvaluationBudgetCeilings.providerSpendMicroUsd),
+  },
+  { additionalProperties: false },
+);
+
+export const evaluationExperienceSchema = Type.Object(
+  {
+    corpusSaid: saidSchema,
+    repositoryResourceSaid: saidSchema,
+    disclosure: Type.Literal('AuthorizedAnalogy'),
+  },
+  { additionalProperties: false },
+);
+
+const evaluationConstraintsSchema = Type.Object(
+  {
+    protectedPaths: taskContractProperties.constraints.properties.protectedPaths,
+    prohibitedEffects: taskContractProperties.constraints.properties.prohibitedEffects,
+    dataPolicy: Type.Literal('RepositoryAndAuthorizedTaskExperience'),
+    experience: evaluationExperienceSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const evaluationToolCapabilitySchema = Type.Union([
+  toolCapabilitySchema,
+  Type.Literal('ReadTaskMemory'),
+]);
+
+const taskEvaluationContractProperties = {
+  ...taskContractProperties,
+  constraints: evaluationConstraintsSchema,
+  requestedCapabilities: Type.Array(evaluationToolCapabilitySchema, {
+    minItems: 2,
+    maxItems: 7,
+    uniqueItems: true,
+  }),
+  unavailableCapabilities: Type.Array(evaluationToolCapabilitySchema, {
+    maxItems: 7,
+    uniqueItems: true,
+  }),
+  budgets: taskEvaluationBudgetsSchema,
+};
+
+export const taskSourceCommandV2Schema = Type.Object(
+  {
+    version: Type.Literal(2),
+    label: taskLabelSchema,
+    ...taskEvaluationContractProperties,
+    repository: sourceRepositorySchema,
+  },
+  { additionalProperties: false },
+);
+
+export const taskRevisionV2Schema = Type.Object(
+  {
+    version: Type.Literal(2),
+    d: saidSchema,
+    ...taskEvaluationContractProperties,
+    repository: preparedRepositorySchema,
+  },
+  { additionalProperties: false },
+);
+
+export const preparedTaskCommandV2Schema = Type.Object(
+  {
+    version: Type.Literal(2),
+    commandId: uuidV4Schema,
+    label: taskLabelSchema,
+    revision: taskRevisionV2Schema,
+  },
+  { additionalProperties: false },
+);
+
+export type TaskSourceCommandV2 = Type.Static<typeof taskSourceCommandV2Schema>;
+export type TaskRevisionV2 = Type.Static<typeof taskRevisionV2Schema>;
+export type PreparedTaskCommandV2 = Type.Static<typeof preparedTaskCommandV2Schema>;
+
+export const authorizedTaskSourceCommandSchema = Type.Union([
+  taskSourceCommandSchema,
+  taskSourceCommandV2Schema,
+]);
+export const authorizedTaskRevisionSchema = Type.Union([taskRevisionSchema, taskRevisionV2Schema]);
+export const authorizedPreparedTaskCommandSchema = Type.Union([
+  preparedTaskCommandSchema,
+  preparedTaskCommandV2Schema,
+]);
+export type AuthorizedTaskSourceCommand = Type.Static<typeof authorizedTaskSourceCommandSchema>;
+export type AuthorizedTaskRevision = Type.Static<typeof authorizedTaskRevisionSchema>;
+export type AuthorizedPreparedTaskCommand = Type.Static<typeof authorizedPreparedTaskCommandSchema>;
+
 export type TaskContractInvalidity =
   | 'DeadlineInvalid'
   | 'TextConstraintViolation'
@@ -308,7 +421,8 @@ export type TaskContractInvalidity =
   | 'UnknownCheckpointReference'
   | 'CapabilitySetsOverlap'
   | 'CompletionTimeoutExceedsBudget'
-  | 'ShellSyntaxNotAccepted';
+  | 'ShellSyntaxNotAccepted'
+  | 'ExperienceCapabilityMissing';
 
 export type TaskPreparationRejectionReason =
   'SchemaInvalid' | TaskContractInvalidity | 'RepositoryBindingMismatch' | 'SaidConstructionFailed';
@@ -324,7 +438,7 @@ export type TaskRevisionDecoding =
   | { readonly kind: 'Accepted'; readonly revision: TaskRevision }
   | { readonly kind: 'Rejected'; readonly reason: TaskRevisionInvalidity };
 
-type TaskContract = TaskSourceCommand | TaskRevision;
+type TaskContract = TaskSourceCommand | TaskRevision | TaskSourceCommandV2 | TaskRevisionV2;
 
 export function taskTimestampIsCanonical(timestamp: string): boolean {
   const instant = new Date(timestamp);
@@ -424,6 +538,13 @@ function firstDuplicate(values: readonly string[]): string | undefined {
 }
 
 function contractRejection(contract: TaskContract): TaskContractInvalidity | undefined {
+  if (
+    contract.version === 2 &&
+    (!contract.requestedCapabilities.includes('ReadTaskMemory') ||
+      contract.unavailableCapabilities.includes('ReadTaskMemory'))
+  ) {
+    return 'ExperienceCapabilityMissing';
+  }
   if (!taskTimestampIsCanonical(contract.expiresAt)) {
     return 'DeadlineInvalid';
   }
@@ -482,7 +603,7 @@ function contractRejection(contract: TaskContract): TaskContractInvalidity | und
     return 'DuplicateCheckpointReference';
   }
 
-  const requested = new Set<ToolCapability>(contract.requestedCapabilities);
+  const requested = new Set<TaskEvaluationCapability>(contract.requestedCapabilities);
   if (contract.unavailableCapabilities.some((capability) => requested.has(capability))) {
     return 'CapabilitySetsOverlap';
   }
@@ -515,7 +636,7 @@ function rebuildRepository(repository: PreparedRepository): PreparedRepository {
 
 function rebuildContract(contract: TaskContract, repository: PreparedRepository, d: string) {
   return {
-    version: 1,
+    version: contract.version,
     d,
     title: contract.title,
     objective: contract.objective,
@@ -551,6 +672,15 @@ function rebuildContract(contract: TaskContract, repository: PreparedRepository,
       protectedPaths: utf8Sort(contract.constraints.protectedPaths),
       prohibitedEffects: utf8Sort(contract.constraints.prohibitedEffects),
       dataPolicy: contract.constraints.dataPolicy,
+      ...(contract.version === 2
+        ? {
+            experience: {
+              corpusSaid: contract.constraints.experience.corpusSaid,
+              repositoryResourceSaid: contract.constraints.experience.repositoryResourceSaid,
+              disclosure: contract.constraints.experience.disclosure,
+            },
+          }
+        : {}),
     },
     requestedCapabilities: utf8Sort(contract.requestedCapabilities),
     unavailableCapabilities: utf8Sort(contract.unavailableCapabilities),
@@ -634,6 +764,60 @@ export function prepareTaskCommand(
   }
 }
 
+export type TaskPreparationV2 =
+  | { readonly kind: 'Prepared'; readonly command: PreparedTaskCommandV2 }
+  | { readonly kind: 'Rejected'; readonly reason: TaskPreparationRejectionReason };
+
+export function prepareTaskCommandV2(
+  source: unknown,
+  commandId: string,
+  repository: PreparedRepository,
+): TaskPreparationV2 {
+  if (
+    !Value.Check(taskSourceCommandV2Schema, source) ||
+    !Value.Check(uuidV4Schema, commandId) ||
+    !Value.Check(preparedRepositorySchema, repository)
+  )
+    return { kind: 'Rejected', reason: 'SchemaInvalid' };
+  if (source.repository.kind === 'gitCommit' && source.repository.commit !== repository.commit)
+    return { kind: 'Rejected', reason: 'RepositoryBindingMismatch' };
+  const rejection = contractRejection(source);
+  if (rejection !== undefined) return { kind: 'Rejected', reason: rejection };
+  try {
+    const candidate = rebuildContract(source, repository, '');
+    const saidified: unknown = Saider.saidify(candidate)[1];
+    if (!Value.Check(taskRevisionV2Schema, saidified))
+      return { kind: 'Rejected', reason: 'SaidConstructionFailed' };
+    return {
+      kind: 'Prepared',
+      command: { version: 2, commandId, label: source.label, revision: saidified },
+    };
+  } catch {
+    return { kind: 'Rejected', reason: 'SaidConstructionFailed' };
+  }
+}
+
+export type TaskRevisionDecodingV2 =
+  | { readonly kind: 'Accepted'; readonly revision: TaskRevisionV2 }
+  | { readonly kind: 'Rejected'; readonly reason: TaskRevisionInvalidity };
+
+export function decodeTaskRevisionV2(input: unknown): TaskRevisionDecodingV2 {
+  if (!Value.Check(taskRevisionV2Schema, input))
+    return { kind: 'Rejected', reason: 'SchemaInvalid' };
+  const invalidity = contractRejection(input);
+  if (invalidity !== undefined) return { kind: 'Rejected', reason: invalidity };
+  const canonical = rebuildContract(input, input.repository, input.d);
+  if (JSON.stringify(input) !== JSON.stringify(canonical))
+    return { kind: 'Rejected', reason: 'NonCanonical' };
+  try {
+    if (!new Saider({ qb64: input.d }).verify(input, true, false))
+      return { kind: 'Rejected', reason: 'SaidMismatch' };
+  } catch {
+    return { kind: 'Rejected', reason: 'SaidMismatch' };
+  }
+  return { kind: 'Accepted', revision: input };
+}
+
 export function decodeTaskRevision(input: unknown): TaskRevisionDecoding {
   if (!Value.Check(taskRevisionSchema, input)) {
     return { kind: 'Rejected', reason: 'SchemaInvalid' };
@@ -669,4 +853,43 @@ export function taskCommandFingerprint(command: PreparedTaskCommand): string {
     revision: command.revision,
   };
   return rfc8785Sha256(content);
+}
+
+export function prepareAuthorizedTaskCommand(
+  source: unknown,
+  commandId: string,
+  repository: PreparedRepository,
+): TaskPreparation | TaskPreparationV2 {
+  if (Value.Check(taskSourceCommandV2Schema, source))
+    return prepareTaskCommandV2(source, commandId, repository);
+  if (Value.Check(taskSourceCommandSchema, source))
+    return prepareTaskCommand(source, commandId, repository);
+  return { kind: 'Rejected', reason: 'SchemaInvalid' };
+}
+
+export function decodeAuthorizedTaskRevision(
+  input: unknown,
+): TaskRevisionDecoding | TaskRevisionDecodingV2 {
+  if (Value.Check(taskRevisionV2Schema, input)) return decodeTaskRevisionV2(input);
+  return decodeTaskRevision(input);
+}
+
+export function authorizedTaskCommandFingerprint(command: {
+  readonly version: 1 | 2;
+  readonly commandId: string;
+  readonly label: string;
+  readonly revision: AuthorizedTaskRevision;
+}): string {
+  if (command.version === 1 && Value.Check(preparedTaskCommandSchema, command))
+    return taskCommandFingerprint(command);
+  if (
+    !Value.Check(preparedTaskCommandV2Schema, command) ||
+    decodeTaskRevisionV2(command.revision).kind !== 'Accepted'
+  )
+    throw new TypeError('Task command fingerprint requires a valid prepared command');
+  return rfc8785Sha256({
+    version: command.version,
+    label: command.label,
+    revision: command.revision,
+  });
 }

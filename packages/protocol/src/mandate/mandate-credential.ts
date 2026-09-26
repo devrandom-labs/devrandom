@@ -1,16 +1,15 @@
-import {
-  promotionEvidenceClasses,
-  taskEvolutionClasses,
-  taskToolCapabilities,
-} from '@devrandom/domain';
+import { promotionEvidenceClasses, taskEvolutionClasses } from '@devrandom/domain';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
 import { Value } from 'typebox/value';
 
 import {
   evolutionClassSchema,
+  evaluationExperienceSchema,
+  evaluationToolCapabilitySchema,
   preparedRepositorySchema,
   taskBudgetsSchema,
+  taskEvaluationBudgetsSchema,
   toolCapabilitySchema,
 } from '../task/task-command.js';
 
@@ -45,7 +44,7 @@ const taskMandateAttributesSchema = Type.Object(
     repository: preparedRepositorySchema,
     allowedCapabilities: Type.Array(toolCapabilitySchema, {
       minItems: 1,
-      maxItems: taskToolCapabilities.length,
+      maxItems: 6,
       uniqueItems: true,
     }),
     budgets: taskBudgetsSchema,
@@ -54,6 +53,23 @@ const taskMandateAttributesSchema = Type.Object(
       maxItems: taskEvolutionClasses.length,
       uniqueItems: true,
     }),
+    notBefore: timestampSchema,
+    expiresAt: timestampSchema,
+  },
+  { additionalProperties: false },
+);
+
+const taskMandateV2AttributesSchema = Type.Object(
+  {
+    ...taskMandateAttributesSchema.properties,
+    allowedCapabilities: Type.Array(evaluationToolCapabilitySchema, {
+      minItems: 1,
+      maxItems: 7,
+      uniqueItems: true,
+    }),
+    budgets: taskEvaluationBudgetsSchema,
+    allowedEvolutionClasses: taskMandateAttributesSchema.properties.allowedEvolutionClasses,
+    experience: evaluationExperienceSchema,
     notBefore: timestampSchema,
     expiresAt: timestampSchema,
   },
@@ -71,7 +87,7 @@ const promotionMandateAttributesSchema = Type.Object(
     harnessLineageId: uuidV4Schema,
     capabilityCeiling: Type.Array(toolCapabilitySchema, {
       minItems: 1,
-      maxItems: taskToolCapabilities.length,
+      maxItems: 6,
       uniqueItems: true,
     }),
     budgetCeiling: taskBudgetsSchema,
@@ -91,11 +107,28 @@ const promotionMandateAttributesSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const promotionMandateV2AttributesSchema = Type.Object(
+  {
+    ...promotionMandateAttributesSchema.properties,
+    capabilityCeiling: Type.Array(evaluationToolCapabilitySchema, {
+      minItems: 1,
+      maxItems: 7,
+      uniqueItems: true,
+    }),
+    budgetCeiling: taskEvaluationBudgetsSchema,
+    experience: evaluationExperienceSchema,
+    notBefore: timestampSchema,
+    expiresAt: timestampSchema,
+  },
+  { additionalProperties: false },
+);
+
 function mandateSchema<Attributes extends ReturnType<typeof Type.Object>>(
   attributes: Attributes,
   title: string,
   description: string,
   credentialType: string,
+  version = '1.0.0',
 ) {
   return Type.Object(
     {
@@ -112,7 +145,7 @@ function mandateSchema<Attributes extends ReturnType<typeof Type.Object>>(
       title,
       description,
       credentialType,
-      version: '1.0.0',
+      version,
       additionalProperties: false,
     },
   );
@@ -138,6 +171,25 @@ export const taskMandateSchema = {
   $id: taskMandateSchemaSaid,
 };
 
+const taskMandateV2SchemaDefinition = mandateSchema(
+  taskMandateV2AttributesSchema,
+  'Devrandom Task Mandate v2',
+  'User-issued bounded PRD03 authority for one personal agent, Task Revision and experience corpus',
+  'DevrandomTaskMandate',
+  '2.0.0',
+);
+const [taskMandateV2SchemaId] = Saider.saidify(
+  taskMandateV2SchemaDefinition,
+  undefined,
+  undefined,
+  '$id',
+);
+export const taskMandateV2SchemaSaid = taskMandateV2SchemaId.qb64;
+export const taskMandateV2Schema = {
+  ...taskMandateV2SchemaDefinition,
+  $id: taskMandateV2SchemaSaid,
+};
+
 const promotionMandateSchemaDefinition = mandateSchema(
   promotionMandateAttributesSchema,
   'Devrandom Promotion Mandate',
@@ -158,11 +210,30 @@ export const promotionMandateSchema = {
   $id: promotionMandateSchemaSaid,
 };
 
+const promotionMandateV2SchemaDefinition = mandateSchema(
+  promotionMandateV2AttributesSchema,
+  'Devrandom Promotion Mandate v2',
+  'User-issued bounded PRD03 authority for one Governor, Task Revision and experience corpus',
+  'DevrandomPromotionMandate',
+  '2.0.0',
+);
+const [promotionMandateV2SchemaId] = Saider.saidify(
+  promotionMandateV2SchemaDefinition,
+  undefined,
+  undefined,
+  '$id',
+);
+export const promotionMandateV2SchemaSaid = promotionMandateV2SchemaId.qb64;
+export const promotionMandateV2Schema = {
+  ...promotionMandateV2SchemaDefinition,
+  $id: promotionMandateV2SchemaSaid,
+};
+
 export type MandateSchemaCatalogVerification =
   | { readonly kind: 'Verified' }
   | {
       readonly kind: 'Mismatch';
-      readonly schema: 'TaskMandate' | 'PromotionMandate';
+      readonly schema: 'TaskMandate' | 'TaskMandateV2' | 'PromotionMandate' | 'PromotionMandateV2';
       readonly expectedSaid: string;
     };
 
@@ -192,14 +263,32 @@ export function verifyMandateSchemaCatalog(): MandateSchemaCatalogVerification {
       expectedSaid: promotionMandateSchemaSaid,
     };
   }
+  if (!schemaMatchesSaid(taskMandateV2Schema, taskMandateV2SchemaSaid)) {
+    return { kind: 'Mismatch', schema: 'TaskMandateV2', expectedSaid: taskMandateV2SchemaSaid };
+  }
+  if (!schemaMatchesSaid(promotionMandateV2Schema, promotionMandateV2SchemaSaid)) {
+    return {
+      kind: 'Mismatch',
+      schema: 'PromotionMandateV2',
+      expectedSaid: promotionMandateV2SchemaSaid,
+    };
+  }
   return { kind: 'Verified' };
 }
 
 export type TaskMandateCredential = Type.Static<typeof taskMandateSchema>;
+export type TaskMandateV2Credential = Type.Static<typeof taskMandateV2Schema>;
 export type TaskMandateAttributes = TaskMandateCredential['a'];
+export type TaskMandateV2Attributes = TaskMandateV2Credential['a'];
 export type PromotionMandateCredential = Type.Static<typeof promotionMandateSchema>;
+export type PromotionMandateV2Credential = Type.Static<typeof promotionMandateV2Schema>;
 export type PromotionMandateAttributes = PromotionMandateCredential['a'];
-export type MandateCredential = TaskMandateCredential | PromotionMandateCredential;
+export type PromotionMandateV2Attributes = PromotionMandateV2Credential['a'];
+export type MandateCredential =
+  | TaskMandateCredential
+  | TaskMandateV2Credential
+  | PromotionMandateCredential
+  | PromotionMandateV2Credential;
 
 export type MandateCredentialInvalidity =
   | 'SchemaInvalid'
@@ -212,8 +301,16 @@ export type TaskMandateCredentialDecoding =
   | { readonly kind: 'Accepted'; readonly credential: TaskMandateCredential }
   | { readonly kind: 'Rejected'; readonly reason: MandateCredentialInvalidity };
 
+export type TaskMandateV2CredentialDecoding =
+  | { readonly kind: 'Accepted'; readonly credential: TaskMandateV2Credential }
+  | { readonly kind: 'Rejected'; readonly reason: MandateCredentialInvalidity };
+
 export type PromotionMandateCredentialDecoding =
   | { readonly kind: 'Accepted'; readonly credential: PromotionMandateCredential }
+  | { readonly kind: 'Rejected'; readonly reason: MandateCredentialInvalidity };
+
+export type PromotionMandateV2CredentialDecoding =
+  | { readonly kind: 'Accepted'; readonly credential: PromotionMandateV2Credential }
   | { readonly kind: 'Rejected'; readonly reason: MandateCredentialInvalidity };
 
 function compareUtf8(left: string, right: string): number {
@@ -302,6 +399,36 @@ function rebuildTaskMandateCredential(credential: TaskMandateCredential) {
   };
 }
 
+function rebuildTaskMandateV2Credential(credential: TaskMandateV2Credential) {
+  return {
+    v: credential.v,
+    d: credential.d,
+    i: credential.i,
+    ri: credential.ri,
+    s: credential.s,
+    a: {
+      d: credential.a.d,
+      i: credential.a.i,
+      dt: credential.a.dt,
+      authority: credential.a.authority,
+      taskId: credential.a.taskId,
+      taskRevisionSaid: credential.a.taskRevisionSaid,
+      harnessLineageId: credential.a.harnessLineageId,
+      repository: rebuildRepository(credential.a.repository),
+      allowedCapabilities: sorted(credential.a.allowedCapabilities),
+      budgets: rebuildBudgets(credential.a.budgets),
+      allowedEvolutionClasses: sorted(credential.a.allowedEvolutionClasses),
+      experience: {
+        corpusSaid: credential.a.experience.corpusSaid,
+        repositoryResourceSaid: credential.a.experience.repositoryResourceSaid,
+        disclosure: credential.a.experience.disclosure,
+      },
+      notBefore: credential.a.notBefore,
+      expiresAt: credential.a.expiresAt,
+    },
+  };
+}
+
 function rebuildPromotionMandateCredential(credential: PromotionMandateCredential) {
   return {
     v: credential.v,
@@ -321,6 +448,36 @@ function rebuildPromotionMandateCredential(credential: PromotionMandateCredentia
       budgetCeiling: rebuildBudgets(credential.a.budgetCeiling),
       evolutionClassCeiling: sorted(credential.a.evolutionClassCeiling),
       requiredEvidenceClasses: [...promotionEvidenceClasses],
+      notBefore: credential.a.notBefore,
+      expiresAt: credential.a.expiresAt,
+    },
+  };
+}
+
+function rebuildPromotionMandateV2Credential(credential: PromotionMandateV2Credential) {
+  return {
+    v: credential.v,
+    d: credential.d,
+    i: credential.i,
+    ri: credential.ri,
+    s: credential.s,
+    a: {
+      d: credential.a.d,
+      i: credential.a.i,
+      dt: credential.a.dt,
+      authority: credential.a.authority,
+      taskId: credential.a.taskId,
+      taskRevisionSaid: credential.a.taskRevisionSaid,
+      harnessLineageId: credential.a.harnessLineageId,
+      capabilityCeiling: sorted(credential.a.capabilityCeiling),
+      budgetCeiling: rebuildBudgets(credential.a.budgetCeiling),
+      evolutionClassCeiling: sorted(credential.a.evolutionClassCeiling),
+      requiredEvidenceClasses: [...promotionEvidenceClasses],
+      experience: {
+        corpusSaid: credential.a.experience.corpusSaid,
+        repositoryResourceSaid: credential.a.experience.repositoryResourceSaid,
+        disclosure: credential.a.experience.disclosure,
+      },
       notBefore: credential.a.notBefore,
       expiresAt: credential.a.expiresAt,
     },
@@ -357,6 +514,20 @@ export function decodeTaskMandateCredential(input: unknown): TaskMandateCredenti
   return { kind: 'Accepted', credential: input };
 }
 
+export function decodeTaskMandateCredentialV2(input: unknown): TaskMandateV2CredentialDecoding {
+  if (!Value.Check(taskMandateV2Schema, input))
+    return { kind: 'Rejected', reason: 'SchemaInvalid' };
+  if (input.s !== taskMandateV2SchemaSaid) return { kind: 'Rejected', reason: 'UnexpectedSchema' };
+  const canonical = rebuildTaskMandateV2Credential(input);
+  if (JSON.stringify(input) !== JSON.stringify(canonical))
+    return { kind: 'Rejected', reason: 'NonCanonical' };
+  if (!saidIsValid(input.a, input.a.d, 'Attributes'))
+    return { kind: 'Rejected', reason: 'AttributeSaidMismatch' };
+  if (!saidIsValid(input, input.d, 'Credential'))
+    return { kind: 'Rejected', reason: 'CredentialSaidMismatch' };
+  return { kind: 'Accepted', credential: input };
+}
+
 export function decodePromotionMandateCredential(
   input: unknown,
 ): PromotionMandateCredentialDecoding {
@@ -376,5 +547,22 @@ export function decodePromotionMandateCredential(
   if (!saidIsValid(input, input.d, 'Credential')) {
     return { kind: 'Rejected', reason: 'CredentialSaidMismatch' };
   }
+  return { kind: 'Accepted', credential: input };
+}
+
+export function decodePromotionMandateCredentialV2(
+  input: unknown,
+): PromotionMandateV2CredentialDecoding {
+  if (!Value.Check(promotionMandateV2Schema, input))
+    return { kind: 'Rejected', reason: 'SchemaInvalid' };
+  if (input.s !== promotionMandateV2SchemaSaid)
+    return { kind: 'Rejected', reason: 'UnexpectedSchema' };
+  const canonical = rebuildPromotionMandateV2Credential(input);
+  if (JSON.stringify(input) !== JSON.stringify(canonical))
+    return { kind: 'Rejected', reason: 'NonCanonical' };
+  if (!saidIsValid(input.a, input.a.d, 'Attributes'))
+    return { kind: 'Rejected', reason: 'AttributeSaidMismatch' };
+  if (!saidIsValid(input, input.d, 'Credential'))
+    return { kind: 'Rejected', reason: 'CredentialSaidMismatch' };
   return { kind: 'Accepted', credential: input };
 }

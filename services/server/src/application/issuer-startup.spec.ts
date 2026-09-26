@@ -94,7 +94,15 @@ function verifiedInfrastructure(
       resolve: () => Promise.resolve(),
       verify: () => Promise.resolve(),
     },
+    taskMandateV2SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
     promotionMandateSchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
+    promotionMandateV2SchemaAvailability: {
       resolve: () => Promise.resolve(),
       verify: () => Promise.resolve(),
     },

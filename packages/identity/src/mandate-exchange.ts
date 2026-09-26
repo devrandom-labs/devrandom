@@ -5,15 +5,22 @@ import type {
   PromotionEvidenceClass,
   TaskBudgets,
   TaskEvolutionClass,
-  TaskToolCapability,
+  TaskEvaluationCapability,
+  MandateExperienceScope,
 } from '@devrandom/domain';
 import {
   decodePromotionMandateCredential,
+  decodePromotionMandateCredentialV2,
   decodeTaskMandateCredential,
+  decodeTaskMandateCredentialV2,
   promotionMandateSchema,
   promotionMandateSchemaSaid,
+  promotionMandateV2Schema,
+  promotionMandateV2SchemaSaid,
   taskMandateSchema,
   taskMandateSchemaSaid,
+  taskMandateV2Schema,
+  taskMandateV2SchemaSaid,
 } from '@devrandom/protocol';
 import { Serder, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
@@ -109,11 +116,12 @@ export interface TaskMandateClaims {
   readonly taskRevisionSaid: string;
   readonly harnessLineageId: string;
   readonly repository: MandateRepository;
-  readonly allowedCapabilities: readonly TaskToolCapability[];
+  readonly allowedCapabilities: readonly TaskEvaluationCapability[];
   readonly budgets: TaskBudgets;
   readonly allowedEvolutionClasses: readonly TaskEvolutionClass[];
   readonly notBefore: string;
   readonly expiresAt: string;
+  readonly experience?: MandateExperienceScope;
 }
 
 export interface PromotionMandateClaims {
@@ -121,12 +129,13 @@ export interface PromotionMandateClaims {
   readonly taskId: string;
   readonly taskRevisionSaid: string;
   readonly harnessLineageId: string;
-  readonly capabilityCeiling: readonly TaskToolCapability[];
+  readonly capabilityCeiling: readonly TaskEvaluationCapability[];
   readonly budgetCeiling: TaskBudgets;
   readonly evolutionClassCeiling: readonly TaskEvolutionClass[];
   readonly requiredEvidenceClasses: readonly PromotionEvidenceClass[];
   readonly notBefore: string;
   readonly expiresAt: string;
+  readonly experience?: MandateExperienceScope;
 }
 
 export interface StableTaskMandateIssuance {
@@ -602,7 +611,7 @@ function issuanceArguments(input: StableMandateIssuance) {
       return {
         i: input.userAid,
         ri: input.registryId,
-        s: taskMandateSchemaSaid,
+        s: input.claims.experience === undefined ? taskMandateSchemaSaid : taskMandateV2SchemaSaid,
         a: {
           i: input.holderAid,
           dt: mandateProtocolDatetime(input.issuedAt),
@@ -614,6 +623,7 @@ function issuanceArguments(input: StableMandateIssuance) {
           allowedCapabilities: [...input.claims.allowedCapabilities],
           budgets: input.claims.budgets,
           allowedEvolutionClasses: [...input.claims.allowedEvolutionClasses],
+          ...(input.claims.experience === undefined ? {} : { experience: input.claims.experience }),
           notBefore: input.claims.notBefore,
           expiresAt: input.claims.expiresAt,
         },
@@ -622,7 +632,10 @@ function issuanceArguments(input: StableMandateIssuance) {
       return {
         i: input.userAid,
         ri: input.registryId,
-        s: promotionMandateSchemaSaid,
+        s:
+          input.claims.experience === undefined
+            ? promotionMandateSchemaSaid
+            : promotionMandateV2SchemaSaid,
         a: {
           i: input.holderAid,
           dt: mandateProtocolDatetime(input.issuedAt),
@@ -634,6 +647,7 @@ function issuanceArguments(input: StableMandateIssuance) {
           budgetCeiling: input.claims.budgetCeiling,
           evolutionClassCeiling: [...input.claims.evolutionClassCeiling],
           requiredEvidenceClasses: [...input.claims.requiredEvidenceClasses],
+          ...(input.claims.experience === undefined ? {} : { experience: input.claims.experience }),
           notBefore: input.claims.notBefore,
           expiresAt: input.claims.expiresAt,
         },
@@ -681,7 +695,10 @@ function stableIssuanceMatch(
   }
   switch (input.kind) {
     case 'TaskMandate': {
-      const decoding = decodeTaskMandateCredential(credential);
+      const decoding =
+        input.claims.experience === undefined
+          ? decodeTaskMandateCredential(credential)
+          : decodeTaskMandateCredentialV2(credential);
       if (decoding.kind === 'Rejected') {
         return { kind: 'Mismatch', field: 'CredentialContent', reason: decoding.reason };
       }
@@ -695,6 +712,9 @@ function stableIssuanceMatch(
           allowedCapabilities: decoding.credential.a.allowedCapabilities,
           budgets: decoding.credential.a.budgets,
           allowedEvolutionClasses: decoding.credential.a.allowedEvolutionClasses,
+          ...('experience' in decoding.credential.a
+            ? { experience: decoding.credential.a.experience }
+            : {}),
           notBefore: decoding.credential.a.notBefore,
           expiresAt: decoding.credential.a.expiresAt,
         },
@@ -707,6 +727,7 @@ function stableIssuanceMatch(
           allowedCapabilities: input.claims.allowedCapabilities,
           budgets: input.claims.budgets,
           allowedEvolutionClasses: input.claims.allowedEvolutionClasses,
+          ...(input.claims.experience === undefined ? {} : { experience: input.claims.experience }),
           notBefore: input.claims.notBefore,
           expiresAt: input.claims.expiresAt,
         },
@@ -715,7 +736,10 @@ function stableIssuanceMatch(
         : { kind: 'Mismatch', field: 'CredentialContent' };
     }
     case 'PromotionMandate': {
-      const decoding = decodePromotionMandateCredential(credential);
+      const decoding =
+        input.claims.experience === undefined
+          ? decodePromotionMandateCredential(credential)
+          : decodePromotionMandateCredentialV2(credential);
       if (decoding.kind === 'Rejected') {
         return { kind: 'Mismatch', field: 'CredentialContent', reason: decoding.reason };
       }
@@ -729,6 +753,9 @@ function stableIssuanceMatch(
           budgetCeiling: decoding.credential.a.budgetCeiling,
           evolutionClassCeiling: decoding.credential.a.evolutionClassCeiling,
           requiredEvidenceClasses: decoding.credential.a.requiredEvidenceClasses,
+          ...('experience' in decoding.credential.a
+            ? { experience: decoding.credential.a.experience }
+            : {}),
           notBefore: decoding.credential.a.notBefore,
           expiresAt: decoding.credential.a.expiresAt,
         },
@@ -741,6 +768,7 @@ function stableIssuanceMatch(
           budgetCeiling: input.claims.budgetCeiling,
           evolutionClassCeiling: input.claims.evolutionClassCeiling,
           requiredEvidenceClasses: input.claims.requiredEvidenceClasses,
+          ...(input.claims.experience === undefined ? {} : { experience: input.claims.experience }),
           notBefore: input.claims.notBefore,
           expiresAt: input.claims.expiresAt,
         },
@@ -862,7 +890,13 @@ function issuanceInspectionMatches(
 ): boolean {
   const credential = inspection.value.credential;
   const expectedSchema =
-    expected.kind === 'TaskMandate' ? taskMandateSchemaSaid : promotionMandateSchemaSaid;
+    expected.kind === 'TaskMandate'
+      ? expected.claims.experience === undefined
+        ? taskMandateSchemaSaid
+        : taskMandateV2SchemaSaid
+      : expected.claims.experience === undefined
+        ? promotionMandateSchemaSaid
+        : promotionMandateV2SchemaSaid;
   if (
     inspection.kind !== expected.kind ||
     credential.issuerAid !== expected.userAid ||
@@ -887,6 +921,9 @@ function issuanceInspectionMatches(
         allowedCapabilities: inspection.value.allowedCapabilities,
         budgets: inspection.value.budgets,
         allowedEvolutionClasses: inspection.value.allowedEvolutionClasses,
+        ...(inspection.value.experience === undefined
+          ? {}
+          : { experience: inspection.value.experience }),
         notBefore: inspection.value.notBefore,
         expiresAt: inspection.value.expiresAt,
       }) ===
@@ -899,6 +936,9 @@ function issuanceInspectionMatches(
         allowedCapabilities: expected.claims.allowedCapabilities,
         budgets: expected.claims.budgets,
         allowedEvolutionClasses: expected.claims.allowedEvolutionClasses,
+        ...(expected.claims.experience === undefined
+          ? {}
+          : { experience: expected.claims.experience }),
         notBefore: expected.claims.notBefore,
         expiresAt: expected.claims.expiresAt,
       })
@@ -915,6 +955,9 @@ function issuanceInspectionMatches(
         budgetCeiling: inspection.value.budgetCeiling,
         evolutionClassCeiling: inspection.value.evolutionClassCeiling,
         requiredEvidenceClasses: inspection.value.requiredEvidenceClasses,
+        ...(inspection.value.experience === undefined
+          ? {}
+          : { experience: inspection.value.experience }),
         notBefore: inspection.value.notBefore,
         expiresAt: inspection.value.expiresAt,
       }) ===
@@ -927,6 +970,9 @@ function issuanceInspectionMatches(
         budgetCeiling: expected.claims.budgetCeiling,
         evolutionClassCeiling: expected.claims.evolutionClassCeiling,
         requiredEvidenceClasses: expected.claims.requiredEvidenceClasses,
+        ...(expected.claims.experience === undefined
+          ? {}
+          : { experience: expected.claims.experience }),
         notBefore: expected.claims.notBefore,
         expiresAt: expected.claims.expiresAt,
       })
@@ -1373,16 +1419,18 @@ function verifyHolderInspection(
   expected: MandateHolderAdmissionInput,
 ): void {
   const evidence = inspection.value.credential;
-  const expectedSchema =
-    expected.mandateKind === 'TaskMandate' ? taskMandateSchemaSaid : promotionMandateSchemaSaid;
+  const expectedSchemas =
+    expected.mandateKind === 'TaskMandate'
+      ? [taskMandateSchemaSaid, taskMandateV2SchemaSaid]
+      : [promotionMandateSchemaSaid, promotionMandateV2SchemaSaid];
   if (
     inspection.kind !== expected.mandateKind ||
     evidence.credentialSaid !== expected.credentialSaid ||
     evidence.issuerAid !== expected.userAid ||
     evidence.issueeAid !== expected.holderAid ||
     evidence.registryId !== expected.registryId ||
-    evidence.schemaSaid !== expectedSchema ||
-    evidence.schemaDocument.schemaSaid !== expectedSchema ||
+    !expectedSchemas.includes(evidence.schemaSaid) ||
+    evidence.schemaDocument.schemaSaid !== evidence.schemaSaid ||
     evidence.telState.kind !== 'Issued' ||
     evidence.issuerAnchor.kind !== 'Anchored'
   ) {
@@ -1406,14 +1454,30 @@ export async function connectLocalMandateCustody(
     taskMandateSchema,
     input.operationTimeoutMs,
   );
+  const taskV2SchemaAvailability = signifyCredentialSchemaAvailability(
+    client,
+    taskMandateV2Schema,
+    input.operationTimeoutMs,
+  );
   const promotionSchemaAvailability = signifyCredentialSchemaAvailability(
     client,
     promotionMandateSchema,
     input.operationTimeoutMs,
   );
+  const promotionV2SchemaAvailability = signifyCredentialSchemaAvailability(
+    client,
+    promotionMandateV2Schema,
+    input.operationTimeoutMs,
+  );
   const prepareSchemas = async (): Promise<void> => {
     await taskSchemaAvailability.resolve(input.taskMandateSchemaOobi.url);
+    const taskV2Oobi = new URL(input.taskMandateSchemaOobi.url);
+    taskV2Oobi.pathname = `/oobi/${taskMandateV2SchemaSaid}`;
+    await taskV2SchemaAvailability.resolve(taskV2Oobi.href);
     await promotionSchemaAvailability.resolve(input.promotionMandateSchemaOobi.url);
+    const promotionV2Oobi = new URL(input.promotionMandateSchemaOobi.url);
+    promotionV2Oobi.pathname = `/oobi/${promotionMandateV2SchemaSaid}`;
+    await promotionV2SchemaAvailability.resolve(promotionV2Oobi.href);
   };
   return {
     controllerAid: controller.controllerAid,
@@ -1528,7 +1592,9 @@ async function inspectAdmission(
     }
     if (
       inspection.value.credential.schemaSaid !== taskMandateSchemaSaid &&
-      inspection.value.credential.schemaSaid !== promotionMandateSchemaSaid
+      inspection.value.credential.schemaSaid !== taskMandateV2SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateSchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV2SchemaSaid
     ) {
       return { kind: 'Rejected', reason: 'CredentialSchemaMismatch' };
     }

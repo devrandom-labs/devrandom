@@ -14,6 +14,7 @@ export const workAccessScopes = Object.freeze([
   'evaluation:append',
   'evaluation:close',
   'evaluation:prepare',
+  'evaluation:renew',
   'evidence:append',
   'evidence:read',
   'evidence:seal',
@@ -41,6 +42,7 @@ export const workAccessScopeSchema = Type.Union([
   Type.Literal(workAccessScopes[11]),
   Type.Literal(workAccessScopes[12]),
   Type.Literal(workAccessScopes[13]),
+  Type.Literal(workAccessScopes[14]),
 ]);
 
 export type WorkAccessScope = Type.Static<typeof workAccessScopeSchema>;

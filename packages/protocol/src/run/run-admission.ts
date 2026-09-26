@@ -2,7 +2,7 @@ import Type from 'typebox';
 import Value from 'typebox/value';
 
 import { rfc8785Sha256 } from '../rfc-8785.js';
-import { preparedRepositorySchema, taskBudgetsSchema } from '../task/task-command.js';
+import { preparedRepositorySchema, taskEvaluationBudgetsSchema } from '../task/task-command.js';
 import { runPurposeSchema } from './run-purpose.js';
 
 const uuidV4Schema = Type.String({
@@ -26,7 +26,7 @@ export const runAdmissionPayloadSchema = Type.Object(
     promotionMandateSaid: saidSchema,
     purpose: runPurposeSchema,
     repository: preparedRepositorySchema,
-    requestedBudget: taskBudgetsSchema,
+    requestedBudget: taskEvaluationBudgetsSchema,
   },
   { additionalProperties: false },
 );

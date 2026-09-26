@@ -25,6 +25,7 @@ const scope = Type.Union([
   Type.Literal('evaluation:append'),
   Type.Literal('evaluation:close'),
   Type.Literal('evaluation:prepare'),
+  Type.Literal('evaluation:renew'),
   Type.Literal('evidence:append'),
   Type.Literal('evidence:read'),
   Type.Literal('evidence:seal'),
@@ -82,7 +83,7 @@ const state = Type.Union([
     {
       kind: Type.Literal('Granted'),
       verifiedResponseSaid: keriIdentifier,
-      scopes: Type.Array(scope, { minItems: 1, maxItems: 14, uniqueItems: true }),
+      scopes: Type.Array(scope, { minItems: 1, maxItems: 15, uniqueItems: true }),
       policyFingerprint: fingerprint,
       grantedAt: Type.Unknown(),
       expiresAt: Type.Unknown(),

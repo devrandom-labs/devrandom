@@ -1,10 +1,10 @@
-import { taskCommandFingerprint, type TaskProjection } from '@devrandom/protocol';
+import { taskCommandFingerprint, type TaskProjectionV1 } from '@devrandom/protocol';
 import { describe, expect, it } from 'vitest';
 
 import { decodeTaskDocument, encodeTaskDocument } from './task-document.js';
 import { taskCommandFixture, taskOwnerAid } from '../test/task-command-fixture.js';
 
-const task: TaskProjection = {
+const task: TaskProjectionV1 = {
   version: 1,
   taskId: '22222222-2222-4222-8222-222222222222',
   ownerAid: taskOwnerAid,

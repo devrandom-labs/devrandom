@@ -86,11 +86,7 @@ export interface EvaluationModelInference {
       }
     | {
         readonly kind:
-          | 'UnknownUsage'
-          | 'BudgetExhausted'
-          | 'LeaseLost'
-          | 'Unavailable'
-          | 'Interrupted';
+          'UnknownUsage' | 'BudgetExhausted' | 'LeaseLost' | 'Unavailable' | 'Interrupted';
       }
   >;
 }
@@ -116,7 +112,12 @@ export interface TrialExecution {
     | {
         readonly kind: 'Invalid';
         readonly reason:
-          'Interrupted' | 'UnknownUsage' | 'ProfileDrift' | 'CleanupUnconfirmed' | 'CaptureFailed';
+          | 'Interrupted'
+          | 'UnknownUsage'
+          | 'ProfileDrift'
+          | 'CleanupUnconfirmed'
+          | 'CaptureFailed'
+          | 'EvidenceUnavailable';
         readonly evidenceHeadSaid?: string;
       }
   >;
@@ -145,7 +146,12 @@ export interface TaskArtifactConstruction {
       }
     | {
         readonly kind: 'Invalid';
-        readonly reason: 'UnsafeSource' | 'ProfileDrift' | 'CleanupUnconfirmed' | 'Interrupted';
+        readonly reason:
+          | 'UnsafeSource'
+          | 'ProfileDrift'
+          | 'CleanupUnconfirmed'
+          | 'Interrupted'
+          | 'EvidenceUnavailable';
       }
   >;
 }
@@ -180,7 +186,11 @@ export interface ReceiptObservation {
     | {
         readonly kind: 'Invalid';
         readonly reason:
-          'ExecutableMismatch' | 'ProfileDrift' | 'CleanupUnconfirmed' | 'Interrupted';
+          | 'ExecutableMismatch'
+          | 'ProfileDrift'
+          | 'CleanupUnconfirmed'
+          | 'Interrupted'
+          | 'EvidenceUnavailable';
       }
   >;
 }

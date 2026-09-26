@@ -7,9 +7,13 @@ import type {
 } from '@devrandom/domain';
 import {
   decodePromotionMandateCredential,
+  decodePromotionMandateCredentialV2,
   decodeTaskMandateCredential,
+  decodeTaskMandateCredentialV2,
   promotionMandateSchemaSaid,
+  promotionMandateV2SchemaSaid,
   taskMandateSchemaSaid,
+  taskMandateV2SchemaSaid,
 } from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
@@ -193,12 +197,14 @@ export function inspectTaskMandateCredentialEvidence(
   if (!Value.Check(credentialRecordSchema, sources.credential)) {
     return invalidMandateEvidence('credential record is incomplete');
   }
-  const decoding = decodeTaskMandateCredential(sources.credential.sad);
+  const legacy = decodeTaskMandateCredential(sources.credential.sad);
+  const decoding =
+    legacy.kind === 'Accepted' ? legacy : decodeTaskMandateCredentialV2(sources.credential.sad);
   if (decoding.kind === 'Rejected') {
     return invalidMandateEvidence(`Task Mandate decoding failed: ${decoding.reason}`);
   }
   const { credential } = decoding;
-  if (credential.s !== taskMandateSchemaSaid) {
+  if (credential.s !== taskMandateSchemaSaid && credential.s !== taskMandateV2SchemaSaid) {
     return invalidMandateEvidence('Task Mandate schema differs from the pinned schema');
   }
   return {
@@ -213,6 +219,7 @@ export function inspectTaskMandateCredentialEvidence(
     allowedEvolutionClasses: credential.a.allowedEvolutionClasses,
     notBefore: credential.a.notBefore,
     expiresAt: credential.a.expiresAt,
+    ...('experience' in credential.a ? { experience: credential.a.experience } : {}),
   };
 }
 
@@ -222,12 +229,19 @@ export function inspectPromotionMandateCredentialEvidence(
   if (!Value.Check(credentialRecordSchema, sources.credential)) {
     return invalidMandateEvidence('credential record is incomplete');
   }
-  const decoding = decodePromotionMandateCredential(sources.credential.sad);
+  const legacy = decodePromotionMandateCredential(sources.credential.sad);
+  const decoding =
+    legacy.kind === 'Accepted'
+      ? legacy
+      : decodePromotionMandateCredentialV2(sources.credential.sad);
   if (decoding.kind === 'Rejected') {
     return invalidMandateEvidence(`Promotion Mandate decoding failed: ${decoding.reason}`);
   }
   const { credential } = decoding;
-  if (credential.s !== promotionMandateSchemaSaid) {
+  if (
+    credential.s !== promotionMandateSchemaSaid &&
+    credential.s !== promotionMandateV2SchemaSaid
+  ) {
     return invalidMandateEvidence('Promotion Mandate schema differs from the pinned schema');
   }
   return {
@@ -240,6 +254,7 @@ export function inspectPromotionMandateCredentialEvidence(
     budgetCeiling: credential.a.budgetCeiling,
     evolutionClassCeiling: credential.a.evolutionClassCeiling,
     requiredEvidenceClasses: credential.a.requiredEvidenceClasses,
+    ...('experience' in credential.a ? { experience: credential.a.experience } : {}),
     notBefore: credential.a.notBefore,
     expiresAt: credential.a.expiresAt,
   };
@@ -252,7 +267,8 @@ export function inspectMandateCredentialEvidence(
     return invalidMandateEvidence('credential record is incomplete');
   }
   const task = decodeTaskMandateCredential(sources.credential.sad);
-  if (task.kind === 'Accepted') {
+  const taskV2 = decodeTaskMandateCredentialV2(sources.credential.sad);
+  if (task.kind === 'Accepted' || taskV2.kind === 'Accepted') {
     return { kind: 'TaskMandate', value: inspectTaskMandateCredentialEvidence(sources) };
   }
   const promotion = decodePromotionMandateCredential(sources.credential.sad);

@@ -1,14 +1,24 @@
-import { promotionEvidenceClasses, taskBudgetCeilings } from '@devrandom/domain';
+import {
+  promotionEvidenceClasses,
+  taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
+} from '@devrandom/domain';
 import { Saider } from 'signify-ts';
 import { describe, expect, it } from 'vitest';
 
 import {
   decodePromotionMandateCredential,
+  decodePromotionMandateCredentialV2,
   decodeTaskMandateCredential,
+  decodeTaskMandateCredentialV2,
   promotionMandateSchema,
   promotionMandateSchemaSaid,
+  promotionMandateV2Schema,
+  promotionMandateV2SchemaSaid,
   taskMandateSchema,
   taskMandateSchemaSaid,
+  taskMandateV2Schema,
+  taskMandateV2SchemaSaid,
   verifyMandateSchemaCatalog,
 } from './mandate-credential.js';
 
@@ -90,6 +100,82 @@ function promotionCredential(): unknown {
 }
 
 describe('Mandate credential schemas', () => {
+  it('accepts only the exact versioned Promotion Mandate experience and budget attributes', () => {
+    const decoded = decodePromotionMandateCredential(promotionCredential());
+    expect(decoded.kind).toBe('Accepted');
+    if (decoded.kind !== 'Accepted') return;
+    const legacy = decoded.credential;
+    const experience = {
+      corpusSaid: `E${'q'.repeat(43)}`,
+      repositoryResourceSaid: `E${'s'.repeat(43)}`,
+      disclosure: 'AuthorizedAnalogy',
+    };
+    const { notBefore, expiresAt, ...legacyAttributes } = legacy.a;
+    const attributes = saidify({
+      ...legacyAttributes,
+      d: '',
+      capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
+      budgetCeiling: taskEvaluationBudgetCeilings,
+      experience,
+      notBefore,
+      expiresAt,
+    });
+    const credential = saidify({
+      ...legacy,
+      d: '',
+      s: promotionMandateV2SchemaSaid,
+      a: attributes,
+    });
+    expect(decodePromotionMandateCredentialV2(credential).kind).toBe('Accepted');
+    expect(decodePromotionMandateCredential(credential).kind).toBe('Rejected');
+    expect(promotionMandateV2Schema.$id).toBe(promotionMandateV2SchemaSaid);
+  });
+  it('pins a distinct v2 mandate to the exact Task experience corpus and finite budget', () => {
+    const experience = {
+      corpusSaid: `E${'c'.repeat(43)}`,
+      repositoryResourceSaid: `E${'s'.repeat(43)}`,
+      disclosure: 'AuthorizedAnalogy',
+    };
+    const attributes = saidify({
+      d: '',
+      i: agentAid,
+      dt: '2026-09-24T14:00:00.000000+00:00',
+      authority: 'ExecutePrivateTask',
+      taskId,
+      taskRevisionSaid,
+      harnessLineageId,
+      repository: { objectFormat: 'sha1', commit: '1'.repeat(40), tree: '2'.repeat(40) },
+      allowedCapabilities: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
+      budgets: taskEvaluationBudgetCeilings,
+      allowedEvolutionClasses: ['C1', 'C2'],
+      experience,
+      notBefore: '2026-09-24T14:00:00.000Z',
+      expiresAt: '2026-09-24T18:00:00.000Z',
+    });
+    const credential = saidify({
+      v: 'ACDC10JSON000000_',
+      d: '',
+      i: ownerAid,
+      ri: registryId,
+      s: taskMandateV2SchemaSaid,
+      a: attributes,
+    });
+    expect(taskMandateV2SchemaSaid).not.toBe(taskMandateSchemaSaid);
+    expect(
+      new Saider({ qb64: taskMandateV2SchemaSaid }).verify(
+        taskMandateV2Schema,
+        true,
+        false,
+        undefined,
+        '$id',
+      ),
+    ).toBe(true);
+    expect(decodeTaskMandateCredentialV2(credential)).toEqual({ kind: 'Accepted', credential });
+    expect(decodeTaskMandateCredential(credential)).toEqual({
+      kind: 'Rejected',
+      reason: 'SchemaInvalid',
+    });
+  });
   it('verifies the compiled schema catalog without exposing Signify to its caller', () => {
     expect(verifyMandateSchemaCatalog()).toEqual({ kind: 'Verified' });
   });

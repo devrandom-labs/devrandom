@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import type { CurrentTaskMandate, ProtectedCredentials } from '@devrandom/domain';
+import type {
+  CurrentTaskMandate,
+  ProtectedCredentials,
+  TaskToolCapability,
+} from '@devrandom/domain';
 import {
   decodeBaselineHarnessRevision,
   harnessCommandFingerprint,
@@ -126,10 +130,19 @@ function bindingRejection(
   if (revision.authority.taskMandateSaid !== mandate.credential.credentialSaid) {
     return 'MandateBindingMismatch';
   }
+  const taskTools = task.revision.requestedCapabilities.flatMap(
+    (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+  );
+  const mandateTools = mandate.allowedCapabilities.flatMap((capability): TaskToolCapability[] =>
+    capability === 'ReadTaskMemory' ? [] : [capability],
+  );
+  const unavailableTools = task.revision.unavailableCapabilities.flatMap(
+    (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+  );
   if (
-    !isDeepStrictEqual(revision.task.requestedCapabilities, task.revision.requestedCapabilities) ||
-    !isDeepStrictEqual(revision.authority.allowedCapabilities, mandate.allowedCapabilities) ||
-    !isDeepStrictEqual(revision.capabilities.unavailable, task.revision.unavailableCapabilities)
+    !isDeepStrictEqual(revision.task.requestedCapabilities, taskTools) ||
+    !isDeepStrictEqual(revision.authority.allowedCapabilities, mandateTools) ||
+    !isDeepStrictEqual(revision.capabilities.unavailable, unavailableTools)
   ) {
     return 'CapabilityMismatch';
   }

@@ -237,28 +237,35 @@ export class BaselineHarnessPreparation {
       }
       toolCommands.push(identified.command);
     }
+    const requestedToolCapabilities = input.task.revision.requestedCapabilities.flatMap(
+      (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+    );
+    const allowedToolCapabilities = input.authority.allowedCapabilities;
+    const unavailableToolCapabilities = input.task.revision.unavailableCapabilities.flatMap(
+      (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+    );
     const prepared = prepareBaselineHarnessRevision({
       toolCommands,
       task: {
         taskId: input.task.taskId,
         revisionSaid: input.task.revisionSaid,
         harnessLineageId: input.task.harnessLineageId,
-        requestedCapabilities: input.task.revision.requestedCapabilities,
+        requestedCapabilities: requestedToolCapabilities,
       },
       authority: {
         personalAgentAid: input.authority.personalAgentAid,
         taskMandateSaid: input.authority.taskMandateSaid,
-        allowedCapabilities: input.authority.allowedCapabilities,
+        allowedCapabilities: allowedToolCapabilities,
       },
       repository: inspection.snapshot.repository,
       completionCommands,
       modelCompatibility: model.compatibility,
       environmentCompatibility: inspection.snapshot.environmentCompatibility,
       capabilities: {
-        available: input.task.revision.requestedCapabilities.filter((capability) =>
+        available: requestedToolCapabilities.filter((capability) =>
           this.#dependencies.availableCapabilities.includes(capability),
         ),
-        unavailable: input.task.revision.unavailableCapabilities,
+        unavailable: unavailableToolCapabilities,
       },
       budgetCeilings: {
         task: input.task.revision.budgets,

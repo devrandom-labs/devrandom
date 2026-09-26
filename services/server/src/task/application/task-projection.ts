@@ -1,7 +1,7 @@
 import type { Task } from '@devrandom/domain';
-import type { TaskProjection, TaskRevision, TaskSummary } from '@devrandom/protocol';
+import type { AuthorizedTaskRevision, TaskProjection, TaskSummary } from '@devrandom/protocol';
 
-export function projectTask(task: Task, revision: TaskRevision): TaskProjection {
+export function projectTask(task: Task, revision: AuthorizedTaskRevision): TaskProjection {
   return Object.freeze({
     version: 1,
     taskId: task.taskId,

@@ -1,4 +1,9 @@
-import { promotionMandateSchema, taskMandateSchema } from '@devrandom/protocol';
+import {
+  promotionMandateSchema,
+  promotionMandateV2Schema,
+  taskMandateSchema,
+  taskMandateV2Schema,
+} from '@devrandom/protocol';
 import { type EventResult, type OOBIOperation, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
 import Value from 'typebox/value';
@@ -112,7 +117,9 @@ export interface VerifiedIssuerInfrastructure {
   readonly currentUserCredentialVerification: IssuerCurrentUserCredentialVerification;
   readonly credentialSchema: CredentialSchemaAvailability;
   readonly taskMandateSchemaAvailability: CredentialSchemaAvailability;
+  readonly taskMandateV2SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateSchemaAvailability: CredentialSchemaAvailability;
+  readonly promotionMandateV2SchemaAvailability: CredentialSchemaAvailability;
   readonly mandateAdmission: MandateAdmission;
   readonly runAdmissionExchange: IssuerRunAdmissionExchange;
   readonly evidenceSealExchange: IssuerEvidenceSealExchange;
@@ -576,9 +583,19 @@ export async function connectVerifiedIssuerInfrastructure(
       taskMandateSchema,
       input.operationTimeoutMs,
     ),
+    taskMandateV2SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      taskMandateV2Schema,
+      input.operationTimeoutMs,
+    ),
     promotionMandateSchemaAvailability: signifyCredentialSchemaAvailability(
       verified.client,
       promotionMandateSchema,
+      input.operationTimeoutMs,
+    ),
+    promotionMandateV2SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      promotionMandateV2Schema,
       input.operationTimeoutMs,
     ),
     mandateAdmission: signifyMandateAdmission(

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "credential-schema": "tsx src/credential-schema-artifact.ts && prettier --write --log-level silent ../../schemas/devrandom-credential.json ../../schemas/devrandom-task-mandate.json ../../schemas/devrandom-promotion-mandate.json",
+    "credential-schema": "tsx src/credential-schema-artifact.ts && prettier --write --log-level silent ../../schemas/devrandom-credential.json ../../schemas/devrandom-task-mandate.json ../../schemas/devrandom-task-mandate-v2.json ../../schemas/devrandom-promotion-mandate.json ../../schemas/devrandom-promotion-mandate-v2.json",
     "dev": "tsx src/main.ts",
     "openapi": "tsx src/openapi.ts && prettier --write --log-level silent openapi.json",
     "smoke": "tsx src/smoke.ts",

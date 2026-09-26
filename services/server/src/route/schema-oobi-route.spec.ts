@@ -1,4 +1,10 @@
-import { credentialSchema, promotionMandateSchema, taskMandateSchema } from '@devrandom/protocol';
+import {
+  credentialSchema,
+  promotionMandateSchema,
+  promotionMandateV2Schema,
+  taskMandateSchema,
+  taskMandateV2Schema,
+} from '@devrandom/protocol';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,7 +21,9 @@ describe('credential schema OOBI route', () => {
   it.each([
     ['user credential', credentialSchema],
     ['Task Mandate', taskMandateSchema],
+    ['Task Mandate v2', taskMandateV2Schema],
     ['Promotion Mandate', promotionMandateSchema],
+    ['Promotion Mandate v2', promotionMandateV2Schema],
   ])('publishes the exact deterministic %s schema bytes', async (_label, schema) => {
     const server = Fastify();
     instances.push(server);

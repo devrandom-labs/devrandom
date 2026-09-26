@@ -78,6 +78,7 @@ describe('Work Access domain', () => {
       'evaluation:append',
       'evaluation:close',
       'evaluation:prepare',
+      'evaluation:renew',
       'evidence:append',
       'evidence:seal',
       'run:create',
@@ -91,7 +92,7 @@ describe('Work Access domain', () => {
     if (granted.state.kind !== 'Granted') {
       throw new Error('expected a granted Work Access state');
     }
-    expect(granted.state.scopes).toHaveLength(14);
+    expect(granted.state.scopes).toHaveLength(15);
     const grantedState = granted.state;
     expect(() =>
       reconstructWorkAccessAttempt(granted.binding, {

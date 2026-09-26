@@ -21,7 +21,12 @@ import { manifestWorkAccessPolicy, workAccessPolicy } from './access/domain/work
 import { bootstrapDevrandomIssuer } from './application/issuer-bootstrap.js';
 import { IssuerReadiness } from './application/issuer-readiness.js';
 import { startDevrandomIssuer } from './application/issuer-startup.js';
-import { credentialSchema, verifyMandateSchemaCatalog } from '@devrandom/protocol';
+import {
+  credentialSchema,
+  taskMandateV2SchemaSaid,
+  promotionMandateV2SchemaSaid,
+  verifyMandateSchemaCatalog,
+} from '@devrandom/protocol';
 import {
   HostedWorkConfigurationFailure,
   loadHostedWorkConfiguration,
@@ -508,7 +513,9 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await runBootstrap.verify();
         await evidenceBootstrap.verify();
         await result.infrastructure.taskMandateSchemaAvailability.verify();
+        await result.infrastructure.taskMandateV2SchemaAvailability.verify();
         await result.infrastructure.promotionMandateSchemaAvailability.verify();
+        await result.infrastructure.promotionMandateV2SchemaAvailability.verify();
       },
     };
   } catch {
@@ -538,8 +545,16 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     await result.infrastructure.taskMandateSchemaAvailability.resolve(
       registrationConfiguration.taskMandateSchemaOobiUrl,
     );
+    const taskV2SchemaOobi = new URL(registrationConfiguration.taskMandateSchemaOobiUrl);
+    taskV2SchemaOobi.pathname = `/oobi/${taskMandateV2SchemaSaid}`;
+    await result.infrastructure.taskMandateV2SchemaAvailability.resolve(taskV2SchemaOobi.href);
     await result.infrastructure.promotionMandateSchemaAvailability.resolve(
       registrationConfiguration.promotionMandateSchemaOobiUrl,
+    );
+    const promotionV2SchemaOobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
+    promotionV2SchemaOobi.pathname = `/oobi/${promotionMandateV2SchemaSaid}`;
+    await result.infrastructure.promotionMandateV2SchemaAvailability.resolve(
+      promotionV2SchemaOobi.href,
     );
   } catch (cause) {
     await server.close();

@@ -1,9 +1,9 @@
 import { openTask, type ProtectedCredentials } from '@devrandom/domain';
 import {
-  decodeTaskRevision,
+  decodeAuthorizedTaskRevision,
   taskTimestampIsCanonical,
-  taskCommandFingerprint,
-  type PreparedTaskCommand,
+  authorizedTaskCommandFingerprint,
+  type AuthorizedPreparedTaskCommand,
   type TaskProjection,
   type TaskRevisionInvalidity,
 } from '@devrandom/protocol';
@@ -26,6 +26,7 @@ function taskContractRejection(invalidity: TaskRevisionInvalidity): TaskContract
     case 'ToolCommandTimeoutExceedsBudget':
       return 'BudgetUnacceptable';
     case 'CapabilitySetsOverlap':
+    case 'ExperienceCapabilityMissing':
     case 'ToolCommandCapabilityUnrequested':
       return 'CapabilityConflict';
     case 'DuplicateCheckpointReference':
@@ -57,7 +58,7 @@ export interface CreateTaskDependencies {
 export interface CreateTaskInput {
   readonly protectedCredentials: ProtectedCredentials;
   readonly owner: AuthenticatedTaskOwner;
-  readonly command: PreparedTaskCommand;
+  readonly command: AuthorizedPreparedTaskCommand;
 }
 
 export type CreateTaskOutcome =
@@ -92,14 +93,14 @@ export async function createTask(
   ) {
     return { kind: 'TaskContractRejected', reason: 'SecretDetected' };
   }
-  const decoded = decodeTaskRevision(input.command.revision);
+  const decoded = decodeAuthorizedTaskRevision(input.command.revision);
   if (decoded.kind === 'Rejected') {
     return { kind: 'TaskContractRejected', reason: taskContractRejection(decoded.reason) };
   }
 
   let commandFingerprint: string;
   try {
-    commandFingerprint = taskCommandFingerprint(input.command);
+    commandFingerprint = authorizedTaskCommandFingerprint(input.command);
   } catch {
     return { kind: 'TaskContractRejected', reason: 'RepositoryBindingInvalid' };
   }

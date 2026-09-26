@@ -1,4 +1,4 @@
-import { promotionEvidenceClasses } from '@devrandom/domain';
+import { promotionEvidenceClasses, type TaskEvaluationCapability } from '@devrandom/domain';
 import type {
   StablePromotionMandateIssuance,
   StableTaskMandateIssuance,
@@ -25,7 +25,7 @@ interface MandateResourceClaims {
   readonly taskId: string;
   readonly taskRevisionSaid: string;
   readonly harnessLineageId: string;
-  readonly allowedCapabilities: TaskProjection['revision']['requestedCapabilities'];
+  readonly allowedCapabilities: readonly TaskEvaluationCapability[];
   readonly notBefore: string;
   readonly expiresAt: string;
 }
@@ -52,8 +52,9 @@ function mandateResourceClaims(
       taskId: input.task.taskId,
       taskRevisionSaid: input.task.revisionSaid,
       harnessLineageId: input.task.harnessLineageId,
-      allowedCapabilities: input.task.revision.requestedCapabilities.filter(
-        (capability) => !unavailable.has(capability),
+      allowedCapabilities: input.task.revision.requestedCapabilities.flatMap(
+        (capability): TaskEvaluationCapability[] =>
+          unavailable.has(capability) ? [] : [capability],
       ),
       notBefore: new Date(input.issuedAt).toISOString(),
       expiresAt: new Date(
@@ -88,6 +89,9 @@ export function prepareTaskMandateIssuance(
         allowedCapabilities: resource.claims.allowedCapabilities,
         budgets: input.task.revision.budgets,
         allowedEvolutionClasses: input.task.revision.evolutionClasses,
+        ...(input.task.revision.version === 2
+          ? { experience: input.task.revision.constraints.experience }
+          : {}),
         notBefore: resource.claims.notBefore,
         expiresAt: resource.claims.expiresAt,
       },
@@ -120,6 +124,9 @@ export function preparePromotionMandateIssuance(
         budgetCeiling: input.task.revision.budgets,
         evolutionClassCeiling: input.task.revision.evolutionClasses,
         requiredEvidenceClasses: promotionEvidenceClasses,
+        ...(input.task.revision.version === 2
+          ? { experience: input.task.revision.constraints.experience }
+          : {}),
         notBefore: resource.claims.notBefore,
         expiresAt: resource.claims.expiresAt,
       },

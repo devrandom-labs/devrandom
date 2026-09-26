@@ -6,7 +6,7 @@ import type {
   RunPurpose,
   TaskBudgets,
   TaskEvolutionClass,
-  TaskToolCapability,
+  TaskEvaluationCapability,
 } from '@devrandom/domain';
 import type {
   LocalEvidenceSealExchange,
@@ -51,12 +51,12 @@ export interface TaskMandateSummary {
   };
   readonly mandateRegistryId: string;
   readonly taskMandate: MandateAdmissionSummary & {
-    readonly allowedCapabilities: readonly TaskToolCapability[];
+    readonly allowedCapabilities: readonly TaskEvaluationCapability[];
     readonly budgets: TaskBudgets;
     readonly allowedEvolutionClasses: readonly TaskEvolutionClass[];
   };
   readonly promotionMandate: MandateAdmissionSummary & {
-    readonly capabilityCeiling: readonly TaskToolCapability[];
+    readonly capabilityCeiling: readonly TaskEvaluationCapability[];
     readonly budgetCeiling: TaskBudgets;
     readonly evolutionClassCeiling: readonly TaskEvolutionClass[];
     readonly requiredEvidenceClasses: readonly PromotionEvidenceClass[];

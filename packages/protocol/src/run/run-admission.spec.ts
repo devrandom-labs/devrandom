@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { taskBudgetCeilings } from '../task/task-command.js';
+import { taskBudgetCeilings, taskEvaluationBudgetCeilings } from '../task/task-command.js';
 import {
   decodeRunAdmissionPayload,
   runAdmissionCommandFingerprint,
@@ -33,6 +33,10 @@ const payload: RunAdmissionPayload = {
 };
 
 describe('Run admission protocol', () => {
+  it('accepts a fresh PRD03 Task budget in the exact signed Run admission payload', () => {
+    const scoped = { ...payload, requestedBudget: taskEvaluationBudgetCeilings };
+    expect(decodeRunAdmissionPayload(scoped)).toEqual({ kind: 'Accepted', payload: scoped });
+  });
   it('decodes only the closed personal-agent exchange payload', () => {
     expect(runAdmissionExchangeRoute).toBe('/devrandom/run/admission/1');
     expect(decodeRunAdmissionPayload(payload)).toEqual({ kind: 'Accepted', payload });

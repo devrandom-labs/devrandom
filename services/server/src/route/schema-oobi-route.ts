@@ -2,7 +2,9 @@ import {
   credentialSchema,
   credentialSchemaDocumentSchema,
   promotionMandateSchema,
+  promotionMandateV2Schema,
   taskMandateSchema,
+  taskMandateV2Schema,
 } from '@devrandom/protocol';
 import type { FastifyPluginCallback } from 'fastify';
 import Type from 'typebox';
@@ -25,9 +27,14 @@ const publishedSchemas: readonly PublishedSchema[] = [
     body: Buffer.from(JSON.stringify(credentialSchemaResponse), 'utf8'),
   },
   { said: taskMandateSchema.$id, body: Buffer.from(JSON.stringify(taskMandateSchema), 'utf8') },
+  { said: taskMandateV2Schema.$id, body: Buffer.from(JSON.stringify(taskMandateV2Schema), 'utf8') },
   {
     said: promotionMandateSchema.$id,
     body: Buffer.from(JSON.stringify(promotionMandateSchema), 'utf8'),
+  },
+  {
+    said: promotionMandateV2Schema.$id,
+    body: Buffer.from(JSON.stringify(promotionMandateV2Schema), 'utf8'),
   },
 ];
 

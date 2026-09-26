@@ -1,4 +1,5 @@
-import { promotionEvidenceClasses } from '@devrandom/domain';
+import { promotionEvidenceClasses, taskEvaluationBudgetCeilings } from '@devrandom/domain';
+import { prepareTaskCommandV2 } from '@devrandom/protocol';
 import {
   agentAid,
   controllerAid,
@@ -9,7 +10,11 @@ import {
 } from '@devrandom/identity';
 import { describe, expect, it } from 'vitest';
 
-import { taskProjectionFixture } from '../../../test/task-source-fixture.js';
+import {
+  preparedRepositoryFixture,
+  taskProjectionFixture,
+  taskSourceFixture,
+} from '../../../test/task-source-fixture.js';
 import type { LocalGovernanceProfile } from '../domain/local-governance.js';
 import {
   preparePromotionMandateIssuance,
@@ -33,6 +38,63 @@ const governance = {
 } satisfies LocalGovernanceProfile;
 
 describe('mandate issuance planning', () => {
+  it('binds PRD03 task memory to the exact corpus and repository in a versioned Task Mandate', () => {
+    const source = taskSourceFixture();
+    const experience = {
+      corpusSaid: 'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      repositoryResourceSaid: 'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      disclosure: 'AuthorizedAnalogy' as const,
+    };
+    const prepared = prepareTaskCommandV2(
+      {
+        ...source,
+        version: 2,
+        constraints: {
+          ...source.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience,
+        },
+        requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
+        budgets: { ...taskEvaluationBudgetCeilings },
+      },
+      '97e16745-4b76-4de3-9ae5-a183496e73e8',
+      preparedRepositoryFixture,
+    );
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') return;
+    const task = {
+      ...taskProjectionFixture(),
+      revision: prepared.command.revision,
+      revisionSaid: prepared.command.revision.d,
+    };
+    const issuance = prepareTaskMandateIssuance({
+      userAlias: 'devrandom-user',
+      governance,
+      task,
+      issuedAt: Date.parse('2026-09-24T18:15:00.000Z'),
+    });
+    expect(issuance.kind).toBe('Prepared');
+    if (issuance.kind !== 'Prepared') return;
+    expect(issuance.issuance.claims).toMatchObject({
+      taskRevisionSaid: task.revisionSaid,
+      allowedCapabilities: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
+      experience,
+      budgets: taskEvaluationBudgetCeilings,
+    });
+    const promotion = preparePromotionMandateIssuance({
+      userAlias: 'devrandom-user',
+      governance,
+      task,
+      issuedAt: Date.parse('2026-09-24T18:15:00.000Z'),
+    });
+    expect(promotion.kind).toBe('Prepared');
+    if (promotion.kind !== 'Prepared') return;
+    expect(promotion.issuance.claims).toMatchObject({
+      taskRevisionSaid: task.revisionSaid,
+      capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
+      budgetCeiling: taskEvaluationBudgetCeilings,
+    });
+  });
   it('binds the exact authoritative Task and excludes unavailable capabilities', () => {
     const task = taskProjectionFixture();
     const issuedAt = Date.parse('2026-09-24T18:15:00.000Z');

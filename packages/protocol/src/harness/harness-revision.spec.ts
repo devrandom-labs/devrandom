@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { taskBudgetCeilings } from '../task/task-command.js';
+import { taskBudgetCeilings, taskEvaluationBudgetCeilings } from '../task/task-command.js';
 import {
   decodeBaselineHarnessRevision,
   identifyHarnessCompletionCommand,
@@ -88,6 +88,20 @@ function preparationInput(): BaselineHarnessPreparationInput {
 }
 
 describe('baseline Harness Revision protocol', () => {
+  it('binds a fresh PRD03 Task and Mandate ceiling without widening server limits', () => {
+    const input = preparationInput();
+    const prepared = prepareBaselineHarnessRevision({
+      ...input,
+      budgetCeilings: {
+        task: taskEvaluationBudgetCeilings,
+        server: taskBudgetCeilings,
+        mandate: taskEvaluationBudgetCeilings,
+      },
+    });
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') return;
+    expect(decodeBaselineHarnessRevision(prepared.revision)).toMatchObject({ kind: 'Accepted' });
+  });
   it('produces one canonical SAID for equivalent normalized H1 inputs', () => {
     const source = preparationInput();
     const first = prepareBaselineHarnessRevision(source);

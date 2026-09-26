@@ -4,7 +4,11 @@ import type { Db } from 'mongodb';
 import Type from 'typebox';
 import Value from 'typebox/value';
 
-import { taskBudgetCeilings, taskLifecycleSchema, taskRevisionSchema } from '@devrandom/protocol';
+import {
+  taskBudgetCeilings,
+  taskLifecycleSchema,
+  authorizedTaskRevisionSchema,
+} from '@devrandom/protocol';
 
 import { typeboxMongoSchema } from '../../infrastructure/typebox-mongo-schema.js';
 import { taskIndexDefinitions, tasksCollectionName } from './mongo-tasks.js';
@@ -19,7 +23,7 @@ const keriIdentifier = {
   pattern: '^[A-Z][A-Za-z0-9_-]{43}$',
 } as const;
 
-const taskRevisionMongoSchema = typeboxMongoSchema(taskRevisionSchema);
+const taskRevisionMongoSchema = typeboxMongoSchema(authorizedTaskRevisionSchema);
 const taskLifecycleMongoSchema = typeboxMongoSchema(taskLifecycleSchema);
 
 export const taskCollectionValidator = Object.freeze({

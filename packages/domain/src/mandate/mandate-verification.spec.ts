@@ -121,6 +121,33 @@ function promotionInspection(): PromotionMandateInspection {
 }
 
 describe('Task Mandate verification', () => {
+  it('rejects a v2 mandate whose experience corpus differs from the Task', () => {
+    const experience = {
+      corpusSaid: `E${'q'.repeat(43)}`,
+      repositoryResourceSaid: `E${'s'.repeat(43)}`,
+      disclosure: 'AuthorizedAnalogy' as const,
+    };
+    const expectedTask: MandateTask = {
+      ...task,
+      requestedCapabilities: [...task.requestedCapabilities, 'ReadTaskMemory'],
+      experience,
+    };
+    const inspection = {
+      ...taskInspection(),
+      allowedCapabilities: ['ReadRepository', 'ReadTaskMemory', 'RunTests'],
+      experience: { ...experience, corpusSaid: `E${'x'.repeat(43)}` },
+    } satisfies TaskMandateInspection;
+    expect(
+      verifyTaskMandate(
+        {
+          credential: expectation(agentAid, taskSchemaSaid, taskCredentialSaid),
+          task: expectedTask,
+          observedAt: '2026-09-24T15:00:00.000Z',
+        },
+        inspection,
+      ),
+    ).toEqual({ kind: 'Invalid', invalidity: { kind: 'ExperienceScopeMismatch' } });
+  });
   it('constructs current authority only after every credential and Task binding is verified', () => {
     const inspection = taskInspection();
 
@@ -317,6 +344,37 @@ describe('Task Mandate verification', () => {
 });
 
 describe('Promotion Mandate verification', () => {
+  it('rejects a Promotion Mandate that substitutes the Task experience corpus', () => {
+    const experience = {
+      corpusSaid: `E${'q'.repeat(43)}`,
+      repositoryResourceSaid: `E${'s'.repeat(43)}`,
+      disclosure: 'AuthorizedAnalogy' as const,
+    };
+    const scopedTask: MandateTask = {
+      ...task,
+      requestedCapabilities: [...task.requestedCapabilities, 'ReadTaskMemory'],
+      experience,
+    };
+    const scopedTaskMandate = verifiedTaskMandate(scopedTask, {
+      ...taskInspection(),
+      allowedCapabilities: [...taskInspection().allowedCapabilities, 'ReadTaskMemory'],
+      experience,
+    });
+    const result = verifyPromotionMandate(
+      {
+        credential: expectation(governorAid, promotionSchemaSaid, promotionCredentialSaid),
+        task: scopedTask,
+        taskMandate: scopedTaskMandate,
+        observedAt: '2026-09-24T15:00:00.000Z',
+      },
+      {
+        ...promotionInspection(),
+        capabilityCeiling: [...promotionInspection().capabilityCeiling, 'ReadTaskMemory'],
+        experience: { ...experience, corpusSaid: `E${'x'.repeat(43)}` },
+      },
+    );
+    expect(result).toEqual({ kind: 'Invalid', invalidity: { kind: 'ExperienceScopeMismatch' } });
+  });
   it('constructs current promotion authority only within the current Task Mandate ceiling', () => {
     const inspection = promotionInspection();
     const result = verifyPromotionMandate(

@@ -386,6 +386,7 @@ describe('Work Access application journey', () => {
           'evaluation:append',
           'evaluation:close',
           'evaluation:prepare',
+          'evaluation:renew',
           'evidence:append',
           'evidence:read',
           'evidence:seal',

@@ -4,6 +4,7 @@ import {
   ProtectedCredentials,
   verifyTaskMandate,
   type CurrentTaskMandate,
+  type TaskToolCapability,
 } from '@devrandom/domain';
 import {
   identifyHarnessCompletionCommand,
@@ -11,8 +12,12 @@ import {
   identifyHarnessToolCommand,
   type BaselineHarnessPreparationInput,
   prepareBaselineHarnessRevision,
+  prepareTaskCommandV2,
   taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
   taskMandateSchemaSaid,
+  taskMandateV2SchemaSaid,
+  type TaskProjection,
 } from '@devrandom/protocol';
 
 import type { CurrentTaskMandateAuthorization } from '../../mandate/application/current-task-mandate.js';
@@ -47,14 +52,20 @@ const task = {
   expectedVersion: 0 as const,
 };
 
-function currentTaskMandate(selectedTask = task): CurrentTaskMandate {
+function currentTaskMandate(selectedTask: TaskProjection = task): CurrentTaskMandate {
+  const schemaSaid =
+    selectedTask.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid;
+  const experience =
+    selectedTask.revision.version === 2
+      ? { experience: selectedTask.revision.constraints.experience }
+      : {};
   const verified = verifyTaskMandate(
     {
       credential: {
         issuerAid: taskOwnerAid,
         issueeAid: personalAgentAid,
         registryId,
-        schemaSaid: taskMandateSchemaSaid,
+        schemaSaid,
         credentialSaid: taskMandateSaid,
       },
       task: {
@@ -68,6 +79,7 @@ function currentTaskMandate(selectedTask = task): CurrentTaskMandate {
         budgets: selectedTask.revision.budgets,
         evolutionClasses: selectedTask.revision.evolutionClasses,
         expiresAt: selectedTask.revision.expiresAt,
+        ...experience,
       },
       observedAt,
     },
@@ -78,11 +90,11 @@ function currentTaskMandate(selectedTask = task): CurrentTaskMandate {
         issuerAid: taskOwnerAid,
         issueeAid: personalAgentAid,
         registryId,
-        schemaSaid: taskMandateSchemaSaid,
+        schemaSaid,
         issuedAt: '2026-09-24T12:00:00.000Z',
         credentialSaidBinding: { kind: 'Verified' },
         attributeSaidBinding: { kind: 'Verified' },
-        schemaDocument: { kind: 'Resolved', schemaSaid: taskMandateSchemaSaid },
+        schemaDocument: { kind: 'Resolved', schemaSaid },
         telState: { kind: 'Issued' },
         issuerAnchor: { kind: 'Anchored', eventSaid: issuerAnchorSaid },
       },
@@ -96,6 +108,7 @@ function currentTaskMandate(selectedTask = task): CurrentTaskMandate {
       allowedEvolutionClasses: selectedTask.revision.evolutionClasses,
       notBefore: '2026-09-24T12:00:00.000Z',
       expiresAt: selectedTask.revision.expiresAt,
+      ...experience,
     },
   );
   if (verified.kind !== 'Current') {
@@ -105,10 +118,16 @@ function currentTaskMandate(selectedTask = task): CurrentTaskMandate {
 }
 
 function command(
-  selectedTask = task,
+  selectedTask: TaskProjection = task,
   toolCommands: BaselineHarnessPreparationInput['toolCommands'] = [],
   model = 'claude-sonnet-4-5',
 ) {
+  const toolCapabilities = selectedTask.revision.requestedCapabilities.flatMap(
+    (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+  );
+  const unavailableToolCapabilities = selectedTask.revision.unavailableCapabilities.flatMap(
+    (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
+  );
   const instruction = identifyHarnessInstruction({
     path: 'AGENTS.md',
     content: '# Task repository rules\n',
@@ -134,12 +153,12 @@ function command(
       taskId,
       revisionSaid: selectedTask.revisionSaid,
       harnessLineageId,
-      requestedCapabilities: selectedTask.revision.requestedCapabilities,
+      requestedCapabilities: toolCapabilities,
     },
     authority: {
       personalAgentAid,
       taskMandateSaid,
-      allowedCapabilities: selectedTask.revision.requestedCapabilities,
+      allowedCapabilities: toolCapabilities,
     },
     repository: {
       ...selectedTask.revision.repository,
@@ -165,8 +184,8 @@ function command(
       xstateVersion: '5.33.2',
     },
     capabilities: {
-      available: selectedTask.revision.requestedCapabilities,
-      unavailable: selectedTask.revision.unavailableCapabilities,
+      available: toolCapabilities,
+      unavailable: unavailableToolCapabilities,
     },
     budgetCeilings: {
       task: selectedTask.revision.budgets,
@@ -180,8 +199,12 @@ function command(
   return { version: 1 as const, commandId, revision: prepared.revision };
 }
 
-function authorization(): CurrentTaskMandateAuthorization {
-  return { kind: 'CurrentTaskMandateAuthorized', task, mandate: currentTaskMandate() };
+function authorization(selectedTask: TaskProjection = task): CurrentTaskMandateAuthorization {
+  return {
+    kind: 'CurrentTaskMandateAuthorized',
+    task: selectedTask,
+    mandate: currentTaskMandate(selectedTask),
+  };
 }
 
 function dependencies(
@@ -203,6 +226,58 @@ function dependencies(
 }
 
 describe('baseline Harness admission', () => {
+  it('admits a PRD03 Task while keeping experience read separate from Pi tools', async () => {
+    const source = taskCommand.revision;
+    const experience = {
+      corpusSaid: `E${'q'.repeat(43)}`,
+      repositoryResourceSaid: `E${'s'.repeat(43)}`,
+      disclosure: 'AuthorizedAnalogy' as const,
+    };
+    const prepared = prepareTaskCommandV2(
+      {
+        version: 2,
+        label: task.label,
+        title: source.title,
+        objective: source.objective,
+        repository: { kind: 'gitCommit', commit: source.repository.commit },
+        deliverables: source.deliverables,
+        completionConditions: source.completionConditions,
+        constraints: {
+          ...source.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience,
+        },
+        requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
+        unavailableCapabilities: source.unavailableCapabilities,
+        budgets: taskEvaluationBudgetCeilings,
+        expiresAt: source.expiresAt,
+        evolutionClasses: source.evolutionClasses,
+        checkpointExpectations: source.checkpointExpectations,
+      },
+      task.commandId,
+      source.repository,
+    );
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') return;
+    const scopedTask: TaskProjection = {
+      ...task,
+      revision: prepared.command.revision,
+      revisionSaid: prepared.command.revision.d,
+    };
+    const configured = dependencies();
+    const outcome = await admitBaselineHarness(
+      {
+        protectedCredentials: new ProtectedCredentials(),
+        owner: { ownerAid: taskOwnerAid, credentialSaid: userCredentialSaid },
+        command: command(scopedTask),
+      },
+      {
+        ...configured,
+        currentTaskMandate: { authorize: () => Promise.resolve(authorization(scopedTask)) },
+      },
+    );
+    expect(outcome).toMatchObject({ kind: 'HarnessRevisionCreated' });
+  });
   it('rejects the current Grant bearer before H1 reconciliation or persistence', async () => {
     const bearer = 's'.repeat(43);
     const reconcile = vi.fn<AdmitBaselineHarnessDependencies['revisions']['reconcile']>();

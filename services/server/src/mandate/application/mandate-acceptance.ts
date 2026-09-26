@@ -8,7 +8,9 @@ import {
 } from '@devrandom/domain';
 import {
   promotionMandateSchemaSaid,
+  promotionMandateV2SchemaSaid,
   taskMandateSchemaSaid,
+  taskMandateV2SchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
 
@@ -70,6 +72,7 @@ function mandateTask(task: TaskProjection): MandateTask {
     budgets: task.revision.budgets,
     evolutionClasses: task.revision.evolutionClasses,
     expiresAt: task.revision.expiresAt,
+    ...(task.revision.version === 2 ? { experience: task.revision.constraints.experience } : {}),
   };
 }
 
@@ -113,6 +116,7 @@ function mappedInvalidity(invalidity: MandateInvalidity): MandateAcceptanceFailu
     case 'UnexpectedTaskRevision':
     case 'UnexpectedHarnessLineage':
     case 'RepositoryBindingMismatch':
+    case 'ExperienceScopeMismatch':
     case 'ExpiryMismatch':
       return rejected('ResourceBindingInvalid');
     case 'AuthorityMismatch':
@@ -213,7 +217,8 @@ export function inspectCurrentTaskMandate(input: {
         issuerAid: input.ownerAid,
         issueeAid: acceptedReference.issueeAid,
         registryId: acceptedReference.registryId,
-        schemaSaid: taskMandateSchemaSaid,
+        schemaSaid:
+          input.task.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
         credentialSaid: input.credentialSaid,
       },
       task: mandateTask(input.task),
@@ -270,7 +275,10 @@ export function inspectCurrentPromotionMandate(input: {
         issuerAid: input.ownerAid,
         issueeAid: acceptedReference.issueeAid,
         registryId: acceptedReference.registryId,
-        schemaSaid: promotionMandateSchemaSaid,
+        schemaSaid:
+          input.task.revision.version === 2
+            ? promotionMandateV2SchemaSaid
+            : promotionMandateSchemaSaid,
         credentialSaid: input.credentialSaid,
       },
       task: mandateTask(input.task),
@@ -363,7 +371,8 @@ async function currentTaskMandate(
           issuerAid: input.ownerAid,
           issueeAid: accepted.issueeAid,
           registryId: accepted.registryId,
-          schemaSaid: taskMandateSchemaSaid,
+          schemaSaid:
+            task.experience === undefined ? taskMandateSchemaSaid : taskMandateV2SchemaSaid,
           credentialSaid: stored.presentation.binding.credentialSaid,
         },
         task,
@@ -431,7 +440,8 @@ export async function verifyMandateAcceptance(
         issuerAid: input.ownerAid,
         issueeAid: acceptedReference.issueeAid,
         registryId: acceptedReference.registryId,
-        schemaSaid: promotionMandateSchemaSaid,
+        schemaSaid:
+          task.experience === undefined ? promotionMandateSchemaSaid : promotionMandateV2SchemaSaid,
         credentialSaid: input.credentialSaid,
       },
       task,

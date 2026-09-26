@@ -1,5 +1,10 @@
 import { ProtectedCredentials } from '@devrandom/domain';
-import type { PreparedTaskCommand, TaskProjection } from '@devrandom/protocol';
+import {
+  prepareTaskCommandV2,
+  taskEvaluationBudgetCeilings,
+  type PreparedTaskCommand,
+  type TaskProjection,
+} from '@devrandom/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createTask, type CreateTaskDependencies } from './create-task.js';
@@ -31,6 +36,46 @@ function dependencies(overrides: Partial<CreateTaskDependencies> = {}): CreateTa
 }
 
 describe('Task creation application', () => {
+  it('creates a v2 Task with exact authorized experience and finite evaluation ceilings', async () => {
+    const old = taskCommandFixture();
+    const { d: oldRevisionSaid, repository, ...contract } = old.revision;
+    expect(oldRevisionSaid).toMatch(/^E[A-Za-z0-9_-]{43}$/u);
+    const prepared = prepareTaskCommandV2(
+      {
+        ...contract,
+        version: 2,
+        label: old.label,
+        repository: { kind: 'gitCommit', commit: repository.commit },
+        constraints: {
+          ...contract.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience: {
+            corpusSaid: `E${'c'.repeat(43)}`,
+            repositoryResourceSaid: `E${'r'.repeat(43)}`,
+            disclosure: 'AuthorizedAnalogy',
+          },
+        },
+        requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
+        budgets: { ...contract.budgets, ...taskEvaluationBudgetCeilings },
+      },
+      old.commandId,
+      repository,
+    );
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') throw new Error('expected v2 task');
+    const outcome = await createTask(
+      {
+        owner: { ownerAid: taskOwnerAid, credentialSaid: taskCredentialSaid },
+        protectedCredentials: new ProtectedCredentials(),
+        command: prepared.command,
+      },
+      dependencies(),
+    );
+    expect(outcome.kind).toBe('TaskCreated');
+    if (outcome.kind !== 'TaskCreated') throw new Error('expected Task creation');
+    expect(outcome.task.revision.version).toBe(2);
+    expect(outcome.task.revision.budgets.providerRequests).toBe(256);
+  });
   it.each([
     's'.repeat(43),
     'Authorization: Bearer opaque-fixture-763518',
