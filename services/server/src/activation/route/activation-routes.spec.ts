@@ -82,20 +82,18 @@ describe('activation public HTTP boundary', () => {
     );
     try {
       const url = `/api/tasks/${taskId}/activation`;
-      const accepted = await server.inject({
-        method: 'GET',
-        url,
+      const address = await server.listen({ host: '127.0.0.1', port: 0 });
+      const accepted = await fetch(`${address}${url}`, {
         headers: { authorization: `Bearer ${'a'.repeat(43)}` },
       });
-      expect(accepted.statusCode).toBe(200);
-      expect(accepted.json()).toEqual(pointer);
+      expect(accepted.status).toBe(200);
+      expect(accepted.headers.get('cache-control')).toBe('no-store');
+      expect(await accepted.json()).toEqual(pointer);
       expect(readCurrent).toHaveBeenCalledWith({ ownerAid: said('o'), taskId });
-      const denied = await server.inject({
-        method: 'GET',
-        url,
+      const denied = await fetch(`${address}${url}`, {
         headers: { authorization: `Bearer ${'b'.repeat(43)}` },
       });
-      expect(denied.statusCode).toBe(403);
+      expect(denied.status).toBe(403);
       expect(readCurrent).toHaveBeenCalledOnce();
     } finally {
       await server.close();

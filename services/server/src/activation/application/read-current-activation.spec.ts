@@ -56,6 +56,36 @@ function committed() {
 }
 
 describe('current activation read', () => {
+  it('never returns an initial pointer for another Task', async () => {
+    const { command, pointer } = committed();
+    expect(
+      await readCurrentActivation(
+        { ownerAid: said('o'), taskId: command.taskId },
+        {
+          source: {
+            inspectCurrent: () =>
+              Promise.resolve({
+                kind: 'Initial' as const,
+                pointer: {
+                  version: 1 as const,
+                  kind: 'Initial' as const,
+                  taskId: '44444444-4444-4444-8444-444444444444',
+                  taskRevisionSaid: pointer.taskRevisionSaid,
+                  harnessLineageId: pointer.harnessLineageId,
+                  activeRevisionSaid: pointer.activeRevisionSaid,
+                  pointerVersion: 1 as const,
+                },
+              }),
+          },
+          receipts: {
+            sign: () => Promise.resolve({ kind: 'Unavailable' }),
+            inspect: () => Promise.resolve('Rejected'),
+          },
+        },
+      ),
+    ).toEqual({ kind: 'Conflict' });
+  });
+
   it('requires the exact issuer receipt before exposing the committed pointer', async () => {
     const { command, pointer } = committed();
     const input = { ownerAid: said('o'), taskId: command.taskId };

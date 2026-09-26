@@ -35,11 +35,15 @@ export async function readCurrentActivation(
   | { readonly kind: 'Absent' | 'Conflict' | 'Unavailable' }
 > {
   const observed = await dependencies.source.inspectCurrent(input);
-  if (observed.kind === 'Initial') return { kind: 'Read', pointer: observed.pointer };
+  if (observed.kind === 'Initial')
+    return observed.pointer.taskId === input.taskId
+      ? { kind: 'Read', pointer: observed.pointer }
+      : { kind: 'Conflict' };
   if (observed.kind !== 'Committed') return observed;
   const { command, pointer } = observed;
   if (
     decodeActivationCommitCommand(command).kind !== 'Accepted' ||
+    pointer.taskId !== input.taskId ||
     command.taskId !== input.taskId ||
     command.taskRevisionSaid !== pointer.taskRevisionSaid ||
     command.harnessLineageId !== pointer.harnessLineageId ||
