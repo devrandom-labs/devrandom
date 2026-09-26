@@ -3,6 +3,7 @@
 **/.next
 **/out
 apps/site/next-env.d.ts
+apps/demo/next-env.d.ts
 coverage
 dist
 node_modules

@@ -18,6 +18,6 @@ export default defineConfig({
       'services/**/*.spec.ts',
       'tooling/**/*.spec.ts',
     ],
-    exclude: ['**/node_modules/**', 'apps/site/e2e/**'],
+    exclude: ['**/node_modules/**', 'apps/site/e2e/**', 'apps/demo/e2e/**'],
   },
 });

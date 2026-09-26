@@ -46,7 +46,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/site/**/*.{ts,tsx}'],
+    files: ['apps/site/**/*.{ts,tsx}', 'apps/demo/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',

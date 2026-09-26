@@ -8,8 +8,9 @@ export function isHandwrittenStyleSheet(path: string): boolean {
 }
 
 export async function findHandwrittenStyleSheets(root: string): Promise<readonly string[]> {
-  const source = resolve(root, 'apps/site/src');
-  const entries = await readdir(source, { recursive: true, withFileTypes: true });
+  const entries = (await Promise.all(['apps/site/src', 'apps/demo/src'].map((source) =>
+    readdir(resolve(root, source), { recursive: true, withFileTypes: true }),
+  ))).flat();
 
   return entries
     .filter((entry) => entry.isFile() && isHandwrittenStyleSheet(entry.name))

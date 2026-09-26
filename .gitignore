@@ -4,6 +4,8 @@ coverage/
 dist/
 .next/
 apps/site/out/
+apps/demo/test-results/
+apps/demo/playwright-report/
 *.tsbuildinfo
 apps/site/test-results/
 apps/site/.playwright-artifacts/

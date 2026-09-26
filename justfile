@@ -530,6 +530,20 @@ smoke: _require-nix build
     pnpm --filter @devrandom/cli run smoke
     pnpm --filter @devrandom/server run smoke
     pnpm --filter @devrandom/site run smoke
+    pnpm --filter @devrandom/demo run smoke
+
+demo-install: _require-nix
+    pnpm install
+    pnpm --filter @devrandom/demo exec playwright install chromium
+
+run-demo: _require-nix
+    pnpm --filter @devrandom/demo run dev --hostname 127.0.0.1 --port 3212
+
+start-demo: _require-nix
+    pnpm --filter @devrandom/demo run start --hostname 127.0.0.1 --port 3212
+
+smoke-demo: _require-nix
+    pnpm --filter @devrandom/demo run smoke
 
 run-cli: _require-nix
     pnpm --filter @devrandom/cli run dev -- status
