@@ -369,14 +369,13 @@ describeMongo('EvidenceOnly closure over listening Fastify and replica Mongo', (
     type Phase = EvaluationEvidenceEvent['phase'];
     type Detail = EvaluationEvidenceEvent['detail'];
     const research: Phase = { kind: 'Research', policySaid: said('P'), role: 'DiagnosticRefiner' };
-    const phaseFor = (slot: ComparisonSlot): Phase =>
-      ({
-        kind: 'Trial',
-        manifestSaid: manifest.manifest.d,
-        arm: slot.arm,
-        repetition: slot.repetition,
-        attempt: slot.attempt,
-      }) as Phase;
+    const phaseFor = (slot: ComparisonSlot): Phase => ({
+      kind: 'Trial',
+      manifestSaid: manifest.manifest.d,
+      arm: slot.arm,
+      repetition: slot.repetition,
+      attempt: slot.attempt,
+    });
     const revisionFor = (slot: ComparisonSlot): string =>
       slot.arm === 'H1TaskSearch' ? revision.d : manifest.manifest.revisions[slot.arm];
     const emit = (detail: Detail, phase: Phase, harnessRevisionSaid = revision.d) => {
@@ -647,7 +646,7 @@ describeMongo('EvidenceOnly closure over listening Fastify and replica Mongo', (
           consumed: amount,
           receiptArtifactSaid,
           sourceEventSaid,
-        } as Detail,
+        },
         research,
       );
       return { dimension, finalDebitEventSaid: debit.d, receiptArtifactSaid, sourceEventSaid };

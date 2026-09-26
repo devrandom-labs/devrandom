@@ -439,7 +439,7 @@ export async function prepareEvaluationBudgetCoverage(
       captured.set(event.detail.artifactSaid, event);
     if (event.detail.kind !== 'EvaluationBudgetDebited') continue;
     const debit: Debit = event.detail;
-    const budget = debit.budget as Budget;
+    const budget = debit.budget;
     if (!budgetName(budget)) return incomplete('DebitSequence');
     const source =
       debit.sourceEventSaid === undefined ? undefined : prior.get(debit.sourceEventSaid);

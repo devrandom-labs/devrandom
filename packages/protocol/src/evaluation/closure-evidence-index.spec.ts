@@ -7,7 +7,7 @@ import {
   type TamperLifecycleRole,
   type VerifiedObligationProof,
 } from '@devrandom/domain';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { prepareEvidenceArtifact } from '../evidence/evidence-artifact.js';
 import {
@@ -15,7 +15,27 @@ import {
   decodeEvaluationClosureEvidenceIndex,
   prepareEvaluationAuditAssessmentArtifact,
   prepareEvaluationClosureEvidenceIndex,
+  type EvaluationClosureEvidenceIndex,
 } from './closure-evidence-index.js';
+
+it('exposes the closed comparison and audit vocabulary to protocol callers', () => {
+  type Index = EvaluationClosureEvidenceIndex;
+  expectTypeOf<Index['observations'][number]['slot']['arm']>().toEqualTypeOf<
+    'H1' | 'C1' | 'C2' | 'C3' | 'H1TaskSearch'
+  >();
+  expectTypeOf<Index['audits'][number]['scope']>().toEqualTypeOf<
+    'Shared' | 'H1' | 'C1' | 'C2' | 'C3' | 'H1TaskSearch'
+  >();
+  expectTypeOf<Index['audits'][number]['verdict']>().toEqualTypeOf<
+    'Pass' | 'Fail' | 'Incomplete'
+  >();
+  expectTypeOf<Index['audits'][number]['proofs'][number]['obligation']>().toEqualTypeOf<
+    (typeof tamperAuditObligations)[number]
+  >();
+  expectTypeOf<
+    Index['audits'][number]['attemptCoverage']['coveredRoles'][number]
+  >().toEqualTypeOf<TamperLifecycleRole>();
+});
 
 const said = (letter: string) => `${letter}${'a'.repeat(43)}`;
 const uuid = '11111111-1111-4111-8111-111111111111';

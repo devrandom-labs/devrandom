@@ -65,9 +65,15 @@ describe('hosted accepted Evaluation prefix for local promotion', () => {
     const server = new ServerPromotionEvidence({
       readEvidencePage: () => Promise.resolve({ kind: 'Unavailable' as const }),
       readPublicArtifact: () =>
-        Promise.resolve({ kind: 'Read' as const, artifact: prepared.artifact, bytes: Buffer.from('different') }),
+        Promise.resolve({
+          kind: 'Read' as const,
+          artifact: prepared.artifact,
+          bytes: Buffer.from('different'),
+        }),
     });
-    expect(await server.openPublic({ evaluationId: binding.evaluationId, artifactSaid: said('z') })).toEqual({
+    expect(
+      await server.openPublic({ evaluationId: binding.evaluationId, artifactSaid: said('z') }),
+    ).toEqual({
       kind: 'Missing',
     });
   });
@@ -107,12 +113,10 @@ describe('hosted accepted Evaluation prefix for local promotion', () => {
                 ...result,
                 page: {
                   ...result.page,
-                  events: [
-                    {
-                      ...events[32],
-                      previous: { kind: 'Previous' as const, eventSaid: said('z') },
-                    },
-                  ],
+                  events: result.page.events.map((event) => ({
+                    ...event,
+                    previous: { kind: 'Previous' as const, eventSaid: said('z') },
+                  })),
                 },
               }
             : result,

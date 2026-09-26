@@ -496,7 +496,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
         receiptArtifactSaid,
         sourceEventSaid,
       } as const;
-      await append(detail as EvaluationEvidenceEvent['detail']);
+      await append(detail);
       consumed[budget] = next;
     };
 

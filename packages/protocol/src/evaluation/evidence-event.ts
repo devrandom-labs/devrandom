@@ -7,21 +7,17 @@ const uuid = Type.String({
   pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 });
 const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
-const budget = Type.Union(
-  (
-    [
-      'providerRequests',
-      'providerInputTokens',
-      'providerOutputTokens',
-      'providerSpendMicroUsd',
-      'runWallTimeSeconds',
-      'toolProposals',
-      'aggregateChildCommandTimeSeconds',
-      'changedFiles',
-      'changedWorktreeBytes',
-    ] as const
-  ).map((name) => Type.Literal(name)),
-);
+const budget = Type.Union([
+  Type.Literal('providerRequests'),
+  Type.Literal('providerInputTokens'),
+  Type.Literal('providerOutputTokens'),
+  Type.Literal('providerSpendMicroUsd'),
+  Type.Literal('runWallTimeSeconds'),
+  Type.Literal('toolProposals'),
+  Type.Literal('aggregateChildCommandTimeSeconds'),
+  Type.Literal('changedFiles'),
+  Type.Literal('changedWorktreeBytes'),
+]);
 const budgetTotals = Type.Object(
   {
     providerRequests: count,
@@ -49,9 +45,13 @@ const phase = Type.Union([
     {
       kind: Type.Literal('Trial'),
       manifestSaid: said,
-      arm: Type.Union(
-        (['H1', 'C1', 'C2', 'C3', 'H1TaskSearch'] as const).map((arm) => Type.Literal(arm)),
-      ),
+      arm: Type.Union([
+        Type.Literal('H1'),
+        Type.Literal('C1'),
+        Type.Literal('C2'),
+        Type.Literal('C3'),
+        Type.Literal('H1TaskSearch'),
+      ]),
       repetition: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]),
       attempt: Type.Union([Type.Literal(1), Type.Literal(2)]),
     },

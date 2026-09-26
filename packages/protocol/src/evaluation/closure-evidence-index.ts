@@ -22,9 +22,13 @@ const uuid = Type.String({
   pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 });
 const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
-const arm = Type.Union(
-  (['H1', 'C1', 'C2', 'C3', 'H1TaskSearch'] as const).map((name) => Type.Literal(name)),
-);
+const arm = Type.Union([
+  Type.Literal('H1'),
+  Type.Literal('C1'),
+  Type.Literal('C2'),
+  Type.Literal('C3'),
+  Type.Literal('H1TaskSearch'),
+]);
 const slot = Type.Object(
   {
     arm,
@@ -33,25 +37,35 @@ const slot = Type.Object(
   },
   { additionalProperties: false },
 );
-const scope = Type.Union(
-  (['Shared', 'H1', 'C1', 'C2', 'C3', 'H1TaskSearch'] as const).map((name) => Type.Literal(name)),
-);
-const obligation = Type.Union(tamperAuditObligations.map((name) => Type.Literal(name)));
-const verdict = Type.Union(
-  (['Pass', 'Fail', 'Incomplete'] as const).map((name) => Type.Literal(name)),
-);
-const role = Type.Union(tamperLifecycleRoles.map((name) => Type.Literal(name)));
-const attemptKind = Type.Union(
-  (
-    [
-      'HeldOutAccess',
-      'EvaluatorModification',
-      'EvidenceDeletion',
-      'CaseOmission',
-      'ArtifactSubstitution',
-    ] as const
-  ).map((name) => Type.Literal(name)),
-);
+const scope = Type.Union([Type.Literal('Shared'), ...arm.anyOf]);
+const obligation = Type.Union([
+  Type.Literal(tamperAuditObligations[0]),
+  Type.Literal(tamperAuditObligations[1]),
+  Type.Literal(tamperAuditObligations[2]),
+  Type.Literal(tamperAuditObligations[3]),
+  Type.Literal(tamperAuditObligations[4]),
+  Type.Literal(tamperAuditObligations[5]),
+  Type.Literal(tamperAuditObligations[6]),
+]);
+const verdict = Type.Union([
+  Type.Literal('Pass'),
+  Type.Literal('Fail'),
+  Type.Literal('Incomplete'),
+]);
+const role = Type.Union([
+  Type.Literal(tamperLifecycleRoles[0]),
+  Type.Literal(tamperLifecycleRoles[1]),
+  Type.Literal(tamperLifecycleRoles[2]),
+  Type.Literal(tamperLifecycleRoles[3]),
+  Type.Literal(tamperLifecycleRoles[4]),
+]);
+const attemptKind = Type.Union([
+  Type.Literal('HeldOutAccess'),
+  Type.Literal('EvaluatorModification'),
+  Type.Literal('EvidenceDeletion'),
+  Type.Literal('CaseOmission'),
+  Type.Literal('ArtifactSubstitution'),
+]);
 
 /** E3 checklist 13: exact, ordered references; this document never grades a candidate. */
 export const evaluationClosureEvidenceIndexSchema = Type.Object(
@@ -140,21 +154,17 @@ export const evaluationClosureEvidenceIndexSchema = Type.Object(
         anchors: Type.Array(
           Type.Object(
             {
-              dimension: Type.Union(
-                (
-                  [
-                    'providerRequests',
-                    'providerInputTokens',
-                    'providerOutputTokens',
-                    'providerSpendMicroUsd',
-                    'runWallTimeSeconds',
-                    'toolProposals',
-                    'aggregateChildCommandTimeSeconds',
-                    'changedFiles',
-                    'changedWorktreeBytes',
-                  ] as const
-                ).map((name) => Type.Literal(name)),
-              ),
+              dimension: Type.Union([
+                Type.Literal('providerRequests'),
+                Type.Literal('providerInputTokens'),
+                Type.Literal('providerOutputTokens'),
+                Type.Literal('providerSpendMicroUsd'),
+                Type.Literal('runWallTimeSeconds'),
+                Type.Literal('toolProposals'),
+                Type.Literal('aggregateChildCommandTimeSeconds'),
+                Type.Literal('changedFiles'),
+                Type.Literal('changedWorktreeBytes'),
+              ]),
               finalDebitEventSaid: said,
               receiptArtifactSaid: said,
               sourceEventSaid: said,

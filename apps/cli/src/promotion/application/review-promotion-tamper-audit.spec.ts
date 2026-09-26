@@ -8,6 +8,7 @@ import {
   prepareEvaluationAuditAssessmentArtifact,
   prepareEvidenceArtifact,
   type EvaluationClosureEvidenceIndex,
+  type EvidenceArtifact,
 } from '@devrandom/protocol';
 import { expect, it } from 'vitest';
 
@@ -20,12 +21,7 @@ function fixture() {
   const raw = new Map<
     string,
     {
-      artifact: ReturnType<typeof prepareEvidenceArtifact> extends {
-        kind: 'Prepared';
-        artifact: infer A;
-      }
-        ? A
-        : never;
+      artifact: EvidenceArtifact;
       bytes: Uint8Array;
     }
   >();

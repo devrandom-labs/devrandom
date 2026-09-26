@@ -289,8 +289,7 @@ export function replayEvaluationBudgetCoverage(input: {
     }
     if (event.detail.kind === 'EvaluationBudgetDebited') {
       const debit = event.detail;
-      // TypeBox's mapped literal union erases this property to `never` in Static.
-      const budget = debit.budget as DebitedBudget;
+      const budget = debit.budget;
       const source =
         debit.sourceEventSaid === undefined ? undefined : prior.get(debit.sourceEventSaid);
       if (
@@ -700,7 +699,7 @@ export class MongoEvaluationEvidence
               trialEvents.some((event) => {
                 const phase = event.phase;
                 if (phase.kind !== 'Trial') return true;
-                const arm = phase.arm as 'H1' | 'C1' | 'C2' | 'C3' | 'H1TaskSearch';
+                const arm = phase.arm;
                 const slot = locked.manifest.slots.find(
                   (candidate) =>
                     candidate.arm === arm &&

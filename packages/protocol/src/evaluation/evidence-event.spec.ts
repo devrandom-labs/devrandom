@@ -1,6 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
-import { decodeEvaluationEvidenceEvent, prepareEvaluationEvidenceEvent } from './evidence-event.js';
+import {
+  decodeEvaluationEvidenceEvent,
+  prepareEvaluationEvidenceEvent,
+  type EvaluationEvidenceEvent,
+} from './evidence-event.js';
+
+it('exposes trial arms and charged budget dimensions to typed evidence callers', () => {
+  type Trial = Extract<EvaluationEvidenceEvent['phase'], { kind: 'Trial' }>;
+  type Debit = Extract<EvaluationEvidenceEvent['detail'], { kind: 'EvaluationBudgetDebited' }>;
+  expectTypeOf<Trial['arm']>().toEqualTypeOf<'H1' | 'C1' | 'C2' | 'C3' | 'H1TaskSearch'>();
+  expectTypeOf<Debit['budget']>().toEqualTypeOf<
+    | 'providerRequests'
+    | 'providerInputTokens'
+    | 'providerOutputTokens'
+    | 'providerSpendMicroUsd'
+    | 'runWallTimeSeconds'
+    | 'toolProposals'
+    | 'aggregateChildCommandTimeSeconds'
+    | 'changedFiles'
+    | 'changedWorktreeBytes'
+  >();
+});
 
 const said = (character: string): string => `E${character.repeat(43)}`;
 const id = (digit: string): string =>
