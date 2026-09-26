@@ -110,6 +110,37 @@ describe('native evaluation evidence stream', () => {
     });
   });
 
+  it('accepts only a source-bound provider verification event in a trial phase', () => {
+    const verified = prepareEvaluationEvidenceEvent({
+      ...event,
+      sequence: 1,
+      previous: { kind: 'Previous', eventSaid: said('p') },
+      detail: {
+        kind: 'ProviderUsageVerified',
+        modelExchangeEventSaid: said('e'),
+        receiptArtifactSaid: said('r'),
+        providerReportArtifactSaid: said('s'),
+        requestOrdinal: 0,
+      },
+    });
+    expect(verified.kind).toBe('Prepared');
+    expect(
+      prepareEvaluationEvidenceEvent({
+        ...event,
+        phase: { kind: 'Research', policySaid: said('p'), role: 'DiagnosticRefiner' },
+        sequence: 1,
+        previous: { kind: 'Previous', eventSaid: said('p') },
+        detail: {
+          kind: 'ProviderUsageVerified',
+          modelExchangeEventSaid: said('e'),
+          receiptArtifactSaid: said('r'),
+          providerReportArtifactSaid: said('s'),
+          requestOrdinal: 0,
+        },
+      }),
+    ).toEqual({ kind: 'Rejected', reason: 'SchemaInvalid' });
+  });
+
   it('rejects a Run-shaped alias and a hidden answer in an event', () => {
     expect(prepareEvaluationEvidenceEvent({ ...event, runId: id('4') })).toEqual({
       kind: 'Rejected',

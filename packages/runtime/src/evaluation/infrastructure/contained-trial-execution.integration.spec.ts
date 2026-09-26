@@ -672,8 +672,29 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                 return Promise.resolve({
                   kind: 'Completed' as const,
                   message,
-                  usageEventSaid: said(input.requestOrdinal === 0 ? 'u' : 'w'),
                   verifiedSpendMicroUsd: usage === 'Unaccountable' ? Number.NaN : 7,
+                  providerReportBytes: new TextEncoder().encode(
+                    JSON.stringify({
+                      type: 'response.completed',
+                      response: {
+                        id: message.responseId,
+                        model: message.model,
+                        cost: { total: 0.000007 },
+                        usage: {
+                          input_tokens:
+                            message.usage.input +
+                            message.usage.cacheRead +
+                            message.usage.cacheWrite,
+                          output_tokens: message.usage.output,
+                          total_tokens: message.usage.totalTokens,
+                          input_tokens_details: {
+                            cached_tokens: message.usage.cacheRead,
+                            cache_write_tokens: message.usage.cacheWrite,
+                          },
+                        },
+                      },
+                    }),
+                  ),
                 });
               },
             },

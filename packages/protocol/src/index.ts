@@ -1,6 +1,7 @@
 export * from './evaluation/manifest.js';
 export * from './evaluation/policy.js';
 export * from './evaluation/evidence-event.js';
+export * from './evaluation/provider-usage-receipt.js';
 export * from './evaluation/evidence-batch.js';
 export * from './evaluation/closure.js';
 export * from './evaluation/closure-evidence-index.js';

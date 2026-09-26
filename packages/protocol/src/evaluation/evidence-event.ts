@@ -112,6 +112,16 @@ const detail = Type.Union([
   ),
   Type.Object(
     {
+      kind: Type.Literal('ProviderUsageVerified'),
+      modelExchangeEventSaid: said,
+      receiptArtifactSaid: said,
+      providerReportArtifactSaid: said,
+      requestOrdinal: count,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
       kind: Type.Literal('EvaluationBudgetDebited'),
       budget,
       amount: count,
@@ -223,6 +233,8 @@ function invalidEvent(
     input.detail.kind === 'EvaluationBudgetDebited' &&
     input.detail.consumed < input.detail.amount
   )
+    return 'SchemaInvalid';
+  if (input.detail.kind === 'ProviderUsageVerified' && input.phase.kind !== 'Trial')
     return 'SchemaInvalid';
   if (
     input.phase.kind === 'Trial' &&

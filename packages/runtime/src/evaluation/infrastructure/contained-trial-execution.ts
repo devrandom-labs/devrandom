@@ -12,6 +12,7 @@ import {
   decodeEvolutionHypothesis,
   prepareEvidenceArtifact,
   prepareEvaluationEvidenceEvent,
+  prepareEvaluationProviderUsageReceipt,
   type EvaluationExecutionProfile,
   type EvaluationEvidenceEvent,
   type EvolutionHypothesis,
@@ -29,6 +30,7 @@ import type {
 import { DockerEvaluationCompartment, type EvaluationMount } from './docker-compartment.js';
 import { FramedRelay } from './framed-relay.js';
 import { digestEvaluationRuntimeMounts } from './runtime-mount-digest.js';
+import { inspectConcentrateProviderReport } from './concentrate-provider-report.js';
 import type { SourceCustody } from './source-custody.js';
 import { bindC1TrialBehavior } from '../application/bind-c1-trial-behavior.js';
 import type { CandidateTreatmentCustody } from '../application/candidate-treatment-custody.js';
@@ -772,14 +774,20 @@ export class DockerContainedTrialExecution implements TrialExecution {
             }
             const message: AssistantMessage = completion.message;
             const usage = accountableProviderUsage(message, completion.verifiedSpendMicroUsd);
+            const report = inspectConcentrateProviderReport(completion.providerReportBytes, message);
             if (
-              !isSaid(completion.usageEventSaid) ||
               message.provider !== config.model.provider ||
               message.model !== config.model.id ||
               !Array.isArray(message.content)
             )
               throw new Error('Evaluation model completion identity invalid.');
-            if (usage === undefined)
+            if (
+              usage === undefined ||
+              report.kind !== 'Verified' ||
+              report.spendMicroUsd !== completion.verifiedSpendMicroUsd ||
+              report.inputTokens !== usage.inputTokens ||
+              report.outputTokens !== usage.outputTokens
+            )
               return {
                 kind: 'Invalid',
                 reason: 'UnknownUsage',
@@ -801,11 +809,50 @@ export class DockerContainedTrialExecution implements TrialExecution {
                   }
                 : {}),
               message,
-              usageEventSaid: completion.usageEventSaid,
             });
             const exchangeEventSaid = await append({
               kind: 'ModelExchange',
               rawArtifactSaid: exchange,
+            });
+            const providerReportArtifactSaid = await storeRawBytes(completion.providerReportBytes);
+            await append({
+              kind: 'ArtifactCaptured',
+              artifactSaid: providerReportArtifactSaid,
+              custody: 'Public',
+            });
+            const preparedReceipt = prepareEvaluationProviderUsageReceipt({
+              evaluationId: binding.evaluationId,
+              streamId: binding.evidenceStreamId,
+              harnessRevisionSaid: binding.harnessRevisionSaid,
+              phase: binding.phase,
+              modelExchangeEventSaid: exchangeEventSaid,
+              requestOrdinal,
+              provider: message.provider,
+              model: message.model,
+              responseId: message.responseId,
+              inputTokens: report.inputTokens,
+              outputTokens: report.outputTokens,
+              cacheReadTokens: report.cacheReadTokens,
+              cacheWriteTokens: report.cacheWriteTokens,
+              totalTokens: report.totalTokens,
+              spendMicroUsd: report.spendMicroUsd,
+              providerReportArtifactSaid,
+            });
+            if (preparedReceipt.kind !== 'Prepared') throw new Error('Provider receipt invalid.');
+            const usageReceipt = await storeRawBytes(preparedReceipt.bytes);
+            if (usageReceipt !== preparedReceipt.artifact.d)
+              throw new Error('Provider receipt custody mismatch.');
+            await append({
+              kind: 'ArtifactCaptured',
+              artifactSaid: usageReceipt,
+              custody: 'Public',
+            });
+            const usageEventSaid = await append({
+              kind: 'ProviderUsageVerified',
+              modelExchangeEventSaid: exchangeEventSaid,
+              receiptArtifactSaid: usageReceipt,
+              providerReportArtifactSaid,
+              requestOrdinal,
             });
             if (selected?.kind === 'Selected') {
               const selectionReceipt = await raw({
@@ -822,7 +869,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
                 contextBytes: selected.contextBytes,
                 providerInputTokensForRequest: usage.inputTokens,
                 verifiedSpendMicroUsdForRequest: completion.verifiedSpendMicroUsd,
-                usageEventSaid: completion.usageEventSaid,
+                usageEventSaid,
               });
               await append({
                 kind: 'ArtifactCaptured',
@@ -830,25 +877,6 @@ export class DockerContainedTrialExecution implements TrialExecution {
                 custody: 'Public',
               });
             }
-            const usageReceipt = await raw({
-              kind: 'EvaluationProviderUsage',
-              requestOrdinal,
-              modelExchangeEventSaid: exchangeEventSaid,
-              usageEventSaid: completion.usageEventSaid,
-              provider: message.provider,
-              model: message.model,
-              responseId: message.responseId,
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              cacheReadTokens: message.usage.cacheRead,
-              cacheWriteTokens: message.usage.cacheWrite,
-              spendMicroUsd: completion.verifiedSpendMicroUsd,
-            });
-            await append({
-              kind: 'ArtifactCaptured',
-              artifactSaid: usageReceipt,
-              custody: 'Public',
-            });
             await debit('providerRequests', 1, usageReceipt, exchangeEventSaid);
             await debit('providerInputTokens', usage.inputTokens, usageReceipt, exchangeEventSaid);
             await debit(
@@ -863,7 +891,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
               usageReceipt,
               exchangeEventSaid,
             );
-            usageSaids.push(completion.usageEventSaid);
+            usageSaids.push(usageEventSaid);
             for (const part of message.content) {
               if (part.type !== 'toolCall') continue;
               if (
@@ -880,7 +908,12 @@ export class DockerContainedTrialExecution implements TrialExecution {
                 arguments: part.arguments,
               });
             }
-            await relay.send('ModelResponse', { ...completion, requestOrdinal });
+            await relay.send('ModelResponse', {
+              kind: 'Completed',
+              message,
+              usageEventSaid,
+              requestOrdinal,
+            });
             requestOrdinal += 1;
             proposalIndex = 0;
             continue;
