@@ -17,7 +17,7 @@ const interrupted = (signal: AbortSignal) => signal.aborted;
 
 /** Repeats the reviewed retrieve/read/replan workflow under current Run authority, not trial identity. */
 export interface QualifiedRunRecoveryDependencies {
-  readonly constructed: QualifiedHypothesisConstruction;
+  readonly constructed: Pick<QualifiedHypothesisConstruction, 'hypothesis' | 'window'>;
   readonly inventory: EvaluationSourceInventory;
   readonly retrieval: ExperienceRetrieval;
   readonly reading: EvidenceReading;

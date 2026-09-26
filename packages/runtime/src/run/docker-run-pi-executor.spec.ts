@@ -5,7 +5,7 @@ import {
 } from '@devrandom/protocol';
 import { expect, it } from 'vitest';
 
-import { DockerRunPiExecutor } from './docker-run-pi-executor.js';
+import { DockerRunPiExecutor, runWorkerSubmissionReply } from './docker-run-pi-executor.js';
 import type { EvidenceRecorder } from '../evidence/evidence-recorder.js';
 import type { RunResourceBudget } from './run-resource-budget.js';
 
@@ -101,4 +101,22 @@ it('rejects a mismatched Run identity before any contained worker or provider re
     kind: 'DependencyUnavailable',
   });
   expect(calls).toEqual(['close']);
+});
+
+it('stops a C2 submit without returning verifier feedback and accepts only a verified provisional stop', () => {
+  expect(
+    runWorkerSubmissionReply(true, 'submit_result', {
+      kind: 'SubmissionVerified',
+      disposition: 'Accepted',
+    }),
+  ).toEqual({ kind: 'ProvisionalStop', verified: true });
+  expect(
+    runWorkerSubmissionReply(true, 'submit_result', { kind: 'DependencyUnavailable' }),
+  ).toEqual({ kind: 'ProvisionalStop', verified: false });
+  expect(
+    runWorkerSubmissionReply(false, 'submit_result', {
+      kind: 'SubmissionVerified',
+      disposition: 'Accepted',
+    }),
+  ).toEqual({ kind: 'ToolOutcome', verified: false });
 });

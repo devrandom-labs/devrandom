@@ -52,6 +52,20 @@ export interface DockerRunPiExecutorDependencies {
   sessionId(): string;
 }
 
+/** C2 stops at submission; protected verification feedback never enters its worker transcript. */
+export function runWorkerSubmissionReply(
+  workflow: boolean,
+  tool: ToolName,
+  outcome: { readonly kind: string; readonly disposition?: string },
+): { readonly kind: 'ProvisionalStop' | 'ToolOutcome'; readonly verified: boolean } {
+  return workflow && tool === 'submit_result'
+    ? {
+        kind: 'ProvisionalStop',
+        verified: outcome.kind === 'SubmissionVerified' && outcome.disposition === 'Accepted',
+      }
+    : { kind: 'ToolOutcome', verified: false };
+}
+
 function isRecord(value: unknown): value is { readonly [key: string]: unknown } {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -308,6 +322,7 @@ export class DockerRunPiExecutor implements PiExecution {
       const expectedCalls: ExpectedToolCall[] = [];
       let requestOrdinal = 0;
       let proposalIndex = 0;
+      let provisionalVerified = false;
       for (;;) {
         if (interrupted(signal)) return { kind: 'Aborted' };
         const frame = await relay.receive();
@@ -382,7 +397,13 @@ export class DockerRunPiExecutor implements PiExecution {
           config.successorBehavior?.observeProposal(proposal);
           const outcome = await config.gateway.propose(proposal, signal);
           const terminal = toolTerminal(outcome);
-          await relay.send('ToolOutcome', outcome);
+          const reply = runWorkerSubmissionReply(
+            behavior?.kind === 'Prepared' && behavior.workflowContext !== undefined,
+            expected.name,
+            outcome,
+          );
+          provisionalVerified = reply.verified;
+          await relay.send(reply.kind, reply.kind === 'ProvisionalStop' ? {} : outcome);
           if (terminal !== undefined) return terminal;
           proposalIndex += 1;
           continue;
@@ -391,7 +412,9 @@ export class DockerRunPiExecutor implements PiExecution {
           if (
             !isRecord(frame.payload) ||
             frame.payload.piSessionId !== sessionId ||
-            !['Submitted', 'NoSubmission'].includes(String(frame.payload.kind)) ||
+            !(provisionalVerified ? ['Provisional'] : ['Submitted', 'NoSubmission']).includes(
+              String(frame.payload.kind),
+            ) ||
             frame.payload.requestCount !== requestOrdinal ||
             requestOrdinal === 0 ||
             expectedCalls.length !== 0 ||
