@@ -4,28 +4,19 @@ import {
   type ComparisonMeasurement,
   type TrialObservation,
 } from '../evaluation/comparison.js';
+import { tamperAuditObligations } from '../tamper-audit/assessment.js';
+import type {
+  DisqualifyingAttempt,
+  SevenObligationAssessment,
+} from '../tamper-audit/assessment.js';
 
-export type AuditVerdict = 'Pass' | 'Fail' | 'Incomplete';
-
-/** Verdicts are supplied by the distinct protected Tamper Audit owner. */
-export interface SevenObligationAssessment {
-  readonly measurementValidity: AuditVerdict;
-  readonly representationalFidelity: AuditVerdict;
-  readonly proceduralIntegrity: AuditVerdict;
-  readonly authorizationAndAccess: AuditVerdict;
-  readonly protectedArtifactAndStateIntegrity: AuditVerdict;
-  readonly provenanceAndSourceAttribution: AuditVerdict;
-  readonly requiredSetCompleteness: AuditVerdict;
-}
+export type {
+  AuditVerdict,
+  DisqualifyingAttempt,
+  SevenObligationAssessment,
+} from '../tamper-audit/assessment.js';
 
 export type CandidateArm = 'C1' | 'C2' | 'C3';
-
-export type DisqualifyingAttempt =
-  | 'HeldOutAccess'
-  | 'EvaluatorModification'
-  | 'EvidenceDeletion'
-  | 'CaseOmission'
-  | 'ArtifactSubstitution';
 
 export interface CandidatePromotionAssessment {
   readonly arm: CandidateArm;
@@ -74,16 +65,6 @@ export type PromotionSelection =
       readonly revisionSaid: string;
     };
 
-const obligations = [
-  'measurementValidity',
-  'representationalFidelity',
-  'proceduralIntegrity',
-  'authorizationAndAccess',
-  'protectedArtifactAndStateIntegrity',
-  'provenanceAndSourceAttribution',
-  'requiredSetCompleteness',
-] as const satisfies readonly (keyof SevenObligationAssessment)[];
-
 interface CandidateMeasures {
   readonly candidate: CandidatePromotionAssessment;
   readonly successes: number;
@@ -94,7 +75,7 @@ interface CandidateMeasures {
 }
 
 function auditPassed(assessment: SevenObligationAssessment): boolean {
-  return obligations.every((obligation) => assessment[obligation] === 'Pass');
+  return tamperAuditObligations.every((obligation) => assessment[obligation] === 'Pass');
 }
 
 function candidateSetValid(candidates: readonly CandidatePromotionAssessment[]): boolean {
