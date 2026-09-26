@@ -23,25 +23,28 @@ afterEach(async () => {
 });
 
 describe('Devrandom Server identity boundary', () => {
-  it('exposes terminal calibration reconciliation through the listening server', async () => {
-    const server = buildDevrandomServer(
-      verifiedIssuerFixture(),
-      registrationRoutesFixture(),
-      { verify: () => Promise.resolve() },
-      { verify: () => Promise.reject(new Error('hosted work unavailable')) },
-    );
-    servers.push(server);
-    const address = await server.listen({ host: '127.0.0.1', port: 0 });
-    const response = await fetch(
-      `${address}/api/runs/11111111-1111-4111-8111-111111111111/evidence-terminal-reconciliation`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: 'Bearer invalid' },
-        body: '{}',
-      },
-    );
-    expect(response.status).toBe(400);
-  });
+  it.each(['evidence-terminal-reconciliation', 'evidence-runtime-reconciliation'])(
+    'exposes %s through the listening server',
+    async (endpoint) => {
+      const server = buildDevrandomServer(
+        verifiedIssuerFixture(),
+        registrationRoutesFixture(),
+        { verify: () => Promise.resolve() },
+        { verify: () => Promise.reject(new Error('hosted work unavailable')) },
+      );
+      servers.push(server);
+      const address = await server.listen({ host: '127.0.0.1', port: 0 });
+      const response = await fetch(
+        `${address}/api/runs/11111111-1111-4111-8111-111111111111/${endpoint}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer invalid' },
+          body: '{}',
+        },
+      );
+      expect(response.status).toBe(400);
+    },
+  );
 
   it('reports process liveness without consulting capability dependencies', async () => {
     const server = buildDevrandomServer(

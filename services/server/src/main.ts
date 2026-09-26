@@ -85,6 +85,7 @@ import { MongoEvidenceSealContexts } from './evidence/infrastructure/mongo-evide
 import { MongoEvidenceSeals } from './evidence/infrastructure/mongo-evidence-seals.js';
 import { MongoEvidenceTimelines } from './evidence/infrastructure/mongo-evidence-timelines.js';
 import { MongoTerminalCalibrationEvidence } from './evidence/infrastructure/mongo-terminal-calibration-evidence.js';
+import { MongoRuntimeRecoveryEvidence } from './evidence/infrastructure/mongo-runtime-recovery-evidence.js';
 import { workAccessEvidenceAuthorizer } from './evidence/infrastructure/work-access-evidence-authorizer.js';
 import type { EvidenceRoutesConfiguration } from './evidence/route/evidence-routes.js';
 import { composeHostedEvaluation } from './evaluation/composition/hosted-evaluation.js';
@@ -610,6 +611,16 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       now: () => new Date().toISOString(),
       newCorrelationId: randomUUID,
     };
+    const runtimeRecovery = {
+      access: workAccessEvidenceAuthorizer(attempts),
+      reconciliation: new MongoRuntimeRecoveryEvidence(
+        hostedWorkCandidate,
+        hostedDatabase,
+        currentRunMandates,
+      ),
+      now: () => new Date().toISOString(),
+      newCorrelationId: randomUUID,
+    };
     hostedWorkCandidate = undefined;
     hostedWork = {
       kind: 'Available',
@@ -620,6 +631,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       runs: runRoutesConfiguration,
       evidence: evidenceRoutesConfiguration,
       terminalCalibration,
+      runtimeRecovery,
       ...hostedEvaluation,
       activation: hostedActivation,
       ...(hostedPublication === undefined ? {} : { publication: hostedPublication }),

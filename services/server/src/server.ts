@@ -32,6 +32,10 @@ import {
   type TerminalCalibrationRoutesConfiguration,
 } from './evidence/route/terminal-calibration-routes.js';
 import {
+  runtimeRecoveryRoutes,
+  type RuntimeRecoveryRoutesConfiguration,
+} from './evidence/route/runtime-recovery-routes.js';
+import {
   evidenceReadRoutes,
   type EvidenceReadRoutesConfiguration,
 } from './evidence/route/evidence-read-routes.js';
@@ -72,6 +76,7 @@ export type HostedWorkCapabilities =
       readonly runs: RunRoutesConfiguration;
       readonly evidence: EvidenceRoutesConfiguration;
       readonly terminalCalibration?: TerminalCalibrationRoutesConfiguration;
+      readonly runtimeRecovery?: RuntimeRecoveryRoutesConfiguration;
       readonly evaluation?: EvaluationRoutesConfiguration;
       readonly evidenceReading?: EvidenceReadRoutesConfiguration;
       readonly experience?: ExperienceRoutesConfiguration;
@@ -217,6 +222,18 @@ function unavailableTerminalCalibrationRoutes(): TerminalCalibrationRoutesConfig
   };
 }
 
+function unavailableRuntimeRecoveryRoutes(): RuntimeRecoveryRoutesConfiguration {
+  return {
+    access: unavailableEvidenceRoutes().access,
+    reconciliation: {
+      reconcile: () =>
+        Promise.resolve({ kind: 'DependencyUnavailable', dependency: 'HostedMongoDB' }),
+    },
+    now: () => new Date().toISOString(),
+    newCorrelationId: randomUUID,
+  };
+}
+
 function unavailableEvidenceReadRoutes(): EvidenceReadRoutesConfiguration {
   return {
     access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
@@ -332,6 +349,13 @@ export function buildDevrandomServer(
       hostedWork.kind === 'Available' && hostedWork.terminalCalibration !== undefined
         ? hostedWork.terminalCalibration
         : unavailableTerminalCalibrationRoutes(),
+    ),
+  );
+  void server.register(
+    runtimeRecoveryRoutes(
+      hostedWork.kind === 'Available' && hostedWork.runtimeRecovery !== undefined
+        ? hostedWork.runtimeRecovery
+        : unavailableRuntimeRecoveryRoutes(),
     ),
   );
   void server.register(
