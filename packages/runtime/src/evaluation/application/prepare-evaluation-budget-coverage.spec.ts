@@ -716,3 +716,69 @@ for (const malformed of [false, true]) {
     );
   });
 }
+
+for (const operation of ['Build', 'PublicObservation', 'ProtectedObservation'] as const) {
+  for (const stopped of [true, false])
+    it(`independently accounts ${operation} finalization native time with stopped=${String(stopped)}`, async () => {
+      const given = fixture();
+      if (!stopped) given.events.pop();
+      const append = (detail: unknown) => {
+        const next = event(given.events.length, given.events.at(-1), detail);
+        given.events.push(next);
+        return next;
+      };
+      const raw = (value: unknown) => {
+        const bytes = Buffer.from(JSON.stringify(value));
+        const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+        if (prepared.kind !== 'Prepared') throw new Error('fixture');
+        given.artifacts.set(prepared.artifact.d, { artifact: prepared.artifact, bytes });
+        append({ kind: 'ArtifactCaptured', artifactSaid: prepared.artifact.d, custody: 'Public' });
+        return prepared.artifact.d;
+      };
+      const rawReceiptSaid =
+        operation === 'ProtectedObservation' ? said('x') : raw({ exitCode: 1 });
+      const cleanupReceiptSaid = raw(
+        operation === 'Build'
+          ? { buildReceiptSaid: rawReceiptSaid, stopped: true }
+          : { rawObservationSaid: rawReceiptSaid, stopped: true },
+      );
+      const source = given.events.at(-1);
+      if (source === undefined) throw new Error('fixture');
+      const receipt = raw({
+        kind: 'EvaluationFinalizationNativeElapsed',
+        method: 'ParentNativeRoundTripUpperBound',
+        operation,
+        rawReceiptSaid,
+        cleanupReceiptSaid,
+        startedMonotonicMicroseconds: 1000,
+        finishedMonotonicMicroseconds: 3000,
+        elapsedMilliseconds: 2,
+        childCommandDebitedSeconds: 1,
+      });
+      append({
+        kind: 'EvaluationBudgetDebited',
+        budget: 'aggregateChildCommandTimeSeconds',
+        amount: 1,
+        consumed: 1,
+        receiptArtifactSaid: receipt,
+        sourceEventSaid: source.d,
+      });
+      expect(await prepareEvaluationBudgetCoverage(given.input, given.dependencies)).toMatchObject(
+        stopped ? { kind: 'Prepared' } : { kind: 'Incomplete', frontier: 'ReceiptAuthority' },
+      );
+      if (stopped) {
+        raw({
+          kind: 'ParentAuditOperation',
+          operation: {
+            kind: 'ProtectedGrading',
+            buildCleanupReceiptSaid: cleanupReceiptSaid,
+            publicCleanupReceiptSaids: [said('u')],
+            cleanupReceiptSaid: said('v'),
+          },
+        });
+        expect(
+          await prepareEvaluationBudgetCoverage(given.input, given.dependencies),
+        ).toMatchObject({ kind: 'Incomplete', frontier: 'MissingDimension' });
+      }
+    });
+}

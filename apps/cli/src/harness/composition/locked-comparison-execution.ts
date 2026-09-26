@@ -1,3 +1,4 @@
+import { FinalizationNativeGrading } from '../application/finalization-native-grading.js';
 import Value from 'typebox/value';
 import { evaluationClosureCommandSchema, prepareEvidenceArtifact } from '@devrandom/protocol';
 import { createHash, randomUUID } from 'node:crypto';
@@ -422,6 +423,52 @@ export async function executeLockedComparison(
       artifacts: evidence.rawArtifacts,
       protectedCases: input.custody,
     });
+    const grading = new FinalizationNativeGrading({
+      maximumSeconds: manifest.allocation.finalization.aggregateChildCommandTimeSeconds,
+      construction,
+      observation,
+      nowMicroseconds: () => Math.floor(performance.now() * 1000),
+      record: async (receipt) => {
+        await capturePending();
+        const cleanup = await reading.openPublic({
+          evaluationId: binding.evaluationId,
+          artifactSaid: receipt.cleanupReceiptSaid,
+        });
+        if (cleanup.kind !== 'Opened') return false;
+        if (receipt.operation !== 'ProtectedObservation') {
+          const raw = await reading.openPublic({
+            evaluationId: binding.evaluationId,
+            artifactSaid: receipt.rawReceiptSaid,
+          });
+          if (raw.kind !== 'Opened') return false;
+          await capture(raw);
+        }
+        const source = await capture(cleanup);
+        const bytes = Buffer.from(JSON.stringify(receipt));
+        const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+        if (prepared.kind !== 'Prepared') return false;
+        await capture({ artifact: prepared.artifact, bytes });
+        const prior = (await readPrefix()).events
+          .filter(
+            (event) =>
+              event.detail.kind === 'EvaluationBudgetDebited' &&
+              event.detail.budget === 'aggregateChildCommandTimeSeconds',
+          )
+          .at(-1);
+        if (prior !== undefined && prior.detail.kind !== 'EvaluationBudgetDebited') return false;
+        await append({
+          kind: 'EvaluationBudgetDebited',
+          budget: 'aggregateChildCommandTimeSeconds',
+          amount: receipt.childCommandDebitedSeconds,
+          consumed:
+            (prior?.detail.kind === 'EvaluationBudgetDebited' ? prior.detail.consumed : 0) +
+            receipt.childCommandDebitedSeconds,
+          receiptArtifactSaid: prepared.artifact.d,
+          sourceEventSaid: source.d,
+        });
+        return true;
+      },
+    });
     const protectedArtifacts = new HostedEvaluationProtectedArtifacts(hosted, input.cases, outbox);
     const lock = new HostedEvaluationManifestLock(hosted, evidence.rawArtifacts);
     const observed: {
@@ -451,8 +498,8 @@ export async function executeLockedComparison(
         cases: input.cases,
         oracle: input.oracle,
         execution: item.execution,
-        construction,
-        observation,
+        construction: grading,
+        observation: grading,
         custody: input.custody,
         protectedArtifacts: {
           retain: async (request) => {
@@ -606,8 +653,8 @@ export async function executeLockedComparison(
         cases: input.cases,
         oracle: input.oracle,
         execution,
-        construction,
-        observation,
+        construction: grading,
+        observation: grading,
         custody: input.custody,
         protectedArtifacts,
       });

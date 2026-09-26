@@ -116,10 +116,13 @@ interface UntrustedMeasurement {
   readonly researchPreparationReceiptSaid?: unknown;
   readonly inferenceWallReceiptSaids?: unknown;
   readonly replayArtifactSaid?: unknown;
+  readonly rawReceiptSaid?: unknown;
+  readonly operation?: unknown;
   readonly buildReceiptSaid?: unknown;
   readonly buildCleanupReceiptSaid?: unknown;
   readonly observations?: unknown;
   readonly cleanupReceiptSaid?: unknown;
+  readonly publicCleanupReceiptSaids?: unknown;
   readonly rawObservationSaid?: unknown;
   readonly stopped?: unknown;
   readonly exitCode?: unknown;
@@ -220,6 +223,13 @@ function sourceMatches(
       receipt.proposalIndex === source.detail.proposalIndex
     );
   if (budget === 'aggregateChildCommandTimeSeconds') {
+    if (receipt.kind === 'EvaluationFinalizationNativeElapsed')
+      return (
+        source.phase.kind === 'Trial' &&
+        source.detail.kind === 'ArtifactCaptured' &&
+        receipt.method === 'ParentNativeRoundTripUpperBound' &&
+        receipt.cleanupReceiptSaid === source.detail.artifactSaid
+      );
     if (receipt.kind === 'EvaluationResearchNativeElapsed')
       return (
         source.phase.kind === 'Research' &&
@@ -364,7 +374,8 @@ function validMeasurement(budget: Budget, receipt: UntrustedMeasurement, amount:
   }
   if (
     budget === 'aggregateChildCommandTimeSeconds' &&
-    receipt.kind === 'EvaluationResearchNativeElapsed'
+    (receipt.kind === 'EvaluationResearchNativeElapsed' ||
+      receipt.kind === 'EvaluationFinalizationNativeElapsed')
   )
     return (
       validElapsed(receipt) &&
@@ -472,6 +483,7 @@ export async function prepareEvaluationBudgetCoverage(
   const groupReceipt = new Map<string, string>();
   const sourceBudgets = new Map<string, Set<Budget>>();
   const nativeProposals = new Set<string>();
+  const finalizationCleanups = new Set<string>();
   const trialPhases = new Set<string>();
   const completedTrialPhases = new Set<string>();
   const phaseBudgets = new Map<string, Set<Budget>>();
@@ -591,6 +603,41 @@ export async function prepareEvaluationBudgetCoverage(
       } catch {
         return incomplete('ReceiptCustody');
       }
+    }
+    if (
+      budget === 'aggregateChildCommandTimeSeconds' &&
+      receipt.kind === 'EvaluationFinalizationNativeElapsed'
+    ) {
+      if (
+        !said(receipt.rawReceiptSaid) ||
+        !said(receipt.cleanupReceiptSaid) ||
+        !events.some(
+          (item) =>
+            item.sequence < source.sequence &&
+            item.detail.kind === 'TrialStopped' &&
+            phaseKey(item) === phaseKey(source),
+        )
+      )
+        return incomplete('ReceiptAuthority');
+      finalizationCleanups.add(`${phaseKey(source)}:${receipt.cleanupReceiptSaid}`);
+      const cleanup = await readRaw(receipt.cleanupReceiptSaid);
+      if (cleanup?.stopped !== true) return incomplete('ReceiptAuthority');
+      if (receipt.operation === 'Build') {
+        const raw = await readRaw(receipt.rawReceiptSaid);
+        if (cleanup.buildReceiptSaid !== receipt.rawReceiptSaid || !safeCount(raw?.exitCode))
+          return incomplete('ReceiptAuthority');
+      } else if (
+        receipt.operation === 'PublicObservation' ||
+        receipt.operation === 'ProtectedObservation'
+      ) {
+        if (cleanup.rawObservationSaid !== receipt.rawReceiptSaid)
+          return incomplete('ReceiptAuthority');
+        if (
+          receipt.operation === 'PublicObservation' &&
+          (await readRaw(receipt.rawReceiptSaid)) === undefined
+        )
+          return incomplete('ReceiptCustody');
+      } else return incomplete('ReceiptAuthority');
     }
     if (
       budget === 'aggregateChildCommandTimeSeconds' &&
@@ -885,6 +932,31 @@ export async function prepareEvaluationBudgetCoverage(
       providerOrdinalByPhase.set(providerPhaseKey, expectedOrdinal + 1);
       orderedUsage.push(usageEvent.d);
     }
+  }
+  for (const event of events) {
+    if (event.detail.kind !== 'ArtifactCaptured' || event.detail.custody !== 'Public') continue;
+    const raw = await readRaw(event.detail.artifactSaid);
+    if (
+      raw?.kind !== 'ParentAuditOperation' ||
+      !record(raw.operation) ||
+      raw.operation.kind !== 'ProtectedGrading'
+    )
+      continue;
+    const operation = raw.operation;
+    if (
+      !said(operation.buildCleanupReceiptSaid) ||
+      !said(operation.cleanupReceiptSaid) ||
+      !Array.isArray(operation.publicCleanupReceiptSaids) ||
+      !operation.publicCleanupReceiptSaids.every(said)
+    )
+      return incomplete('ReceiptAuthority');
+    const required = [
+      operation.buildCleanupReceiptSaid,
+      ...operation.publicCleanupReceiptSaids,
+      operation.cleanupReceiptSaid,
+    ];
+    if (required.some((cleanup) => !finalizationCleanups.has(`${phaseKey(event)}:${cleanup}`)))
+      return incomplete('MissingDimension');
   }
   if (budgets.some((budget) => !seen.has(budget))) return incomplete('MissingDimension');
   if (
