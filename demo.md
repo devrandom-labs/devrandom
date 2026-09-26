@@ -4,46 +4,48 @@ The identity and Task commands below call the product. The walkthrough is an
 interactive scenario, not live qualification, evaluation, or promotion evidence.
 It announces this once when opened. Nothing automatically starts a paid Run.
 
-## 1. Prepare the Task file — paste into your terminal
+## 1. Prepare the Task file — paste into zsh
 
 This makes a separate presentation Task document from the accepted coding-task
 contract. It preserves the capabilities, budget, expiry, and source contract.
 It does not change the live campaign or create a server record yet.
 
-```sh
-nu -c 'open /private/tmp/devrandom-fresh-scoped-launch/task.live-submission.json
-  | update label "presentation-20260926"
-  | update title "CESR receipt compatibility — presentation"
-  | to json
-  | save --force /private/tmp/devrandom-presentation-task.json'
+```zsh
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+source = Path('/private/tmp/devrandom-fresh-scoped-launch/task.live-submission.json')
+task = json.loads(source.read_text())
+task['label'] = 'presentation-20260926'
+task['title'] = 'CESR receipt compatibility — presentation'
+target = Path('/private/tmp/devrandom-presentation-task.json')
+target.write_text(json.dumps(task, indent=2) + '\n')
+print(target)
+PY
 ```
 
 The existing contract expires at **6:33 PM Eastern, September 26**. Do not use
 this document after that expiry. If this presentation Task already exists,
 skip its creation and inspect it instead.
 
-## 2. Launch — works from Nushell or zsh
+## 2. Launch — paste into zsh
 
-The command explicitly invokes Nushell because entering a Nix shell can leave
-your current prompt running zsh. This avoids `zsh: parse error near '}'`.
-
-```sh
+```zsh
 cd /Users/joel/Code/devrandom/devrandom-prd03-interactive-demo
 
-nu -c 'with-env {
-  DEVRANDOM_DEMO_REPOSITORY_ROOT: "/Users/joel/Code/devrandom/devrandom"
-  DEVRANDOM_DEMO_WORKING_DIRECTORY: "/Users/joel/Code/devrandom/devrandom/.devrandom/prd03-cesr-scoped-20260926a"
-  DEVRANDOM_DEMO_ENV_FILE: "/Users/joel/Code/devrandom/devrandom/.env.cli"
-  FORCE_COLOR: "1"
-} {
-  ^env -u NO_COLOR nix develop -c just demo-prd03
-}'
+env -u NO_COLOR \
+  DEVRANDOM_DEMO_REPOSITORY_ROOT=/Users/joel/Code/devrandom/devrandom \
+  DEVRANDOM_DEMO_WORKING_DIRECTORY=/Users/joel/Code/devrandom/devrandom/.devrandom/prd03-cesr-scoped-20260926a \
+  DEVRANDOM_DEMO_ENV_FILE=/Users/joel/Code/devrandom/devrandom/.env.cli \
+  FORCE_COLOR=1 \
+  nix develop -c just demo-prd03
 ```
 
 You should see the cyan Devrandom heading and a `devrandom ❯` prompt. Paste
 the remaining blocks **inside that prompt**, not into your normal shell.
 Results reveal line by line in an interactive terminal. Add
-`DEVRANDOM_DEMO_NO_ANIMATION: "1"` to the `with-env` record to disable the effect.
+`DEVRANDOM_DEMO_NO_ANIMATION=1` after `env -u NO_COLOR` to disable the effect.
 
 ## 3. Identity — product command
 
