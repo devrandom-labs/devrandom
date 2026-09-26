@@ -6,6 +6,7 @@ export * from './evaluation/closure.js';
 export * from './evaluation/closure-seal.js';
 export * from './evaluation/source-inventory.js';
 export * from './evaluation/protected-artifact.js';
+export * from './evaluation/verifier-bundle.js';
 export * from './evaluation/http.js';
 export * from './evaluation/execution-profile.js';
 export * from './evaluation/execution-binding.js';
