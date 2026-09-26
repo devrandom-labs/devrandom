@@ -26,7 +26,8 @@ export function verifyContinuationPredecessor(input: {
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Blocked' ||
     (run.binding.purpose.kind === 'PreparedCompatibilityCalibration'
-      ? run.lifecycle.phase.reason !== 'ContextLimitReached' ||
+      ? (run.lifecycle.phase.reason !== 'ContextLimitReached' &&
+          run.lifecycle.phase.reason !== 'ProcessLost') ||
         predecessorRevision !== run.binding.initialHarnessRevisionSaid
       : run.lifecycle.phase.reason !== 'CheckpointPause' &&
         (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
@@ -64,8 +65,10 @@ export function verifyContinuationPredecessor(input: {
     checkpoint.runState.phase.kind !== 'Blocked' ||
     checkpoint.runState.phase.reason !== run.lifecycle.phase.reason ||
     (run.binding.purpose.kind === 'PreparedCompatibilityCalibration'
-      ? checkpoint.continuation.kind !== 'ExternalResolutionRequired' ||
-        checkpoint.continuation.reason !== 'ContextLimitReached'
+      ? run.lifecycle.phase.reason === 'ProcessLost'
+        ? checkpoint.continuation.kind !== 'LaterRuntimeRecoveryRequired'
+        : checkpoint.continuation.kind !== 'ExternalResolutionRequired' ||
+          checkpoint.continuation.reason !== 'ContextLimitReached'
       : checkpoint.continuation.kind !==
         (run.lifecycle.phase.reason === 'HarnessCompatibilityFailure'
           ? 'LaterHarnessCompatibilityResolutionRequired'

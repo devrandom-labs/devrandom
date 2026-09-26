@@ -269,6 +269,59 @@ it('continues one context-blocked calibration under exact H1 without changing pu
   expect(continueCalibrationRun(original, prepared)).toEqual({ kind: 'RunNotCalibration' });
 });
 
+it('ProcessLost: continues one context-blocked calibration under exact H1 without changing purpose or consumed budget', async () => {
+  const { continueCalibrationRun } = await import('./continuation.js');
+  const original = pausedRun();
+  const run = {
+    ...original,
+    binding: {
+      ...original.binding,
+      purpose: {
+        kind: 'PreparedCompatibilityCalibration' as const,
+        campaignId: 'campaign-1',
+        ordinal: 1 as const,
+      },
+    },
+    lifecycle: {
+      kind: 'Active' as const,
+      phase: {
+        kind: 'Blocked' as const,
+        reason: 'ProcessLost' as const,
+        checkpointSaid: 'ECheckpoint',
+      },
+    },
+  };
+  const { activation, ...common } = input();
+  expect(activation.pointerVersion).toBe(2);
+  const prepared = {
+    ...common,
+    successor: { ...common.successor, harnessRevisionSaid: 'EH1' },
+    baseline: { pointerVersion: 1 as const, harnessRevisionSaid: 'EH1' },
+  };
+  expect(continueCalibrationRun(run, prepared)).toMatchObject({
+    kind: 'Admitted',
+    run: {
+      binding: run.binding,
+      consumedBudget: run.consumedBudget,
+      currentExecution: { harnessRevisionSaid: 'EH1' },
+    },
+  });
+  expect(continueRun(run, input())).toEqual({ kind: 'RunNotRetained' });
+  expect(
+    continueCalibrationRun(run, {
+      ...prepared,
+      successor: { ...prepared.successor, harnessRevisionSaid: 'EH2' },
+    }),
+  ).toEqual({ kind: 'ActivationConflict' });
+  expect(
+    continueCalibrationRun(run, { ...prepared, serverTime: '2026-09-24T20:00:20.000Z' }),
+  ).toEqual({ kind: 'LeaseStillHeld' });
+  expect(continueCalibrationRun(run, { ...prepared, effects: 'Unresolved' })).toEqual({
+    kind: 'UnresolvedEffects',
+  });
+  expect(continueCalibrationRun(original, prepared)).toEqual({ kind: 'RunNotCalibration' });
+});
+
 it('recovers only an expired continuation admission proven never started, preserving Run and budget', () => {
   const admitted = continueRun(pausedRun(), input());
   if (admitted.kind !== 'Admitted') throw new Error('continuation fixture');

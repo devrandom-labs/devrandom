@@ -69,6 +69,7 @@ const segmentBody = {
       incarnationId: uuid,
       evidenceStreamId: uuid,
       checkpointSaid: said,
+      segmentSaid: Type.Optional(said),
       sealExchangeSaid: said,
       finalSequence: position,
       chainHeadSaid: said,

@@ -54,3 +54,10 @@ export * from './publication/harness-package.js';
 export * from './publication/publication-http.js';
 export * from './publication/portable-verification.js';
 export * from './harness/authority-proposal.js';
+
+export {
+  runtimeRecoveryReconciliationBodySchema,
+  type RuntimeRecoveryReconciliationBody,
+} from './evidence/runtime-recovery-reconciliation-http.js';
+
+export { verifyInterruptedCalibrationPrefix } from './run/interrupted-calibration-prefix.js';

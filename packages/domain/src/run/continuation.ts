@@ -88,7 +88,8 @@ function continueIncarnation(
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Blocked' ||
     (calibration
-      ? run.lifecycle.phase.reason !== 'ContextLimitReached'
+      ? run.lifecycle.phase.reason !== 'ContextLimitReached' &&
+        run.lifecycle.phase.reason !== 'ProcessLost'
       : run.lifecycle.phase.reason !== 'CheckpointPause' &&
         (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
           run.currentExecution !== undefined))
