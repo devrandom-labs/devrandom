@@ -48,6 +48,7 @@ export interface QualifiedInventorySource {
 export type QualifiedSourceInventoryPreparation =
   | {
       readonly kind: 'Prepared';
+      readonly qualified: Qualified;
       readonly inventory: EvaluationSourceInventory;
       readonly sources: readonly QualifiedInventorySource[];
     }
@@ -345,6 +346,6 @@ export async function prepareQualifiedSourceInventory(
     })),
   });
   return prepared.kind === 'Prepared'
-    ? { kind: 'Prepared', inventory: prepared.inventory, sources }
+    ? { kind: 'Prepared', qualified, inventory: prepared.inventory, sources }
     : { kind: 'Blocked', gate: 'Inventory' };
 }
