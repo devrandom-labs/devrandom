@@ -10,9 +10,19 @@ import type { ServerEvaluationHttp } from './server-evaluation-http.js';
 
 type ReadingHttp = Pick<ServerEvaluationHttp, 'readEvidencePage' | 'readPublicArtifact'>;
 
-/** CLI driving adapter for exact owner-authorized hosted Evaluation reads. */
+const maximumCachedBytes = 8 * 1024 * 1024;
+const maximumCachedArtifacts = 128;
+
+/**
+ * Immutable read acceleration, never current permission or position evidence.
+ * Callers must still check hosted authority, lease, position and manifest afresh.
+ * Retain this reader within one evaluation operation; no process-global cache.
+ */
 export class HostedEvaluationEvidenceReading {
   readonly #http: ReadingHttp;
+  #prefix: { scope: string; events: readonly EvaluationEvidenceEvent[] } | undefined;
+  readonly #artifacts = new Map<string, { artifact: EvidenceArtifact; bytes: Uint8Array }>();
+  #artifactBytes = 0;
 
   constructor(http: ReadingHttp) {
     this.#http = http;
@@ -40,7 +50,22 @@ export class HostedEvaluationEvidenceReading {
       !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(headSaid)
     )
       return { kind: 'Missing' };
-    const events: EvaluationEvidenceEvent[] = [];
+    // Phase/revision may change along a stream; they are checked against the exact
+    // requested head below. All other execution identities bind prefix reuse.
+    const scope = JSON.stringify([
+      binding.evaluationId,
+      binding.evidenceStreamId,
+      binding.evaluationLeaseId,
+      binding.originRunId,
+      binding.taskId,
+      binding.taskRevisionSaid,
+      binding.personalAgentAid,
+      binding.taskMandateSaid,
+    ]);
+    const cached = this.#prefix?.scope === scope ? this.#prefix.events : [];
+    if (cached[throughSequence] !== undefined && cached[throughSequence].d !== headSaid)
+      return { kind: 'Missing' };
+    const events: EvaluationEvidenceEvent[] = cached.slice(0, throughSequence + 1);
     while (events.length <= throughSequence) {
       const afterSequence = events.length - 1;
       const page = await this.#http.readEvidencePage({
@@ -52,6 +77,10 @@ export class HostedEvaluationEvidenceReading {
       if (page.kind === 'Unavailable') return { kind: 'Unavailable' };
       if (page.kind !== 'Read') return { kind: 'Missing' };
       if (
+        page.page.evaluationId !== binding.evaluationId ||
+        page.page.afterSequence !== afterSequence ||
+        page.page.throughSequence !== throughSequence ||
+        page.page.throughHeadSaid !== headSaid ||
         page.page.streamId !== binding.evidenceStreamId ||
         page.page.events.length !== Math.min(32, throughSequence - afterSequence)
       )
@@ -73,7 +102,7 @@ export class HostedEvaluationEvidenceReading {
             : event.previous.kind !== 'Previous' || event.previous.eventSaid !== predecessor.d)
         )
           return { kind: 'Missing' };
-        events.push(event);
+        events.push(structuredClone(event));
       }
     }
     const head = events.at(-1);
@@ -84,7 +113,19 @@ export class HostedEvaluationEvidenceReading {
       JSON.stringify(head.phase) !== JSON.stringify(binding.phase)
     )
       return { kind: 'Missing' };
-    return { kind: 'Acknowledged', events, throughSequence, headSaid };
+    // Only a complete content-verified, hosted-acknowledged chain is reusable.
+    // One scope, at most 10,000 events (input bound), and 8 MiB encoded content.
+    // Historical exact reads do not move the retained watermark backwards.
+    if (
+      events.length > cached.length &&
+      Buffer.byteLength(JSON.stringify(events)) <= maximumCachedBytes
+    ) {
+      const current = this.#prefix?.scope === scope ? this.#prefix.events : [];
+      const overlap = Math.min(current.length, events.length) - 1;
+      if (overlap >= 0 && current[overlap]?.d !== events[overlap]?.d) return { kind: 'Missing' };
+      if (events.length > current.length) this.#prefix = { scope, events };
+    }
+    return { kind: 'Acknowledged', events: structuredClone(events), throughSequence, headSaid };
   }
 
   async openPublic(input: {
@@ -94,6 +135,13 @@ export class HostedEvaluationEvidenceReading {
     | { readonly kind: 'Opened'; readonly artifact: EvidenceArtifact; readonly bytes: Uint8Array }
     | { readonly kind: 'Missing' | 'Unavailable' }
   > {
+    const key = JSON.stringify([input.evaluationId, input.artifactSaid]);
+    const cached = this.#artifacts.get(key);
+    if (cached !== undefined) {
+      this.#artifacts.delete(key);
+      this.#artifacts.set(key, cached);
+      return { kind: 'Opened', ...structuredClone(cached) };
+    }
     const opened = await this.#http.readPublicArtifact(input);
     if (opened.kind === 'Unavailable') return { kind: 'Unavailable' };
     if (
@@ -102,6 +150,23 @@ export class HostedEvaluationEvidenceReading {
       decodeEvidenceArtifact(opened.artifact, opened.bytes).kind !== 'Accepted'
     )
       return { kind: 'Missing' };
-    return { kind: 'Opened', artifact: opened.artifact, bytes: opened.bytes };
+    const content = structuredClone({ artifact: opened.artifact, bytes: opened.bytes });
+    // Count and raw-byte bounds also cover zero-byte artifacts. Artifact metadata
+    // is bounded by decodeEvidenceArtifact. Concurrent misses replace one entry.
+    const previous = this.#artifacts.get(key);
+    if (previous !== undefined) this.#artifactBytes -= previous.bytes.byteLength;
+    this.#artifacts.delete(key);
+    this.#artifacts.set(key, content);
+    this.#artifactBytes += content.bytes.byteLength;
+    while (
+      this.#artifacts.size > maximumCachedArtifacts ||
+      this.#artifactBytes > maximumCachedBytes
+    ) {
+      const oldest = this.#artifacts.entries().next().value;
+      if (oldest === undefined) break;
+      this.#artifacts.delete(oldest[0]);
+      this.#artifactBytes -= oldest[1].bytes.byteLength;
+    }
+    return { kind: 'Opened', ...structuredClone(content) };
   }
 }
