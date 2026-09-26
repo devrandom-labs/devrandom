@@ -166,6 +166,7 @@ export {
   type ReviewedAnalogyProjection,
   type ReviewedChoiceRecalculation,
 } from './context/application/verified-context.js';
+export * from './context/application/select-versioned-format-history.js';
 export * from './evaluation/application/run-protected-trial.js';
 export * from './evaluation/application/observe-protected-trial-artifact.js';
 export * from './evaluation/application/prepare-comparison-measurements.js';
@@ -173,6 +174,7 @@ export * from './evaluation/application/prepare-evaluation-budget-coverage.js';
 export * from './evaluation/application/prepare-measured-trial-observation.js';
 export * from './evaluation/application/seal-cesr-comparison-cases.js';
 export * from './evaluation/application/c2-workflow-transition.js';
+export * from './evaluation/application/c3-context-selection.js';
 export type * from './evaluation/application/current-evaluation-proposal-capacity.js';
 export * from './evaluation/application/c2-workflow-treatment-custody.js';
 export * from './evaluation/application/c2-original-public-verification.js';

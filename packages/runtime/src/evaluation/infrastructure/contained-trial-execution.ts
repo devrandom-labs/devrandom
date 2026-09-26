@@ -40,6 +40,7 @@ import type {
   C2WorkflowTransition,
 } from '../application/c2-workflow-transition.js';
 import { assessC2PublicSubmission } from '../application/c2-workflow-transition.js';
+import type { C3ContextSelection } from '../application/c3-context-selection.js';
 
 interface EvidenceCursor {
   readonly nextSequence: number;
@@ -84,6 +85,8 @@ interface ContainedTrialConfiguration {
     readonly submission: C2ProvisionalSubmissionAuthority;
     readonly verification: C2StoppedSubmissionVerification;
   };
+  /** C3 remains unavailable unless a reviewed policy and current public history are composed. */
+  readonly c3Selection?: C3ContextSelection;
   readonly enabledTools: readonly ToolName[];
   readonly maximumPrompts: number;
   readonly workerMounts: readonly EvaluationMount[];
@@ -322,8 +325,8 @@ export class DockerContainedTrialExecution implements TrialExecution {
       config.workerMounts.some((mount) => mount.writable) ||
       (input.slot.arm === 'C1') !== (config.c1Treatment !== undefined) ||
       (input.slot.arm === 'C2') !== (config.c2Workflow !== undefined) ||
+      (input.slot.arm === 'C3') !== (config.c3Selection !== undefined) ||
       (input.slot.arm === 'C2' && !config.enabledTools.includes('submit_result')) ||
-      input.slot.arm === 'C3' ||
       !config.workerMounts.some((mount) =>
         config.workerProgram.startsWith(`${mount.containerPath}/`),
       ) ||
@@ -356,6 +359,20 @@ export class DockerContainedTrialExecution implements TrialExecution {
       )
         return { kind: 'Invalid', reason: 'ProfileDrift' };
     }
+    const c3Bound =
+      input.slot.arm === 'C3'
+        ? await config.c3Selection?.bind({
+            binding,
+            manifest: input.manifest,
+            slot: input.slot,
+            profile: config.profile,
+            baseSystemPrompt: config.systemPrompt,
+            taskPrompt: config.prompt,
+            signal: input.signal,
+          })
+        : undefined;
+    if (input.slot.arm === 'C3' && c3Bound?.kind !== 'Bound')
+      return { kind: 'Invalid', reason: 'ProfileDrift' };
     const trialStarted = performance.now();
     const clean = await config.source.open(input.cleanSourceSaid);
     if (clean === undefined) return { kind: 'Invalid', reason: 'CaptureFailed' };
@@ -401,6 +418,9 @@ export class DockerContainedTrialExecution implements TrialExecution {
     const expectedCalls: ExpectedToolCall[] = [];
     let requestOrdinal = 0;
     let proposalIndex = 0;
+    let c3FormatEdit:
+      | { readonly path: string; readonly content: string; readonly proposalEventSaid: string }
+      | undefined;
     let nativeCommandObserved = false;
     const sessionId = randomUUID();
     const bindingId = `${binding.evaluationId}/${input.slot.arm}/${String(input.slot.repetition)}/${String(input.slot.attempt)}/${sessionId}`;
@@ -499,6 +519,22 @@ export class DockerContainedTrialExecution implements TrialExecution {
           });
           const bindingSaid = await storeRawBytes(c1Binding.receiptBytes);
           await append({ kind: 'ArtifactCaptured', artifactSaid: bindingSaid, custody: 'Public' });
+        }
+        if (c3Bound?.kind === 'Bound') {
+          const treatmentSaid = await storeRawBytes(c3Bound.treatmentBytes);
+          if (treatmentSaid !== c3Bound.treatmentArtifactSaid)
+            throw new Error('C3 policy changed after reviewed Git custody.');
+          await append({
+            kind: 'ArtifactCaptured',
+            artifactSaid: treatmentSaid,
+            custody: 'Public',
+          });
+          const receiptSaid = await storeRawBytes(c3Bound.bindingReceiptBytes);
+          await append({
+            kind: 'ArtifactCaptured',
+            artifactSaid: receiptSaid,
+            custody: 'Public',
+          });
         }
         await mkdir(sourcePath, { mode: 0o700 });
         for (const file of clean.files) {
@@ -692,11 +728,36 @@ export class DockerContainedTrialExecution implements TrialExecution {
               !Array.isArray(body.context.messages)
             )
               throw new Error('Evaluation model relay request invalid.');
+            const selected =
+              c3FormatEdit === undefined
+                ? undefined
+                : await config.c3Selection?.select({
+                    binding,
+                    edit: c3FormatEdit,
+                    signal: input.signal,
+                  });
+            if (c3FormatEdit !== undefined && selected?.kind !== 'Selected')
+              throw new Error('C3 authorized public context selection unavailable.');
+            const modelContext =
+              selected?.kind === 'Selected'
+                ? {
+                    ...(body.context as unknown as TranscriptContext),
+                    messages: [
+                      ...(body.context.messages as TranscriptContext['messages']),
+                      {
+                        role: 'user' as const,
+                        content: `Reviewed public history for versioned-format edit:\n${selected.contextText}`,
+                        timestamp: Date.now(),
+                      },
+                    ],
+                  }
+                : (body.context as unknown as TranscriptContext);
+            c3FormatEdit = undefined;
             const completion = await config.modelInference.complete({
               binding,
               requestOrdinal,
               modelProfileSaid: config.modelProfileSaid,
-              context: body.context as unknown as TranscriptContext,
+              context: modelContext,
               maximumOutputTokens: config.profile.maximumOutputTokens,
               signal: input.signal,
             });
@@ -727,7 +788,18 @@ export class DockerContainedTrialExecution implements TrialExecution {
             const exchange = await raw({
               kind: 'ModelExchange',
               requestOrdinal,
-              context: body.context,
+              context: modelContext,
+              ...(selected?.kind === 'Selected'
+                ? {
+                    c3Selection: {
+                      treatmentArtifactSaid: selected.treatmentArtifactSaid,
+                      formatEditEventSaid: selected.formatEditEventSaid,
+                      includedSourceIds: selected.includedSourceIds,
+                      excludedSourceIds: selected.excludedSourceIds,
+                      contextBytes: selected.contextBytes,
+                    },
+                  }
+                : {}),
               message,
               usageEventSaid: completion.usageEventSaid,
             });
@@ -735,6 +807,29 @@ export class DockerContainedTrialExecution implements TrialExecution {
               kind: 'ModelExchange',
               rawArtifactSaid: exchange,
             });
+            if (selected?.kind === 'Selected') {
+              const selectionReceipt = await raw({
+                version: 1,
+                kind: 'C3ContextSelectionApplied',
+                manifestSaid: input.manifest.d,
+                successorRevisionSaid: input.reviewedBehaviorSaid,
+                sourceInventorySaid: selected.sourceInventorySaid,
+                treatmentArtifactSaid: selected.treatmentArtifactSaid,
+                formatEditEventSaid: selected.formatEditEventSaid,
+                modelExchangeEventSaid: exchangeEventSaid,
+                includedSourceIds: selected.includedSourceIds,
+                excludedSourceIds: selected.excludedSourceIds,
+                contextBytes: selected.contextBytes,
+                providerInputTokensForRequest: usage.inputTokens,
+                verifiedSpendMicroUsdForRequest: completion.verifiedSpendMicroUsd,
+                usageEventSaid: completion.usageEventSaid,
+              });
+              await append({
+                kind: 'ArtifactCaptured',
+                artifactSaid: selectionReceipt,
+                custody: 'Public',
+              });
+            }
             const usageReceipt = await raw({
               kind: 'EvaluationProviderUsage',
               requestOrdinal,
@@ -926,6 +1021,22 @@ export class DockerContainedTrialExecution implements TrialExecution {
                 authorizationEventSaid: authorizationEvent,
                 receiptArtifactSaid: outcomeArtifact,
               });
+            if (
+              c3Bound?.kind === 'Bound' &&
+              outcome.kind === 'Completed' &&
+              (proposal.input.kind === 'WriteFile' || proposal.input.kind === 'ReplaceText')
+            ) {
+              const path = proposal.input.path;
+              const content =
+                proposal.input.kind === 'WriteFile'
+                  ? proposal.input.content
+                  : proposal.input.newText;
+              if (
+                c3Bound.policy.triggerPaths.includes(path) &&
+                content.includes(c3Bound.policy.formatMarker)
+              )
+                c3FormatEdit = { path, content, proposalEventSaid: proposedEvent };
+            }
             await relay.send('ToolOutcome', outcome);
             proposalIndex += 1;
             continue;

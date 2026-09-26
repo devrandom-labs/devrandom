@@ -15,6 +15,7 @@ import {
   prepareEvaluationExecutionProfile,
   prepareEvaluationManifest,
   prepareEvidenceArtifact,
+  prepareEvolutionHypothesis,
   prepareSuccessorHarnessRevision,
   type EvaluationEvidenceEvent,
 } from '@devrandom/protocol';
@@ -29,6 +30,8 @@ import {
 import { digestEvaluationRuntimeMounts } from './runtime-mount-digest.js';
 import { digestRunRuntimePrompt } from '../../run/run-execution-profile-custody.js';
 import { GitCandidateTreatmentCustody } from './git-candidate-treatment-custody.js';
+import { GitC2WorkflowTreatmentCustody } from './git-c2-workflow-treatment-custody.js';
+import { ReviewedC3ContextSelection } from '../application/c3-context-selection.js';
 import { SourceCustody } from './source-custody.js';
 
 const said = (character: string): string => `E${character.repeat(43)}`;
@@ -81,6 +84,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
       'CommandCompleted',
       'CommandUnknown',
       'C1Verified',
+      'C3Selected',
       'C2Blocked',
       'C3Blocked',
     ] as const)(
@@ -90,9 +94,11 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         const root = await mkdtemp(join(tmpdir(), 'devrandom-trial-integration-'));
         try {
           const c1 = usage === 'C1Verified';
+          const c3 = usage === 'C3Selected';
           const baseSystemPrompt = 'Use the mediated tools.';
           const taskPrompt = 'Change src/lib.rs to after.';
           const taskId = randomUUID();
+          const originRunId = randomUUID();
           let h1:
             | Extract<
                 ReturnType<typeof prepareBaselineHarnessRevision>,
@@ -102,8 +108,9 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           let candidateCommit = '';
           let candidateTree = '';
           let treatmentBytes = new Uint8Array();
+          let implementationBytes = new Uint8Array();
           const candidateRepository = join(root, 'candidate-repository');
-          if (c1) {
+          if (c1 || c3) {
             await git(root, 'init', candidateRepository);
             await writeFile(join(candidateRepository, 'README.md'), 'H1 source\n');
             await git(candidateRepository, 'add', 'README.md');
@@ -183,17 +190,42 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             h1 = prepared.revision;
             await mkdir(join(candidateRepository, '.devrandom/evolution'), { recursive: true });
             treatmentBytes = Buffer.from(
-              JSON.stringify({
-                version: 1,
-                arm: 'C1',
-                instructionText: 'Use the reviewed C1 instruction.',
-              }),
+              JSON.stringify(
+                c1
+                  ? {
+                      version: 1,
+                      arm: 'C1',
+                      instructionText: 'Use the reviewed C1 instruction.',
+                    }
+                  : {
+                      version: 1,
+                      arm: 'C3',
+                      formatMarker: 'CESR-v1',
+                      triggerPaths: ['src/lib.rs'],
+                      priority: ['Failure', 'Contract', 'Edit'],
+                      maximumItems: 1,
+                      maximumContextBytes: 4096,
+                    },
+              ),
             );
             await writeFile(
               join(candidateRepository, '.devrandom/evolution/treatment.json'),
               treatmentBytes,
             );
-            await git(candidateRepository, 'add', '.devrandom/evolution/treatment.json');
+            if (c3) {
+              implementationBytes = Buffer.from(
+                JSON.stringify({
+                  version: 1,
+                  kind: 'VersionedFormatContextSelection',
+                  algorithm: 'ExactPublicHistoryV1',
+                }),
+              );
+              await writeFile(
+                join(candidateRepository, '.devrandom/evolution/implementation.bin'),
+                implementationBytes,
+              );
+            }
+            await git(candidateRepository, 'add', '.devrandom/evolution');
             await git(
               candidateRepository,
               '-c',
@@ -202,7 +234,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               'user.email=fixture@example.test',
               'commit',
               '-m',
-              'C1',
+              c1 ? 'C1' : 'C3',
             );
             candidateCommit = await git(candidateRepository, 'rev-parse', 'HEAD');
             candidateTree = await git(candidateRepository, 'rev-parse', 'HEAD^{tree}');
@@ -250,9 +282,10 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             sourceGitCommit: h1?.repository.commit ?? '3'.repeat(40),
             sourceGitTree: h1?.repository.tree ?? '4'.repeat(40),
             h1InstructionSaid: said('i'),
-            h1RuntimePromptDigest: c1
-              ? digestRunRuntimePrompt(baseSystemPrompt, taskPrompt)
-              : `sha256:${'5'.repeat(64)}`,
+            h1RuntimePromptDigest:
+              c1 || c3
+                ? digestRunRuntimePrompt(baseSystemPrompt, taskPrompt)
+                : `sha256:${'5'.repeat(64)}`,
             effectiveLimitsReceiptSaid: said('l'),
             parentDeathCleanupReceiptSaid: said('p'),
             modelProvider: 'concentrate',
@@ -296,6 +329,79 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                 })
               : undefined;
           if (c1 && c1Successor?.kind !== 'Prepared') throw new Error('C1 successor fixture');
+          const c3Hypothesis =
+            c3 && h1 !== undefined
+              ? prepareEvolutionHypothesis({
+                  taskId,
+                  taskRevisionSaid: said('a'),
+                  originRunId,
+                  retainedCheckpointSaid: said('e'),
+                  retainedSealSaid: said('f'),
+                  parentRevisionSaid: h1.d,
+                  personalAgentAid: said('c'),
+                  sourceInventorySaid: said('m'),
+                  retrievalReceiptSaid: said('Q'),
+                  failure: { eventSaid: said('F'), rawEvidenceSaid: said('R') },
+                  source: { episodeSaid: said('S'), rawEvidenceSaid: said('T') },
+                  implicatedComponent: 'ContextSelection',
+                  predictedCorrection: 'Select relevant public CESR history.',
+                  publicReplay: {
+                    failureWindowSaid: said('W'),
+                    configurationSaid: said('G'),
+                    nonTreatmentInputsSaid: said('N'),
+                    failureQuery: 'CESR versioned format',
+                    predictedAction: 'Apply current version formatting',
+                    predictedSourceChoiceSaid: said('C'),
+                    assertion: 'Relevant history changes the format choice.',
+                  },
+                  falsifier: 'Selection fails to change the format choice.',
+                  regressionRisks: ['Protected context disclosure'],
+                  rejectedExplanations: ['Citation-only change'],
+                })
+              : undefined;
+          if (c3 && c3Hypothesis?.kind !== 'Prepared') throw new Error('C3 H0 fixture');
+          const c3Configuration = c3
+            ? prepareEvidenceArtifact(treatmentBytes, 'application/json')
+            : undefined;
+          const c3Implementation = c3
+            ? prepareEvidenceArtifact(implementationBytes, 'application/octet-stream')
+            : undefined;
+          const c3Replay = c3
+            ? prepareEvidenceArtifact(
+                Buffer.from('{"version":1,"kind":"ReviewedPublicReplay"}'),
+                'application/json',
+              )
+            : undefined;
+          if (
+            c3 &&
+            (c3Configuration?.kind !== 'Prepared' ||
+              c3Implementation?.kind !== 'Prepared' ||
+              c3Replay?.kind !== 'Prepared')
+          )
+            throw new Error('C3 treatment artifact fixture');
+          const c3Successor =
+            c3 &&
+            h1 !== undefined &&
+            c3Hypothesis?.kind === 'Prepared' &&
+            c3Configuration?.kind === 'Prepared' &&
+            c3Implementation?.kind === 'Prepared' &&
+            c3Replay?.kind === 'Prepared'
+              ? prepareSuccessorHarnessRevision({
+                  parentRevisionSaid: h1.d,
+                  arm: 'C3',
+                  h0Said: c3Hypothesis.hypothesis.d,
+                  taskRevisionSaid: h1.task.revisionSaid,
+                  sourceInventorySaid: said('m'),
+                  executionProfileSaid: profile.profile.d,
+                  configurationArtifactSaid: c3Configuration.artifact.d,
+                  treatment: {
+                    kind: 'ContextSelection',
+                    reviewedImplementationSaid: c3Implementation.artifact.d,
+                    publicReplayReceiptSaid: c3Replay.artifact.d,
+                  },
+                })
+              : undefined;
+          if (c3 && c3Successor?.kind !== 'Prepared') throw new Error('C3 successor fixture');
           const allowance = {
             providerRequests: 3,
             providerInputTokens: 3000,
@@ -312,7 +418,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             evaluationId: randomUUID(),
             taskId,
             taskRevisionSaid: said('a'),
-            originRunId: randomUUID(),
+            originRunId,
             ownerAid: said('b'),
             personalAgentAid: said('c'),
             taskMandateSaid: said('d'),
@@ -323,11 +429,12 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               H1: h1?.d ?? said('h'),
               C1: c1Successor?.kind === 'Prepared' ? c1Successor.revision.d : said('j'),
               C2: said('k'),
-              C3: said('n'),
+              C3: c3Successor?.kind === 'Prepared' ? c3Successor.revision.d : said('n'),
             },
             executionProfileSaid: profile.profile.d,
             sourceInventorySaid: said('m'),
-            hypothesisSaid: said('H'),
+            hypothesisSaid:
+              c3Hypothesis?.kind === 'Prepared' ? c3Hypothesis.hypothesis.d : said('H'),
             verifierSaid: said('v'),
             protectedCaseArtifactSaid: said('o'),
             finalCaseArtifactSaid: said('p'),
@@ -342,7 +449,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               ? ('C1' as const)
               : usage === 'C2Blocked'
                 ? ('C2' as const)
-                : usage === 'C3Blocked'
+                : usage === 'C3Blocked' || usage === 'C3Selected'
                   ? ('C3' as const)
                   : ('H1' as const),
             repetition: 1 as const,
@@ -376,6 +483,19 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           const events: EvaluationEvidenceEvent[] = [];
           const rawSaids: string[] = [];
           const toolCalls: unknown[] = [];
+          const modelContexts: unknown[] = [];
+          const currentHistoryBytes = Buffer.from('Reviewed public CESR-v1 format failure.');
+          const staleHistoryBytes = Buffer.from('Legacy CESR-v0 history.');
+          const currentHistory = prepareEvidenceArtifact(
+            currentHistoryBytes,
+            'text/plain; charset=utf-8',
+          );
+          const staleHistory = prepareEvidenceArtifact(
+            staleHistoryBytes,
+            'text/plain; charset=utf-8',
+          );
+          if (currentHistory.kind !== 'Prepared' || staleHistory.kind !== 'Prepared')
+            throw new Error('C3 source fixture');
           const commandTool = ['CommandTool', 'CommandCompleted', 'CommandUnknown'].includes(usage);
           const trial = new DockerContainedTrialExecution({
             profile: profile.profile,
@@ -410,6 +530,75 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                     candidateTree,
                     custody: new GitCandidateTreatmentCustody(),
                   },
+                }
+              : {}),
+            ...(c3 &&
+            h1 !== undefined &&
+            c3Hypothesis?.kind === 'Prepared' &&
+            c3Successor?.kind === 'Prepared' &&
+            c3Configuration?.kind === 'Prepared' &&
+            c3Implementation?.kind === 'Prepared' &&
+            c3Replay?.kind === 'Prepared'
+              ? {
+                  c3Selection: new ReviewedC3ContextSelection({
+                    hypothesis: c3Hypothesis.hypothesis,
+                    reviewed: {
+                      h1,
+                      successorRevisionSaid: c3Successor.revision.d,
+                      binding: {
+                        parentRevisionSaid: h1.d,
+                        arm: 'C3' as const,
+                        h0Said: c3Hypothesis.hypothesis.d,
+                        taskRevisionSaid: h1.task.revisionSaid,
+                        sourceInventorySaid: said('m'),
+                        executionProfileSaid: profile.profile.d,
+                      },
+                      treatment: c3Successor.revision.treatment,
+                      configuration: c3Configuration.artifact,
+                      implementation: c3Implementation.artifact,
+                      replay: c3Replay.artifact,
+                    },
+                    successorBytes: Buffer.from(JSON.stringify(c3Successor.revision)),
+                    repositoryDirectory: candidateRepository,
+                    candidateCommit,
+                    candidateTree,
+                    custody: new GitC2WorkflowTreatmentCustody(),
+                    history: {
+                      read: () =>
+                        Promise.resolve({
+                          kind: 'Read' as const,
+                          taskId,
+                          taskRevisionSaid: said('a'),
+                          sourceInventorySaid: said('m'),
+                          sources: [
+                            {
+                              sourceId: currentHistory.artifact.d,
+                              artifact: currentHistory.artifact,
+                              bytes: currentHistoryBytes,
+                              kind: 'Failure' as const,
+                              version: 'CESR-v1',
+                              custody: 'Public' as const,
+                            },
+                            {
+                              sourceId: staleHistory.artifact.d,
+                              artifact: staleHistory.artifact,
+                              bytes: staleHistoryBytes,
+                              kind: 'Contract' as const,
+                              version: 'CESR-v0',
+                              custody: 'Public' as const,
+                            },
+                          ],
+                        }),
+                    },
+                    projection: {
+                      project: (source) =>
+                        Promise.resolve({
+                          kind: 'Projected' as const,
+                          sourceId: source.sourceId,
+                          text: 'Use the current public CESR-v1 receipt format.',
+                        }),
+                    },
+                  }),
                 }
               : {}),
             enabledTools: ['write_file', 'run_tests'],
@@ -454,6 +643,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             now: () => '2026-09-26T04:30:00.000Z',
             modelInference: {
               complete(input) {
+                modelContexts.push(input.context);
                 const content =
                   input.requestOrdinal === 0
                     ? commandTool
@@ -464,7 +654,10 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                         )
                       : fauxToolCall(
                           'write_file',
-                          { path: 'src/lib.rs', content: 'after\n' },
+                          {
+                            path: 'src/lib.rs',
+                            content: c3 ? 'after // CESR-v1\n' : 'after\n',
+                          },
                           { id: 'provider-call-1' },
                         )
                     : 'Finished.';
@@ -608,7 +801,40 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             Buffer.from(
               captured?.files.find((file) => file.path === 'src/lib.rs')?.bytes ?? [],
             ).toString('utf8'),
-          ).toBe(commandTool ? 'before\n' : 'after\n');
+          ).toBe(commandTool ? 'before\n' : c3 ? 'after // CESR-v1\n' : 'after\n');
+          if (c3) {
+            expect(JSON.stringify(modelContexts[0])).not.toContain('Reviewed public history');
+            expect(JSON.stringify(modelContexts[1])).toContain('Reviewed public history');
+            expect(JSON.stringify(modelContexts[1])).toContain(currentHistory.artifact.d);
+            expect(JSON.stringify(modelContexts[1])).not.toContain(staleHistory.artifact.d);
+            const receipts = await Promise.all(
+              rawSaids.map(async (artifactSaid) => {
+                try {
+                  return JSON.parse(await readFile(join(root, artifactSaid), 'utf8')) as unknown;
+                } catch {
+                  return undefined;
+                }
+              }),
+            );
+            const selectionReceipt = receipts.find(
+              (value) =>
+                typeof value === 'object' &&
+                value !== null &&
+                'kind' in value &&
+                value.kind === 'C3ContextSelectionApplied',
+            );
+            expect(selectionReceipt).toMatchObject({
+              includedSourceIds: [currentHistory.artifact.d],
+              excludedSourceIds: [staleHistory.artifact.d],
+            });
+            if (
+              typeof selectionReceipt !== 'object' ||
+              selectionReceipt === null ||
+              !('providerInputTokensForRequest' in selectionReceipt)
+            )
+              throw new Error('C3 input-cost receipt missing.');
+            expect(typeof selectionReceipt.providerInputTokensForRequest).toBe('number');
+          }
           expect(toolCalls).toHaveLength(1);
           expect(events.map((event) => event.detail.kind)).toContain('ToolAuthorization');
           const debits = events.flatMap((event) =>
@@ -642,7 +868,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             commandTool ? 0 : 1,
           );
           expect(debits.find((debit) => debit.budget === 'changedWorktreeBytes')?.amount).toBe(
-            commandTool ? 0 : 7,
+            commandTool ? 0 : c3 ? 17 : 7,
           );
           expect(
             debits.find((debit) => debit.budget === 'runWallTimeSeconds')?.amount,
@@ -685,7 +911,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             expect.objectContaining({
               kind: 'EvaluationSourceChanges',
               changedFiles: commandTool ? 0 : 1,
-              changedWorktreeBytes: commandTool ? 0 : 7,
+              changedWorktreeBytes: commandTool ? 0 : c3 ? 17 : 7,
             }),
           );
           expect(elapsed).toContainEqual(
