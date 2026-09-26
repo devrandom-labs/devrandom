@@ -18,7 +18,10 @@ Validation in the isolated presenter worktree:
 - Actual `just demo-prd03` terminal entry through simulated fork PASS.
 - Actual live `--help` through the presenter and built CLI adapter PASS, exit 0.
 - Adapter owner built CLI and its package dependencies successfully.
-- `just check`: NOT RUN here; parent owns the integrated full gate.
+- Full `just check`: PASS, 419 test files / 2375 tests; 41 files / 145 tests
+  explicitly skipped. All workspace builds, CLI/server/site public smokes and
+  native Darwin Nix flake checks passed. First run found the fresh checkout
+  lacked the installed CLI build; built CLI and reran the complete gate.
 - No Docker, paid provider, Task creation, credential mutation or Atlas writes run.
 
 `just demo-prd03` is now interactive. `just demo-prd03-recorded` retains the
