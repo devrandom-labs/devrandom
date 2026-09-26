@@ -38,7 +38,11 @@ interface EvidenceCursor {
     providerInputTokens: number;
     providerOutputTokens: number;
     providerSpendMicroUsd: number;
+    runWallTimeSeconds: number;
     toolProposals: number;
+    aggregateChildCommandTimeSeconds: number;
+    changedFiles: number;
+    changedWorktreeBytes: number;
   };
 }
 
@@ -114,6 +118,59 @@ function isToolName(value: unknown): value is ToolName {
   );
 }
 
+interface MeasuredSourceFile {
+  readonly path: string;
+  readonly bytes: Uint8Array;
+}
+
+/** Compares exact bytes re-opened from parent SourceCustody, including deletions. */
+export function measureEvaluationSourceChanges(
+  before: readonly MeasuredSourceFile[],
+  after: readonly MeasuredSourceFile[],
+):
+  | {
+      readonly changedFiles: number;
+      /** Conservative changed-byte charge: max(old length, new length) for each changed path. */
+      readonly changedWorktreeBytes: number;
+      readonly paths: readonly string[];
+    }
+  | undefined {
+  const collect = (files: readonly MeasuredSourceFile[]): Map<string, Uint8Array> | undefined => {
+    const entries = new Map<string, Uint8Array>();
+    for (const file of files) {
+      if (
+        typeof file.path !== 'string' ||
+        file.path.length === 0 ||
+        !(file.bytes instanceof Uint8Array) ||
+        entries.has(file.path)
+      )
+        return undefined;
+      entries.set(file.path, file.bytes);
+    }
+    return entries;
+  };
+  const oldFiles = collect(before);
+  const newFiles = collect(after);
+  if (oldFiles === undefined || newFiles === undefined) return undefined;
+  const paths: string[] = [];
+  let changedWorktreeBytes = 0;
+  for (const path of new Set([...oldFiles.keys(), ...newFiles.keys()])) {
+    const oldBytes = oldFiles.get(path);
+    const newBytes = newFiles.get(path);
+    if (
+      oldBytes !== undefined &&
+      newBytes !== undefined &&
+      Buffer.from(oldBytes).equals(Buffer.from(newBytes))
+    )
+      continue;
+    paths.push(path);
+    changedWorktreeBytes += Math.max(oldBytes?.byteLength ?? 0, newBytes?.byteLength ?? 0);
+    if (!Number.isSafeInteger(changedWorktreeBytes)) return undefined;
+  }
+  paths.sort((left, right) => left.localeCompare(right, 'en'));
+  return { changedFiles: paths.length, changedWorktreeBytes, paths };
+}
+
 function openingConsumption(
   cursor: EvidenceCursor,
 ): NonNullable<EvidenceCursor['consumed']> | undefined {
@@ -122,7 +179,11 @@ function openingConsumption(
     providerInputTokens: 0,
     providerOutputTokens: 0,
     providerSpendMicroUsd: 0,
+    runWallTimeSeconds: 0,
     toolProposals: 0,
+    aggregateChildCommandTimeSeconds: 0,
+    changedFiles: 0,
+    changedWorktreeBytes: 0,
   };
   if (!Number.isSafeInteger(cursor.nextSequence) || cursor.nextSequence < 0) return undefined;
   if (cursor.nextSequence === 0)
@@ -235,6 +296,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
     )
       return { kind: 'Invalid', reason: 'ProfileDrift' };
     if (!(await runtimeMatches(config))) return { kind: 'Invalid', reason: 'ProfileDrift' };
+    const trialStarted = performance.now();
     const clean = await config.source.open(input.cleanSourceSaid);
     if (clean === undefined) return { kind: 'Invalid', reason: 'CaptureFailed' };
     const staging = await mkdtemp(join(tmpdir(), 'devrandom-trial-'));
@@ -246,6 +308,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
     const expectedCalls: ExpectedToolCall[] = [];
     let requestOrdinal = 0;
     let proposalIndex = 0;
+    let nativeCommandObserved = false;
     const sessionId = randomUUID();
     const bindingId = `${binding.evaluationId}/${input.slot.arm}/${String(input.slot.repetition)}/${String(input.slot.attempt)}/${sessionId}`;
 
@@ -567,6 +630,28 @@ export class DockerContainedTrialExecution implements TrialExecution {
                 reason: 'UnknownUsage',
                 ...(evidenceHead === undefined ? {} : { evidenceHeadSaid: evidenceHead }),
               };
+            const nativeCommand = ['run_formatter', 'run_static_analysis', 'run_tests'].includes(
+              expected.name,
+            );
+            let childCommandSeconds: number | undefined;
+            if (nativeCommand) {
+              // The trusted parent can bound child time by the complete Gateway round trip;
+              // the frozen outcome port does not expose exact child-only process duration.
+              if (outcome.kind === 'Completed' || outcome.kind === 'Failed')
+                childCommandSeconds = Math.max(1, Math.ceil(measured.elapsedMilliseconds / 1_000));
+              else if (
+                outcome.kind === 'ApprovalRequired' ||
+                (outcome.kind === 'Rejected' && outcome.reason !== 'BudgetExhausted')
+              )
+                childCommandSeconds = 0;
+              else
+                return {
+                  kind: 'Invalid',
+                  reason: 'UnknownUsage',
+                  ...(evidenceHead === undefined ? {} : { evidenceHeadSaid: evidenceHead }),
+                };
+              nativeCommandObserved = true;
+            }
             const toolReceipt = await raw({
               kind: 'EvaluationToolElapsed',
               proposalEventSaid: proposedEvent,
@@ -575,11 +660,14 @@ export class DockerContainedTrialExecution implements TrialExecution {
               toolName: expected.name,
               ...measured,
               outcomeKind: outcome.kind,
-              childCommandDuration: ['run_formatter', 'run_static_analysis', 'run_tests'].includes(
-                expected.name,
-              )
-                ? 'Unmeasured'
+              childCommandDuration: nativeCommand
+                ? childCommandSeconds === 0
+                  ? 'NotExecuted'
+                  : 'GatewayRoundTripUpperBound'
                 : 'NotApplicable',
+              ...(childCommandSeconds === undefined
+                ? {}
+                : { childCommandDebitedSeconds: childCommandSeconds }),
             });
             await append({
               kind: 'ArtifactCaptured',
@@ -587,6 +675,13 @@ export class DockerContainedTrialExecution implements TrialExecution {
               custody: 'Public',
             });
             await debit('toolProposals', 1, toolReceipt, proposedEvent);
+            if (childCommandSeconds !== undefined)
+              await debit(
+                'aggregateChildCommandTimeSeconds',
+                childCommandSeconds,
+                toolReceipt,
+                proposedEvent,
+              );
             const outcomeArtifact = await raw({ kind: 'ToolOutcome', outcome });
             const disposition =
               outcome.kind === 'ApprovalRequired'
@@ -642,11 +737,37 @@ export class DockerContainedTrialExecution implements TrialExecution {
           (await storeRawBytes(stopped.manifestBytes)) !== captured.sourceSaid
         )
           throw new Error('Stopped Evaluation source manifest lacks raw custody.');
-        await append({
+        const stoppedSourceEvent = await append({
           kind: 'ArtifactCaptured',
           artifactSaid: captured.sourceSaid,
           custody: 'Public',
         });
+        const changes = measureEvaluationSourceChanges(clean.files, stopped.files);
+        if (changes === undefined)
+          return {
+            kind: 'Invalid',
+            reason: 'UnknownUsage',
+            ...(evidenceHead === undefined ? {} : { evidenceHeadSaid: evidenceHead }),
+          };
+        const sourceReceipt = await raw({
+          kind: 'EvaluationSourceChanges',
+          beforeSourceSaid: input.cleanSourceSaid,
+          afterSourceSaid: captured.sourceSaid,
+          changedByteRule: 'MaxPrePostLengthPerChangedPath',
+          ...changes,
+        });
+        await append({
+          kind: 'ArtifactCaptured',
+          artifactSaid: sourceReceipt,
+          custody: 'Public',
+        });
+        await debit('changedFiles', changes.changedFiles, sourceReceipt, stoppedSourceEvent);
+        await debit(
+          'changedWorktreeBytes',
+          changes.changedWorktreeBytes,
+          sourceReceipt,
+          stoppedSourceEvent,
+        );
         const cleanupConfirmed = await compartment.close();
         compartment = undefined;
         if (!cleanupConfirmed)
@@ -656,7 +777,43 @@ export class DockerContainedTrialExecution implements TrialExecution {
             ...(evidenceHead === undefined ? {} : { evidenceHeadSaid: evidenceHead }),
           };
         const cleanupReceipt = await raw({ kind: 'Cleanup', bindingId, confirmed: true });
-        await append({ kind: 'ArtifactCaptured', artifactSaid: cleanupReceipt, custody: 'Public' });
+        const cleanupEvent = await append({
+          kind: 'ArtifactCaptured',
+          artifactSaid: cleanupReceipt,
+          custody: 'Public',
+        });
+        if (!nativeCommandObserved) {
+          const noCommandReceipt = await raw({
+            kind: 'EvaluationChildCommands',
+            method: 'NoNativeCommandToolEffect',
+            bindingId,
+            debitedSeconds: 0,
+          });
+          await append({
+            kind: 'ArtifactCaptured',
+            artifactSaid: noCommandReceipt,
+            custody: 'Public',
+          });
+          await debit('aggregateChildCommandTimeSeconds', 0, noCommandReceipt, cleanupEvent);
+        }
+        const wall = measuredToolElapsed(trialStarted, performance.now());
+        if (wall === undefined)
+          return {
+            kind: 'Invalid',
+            reason: 'UnknownUsage',
+            ...(evidenceHead === undefined ? {} : { evidenceHeadSaid: evidenceHead }),
+          };
+        const wallSeconds = Math.max(1, Math.ceil(wall.elapsedMilliseconds / 1_000));
+        const wallReceipt = await raw({
+          kind: 'EvaluationWallElapsed',
+          method: 'ParentMonotonicStartThroughCleanup',
+          bindingId,
+          ...wall,
+          debitedSeconds: wallSeconds,
+          cleanupEventSaid: cleanupEvent,
+        });
+        await append({ kind: 'ArtifactCaptured', artifactSaid: wallReceipt, custody: 'Public' });
+        await debit('runWallTimeSeconds', wallSeconds, wallReceipt, cleanupEvent);
         await append({ kind: 'TrialStopped', reason: 'Completed' });
         return {
           kind: 'Stopped',

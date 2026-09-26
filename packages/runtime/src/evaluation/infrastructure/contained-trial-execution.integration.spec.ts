@@ -15,11 +15,45 @@ import { describe, expect, it } from 'vitest';
 
 import { createConcentrateProvider } from '../../pi/concentrate-provider.js';
 import { ConcentrateUsage } from '../../pi/concentrate-usage.js';
-import { DockerContainedTrialExecution } from './contained-trial-execution.js';
+import {
+  DockerContainedTrialExecution,
+  measureEvaluationSourceChanges,
+} from './contained-trial-execution.js';
 import { digestEvaluationRuntimeMounts } from './runtime-mount-digest.js';
 import { SourceCustody } from './source-custody.js';
 
 const said = (character: string): string => `E${character.repeat(43)}`;
+
+it('measures added, removed, and rewritten stopped source bytes before budget debit', () => {
+  const bytes = (value: string): Uint8Array => Buffer.from(value);
+  expect(
+    measureEvaluationSourceChanges(
+      [
+        { path: 'modified', bytes: bytes('before\n') },
+        { path: 'deleted', bytes: bytes('old') },
+        { path: 'unchanged', bytes: bytes('same') },
+      ],
+      [
+        { path: 'modified', bytes: bytes('after\n') },
+        { path: 'added', bytes: bytes('added') },
+        { path: 'unchanged', bytes: bytes('same') },
+      ],
+    ),
+  ).toEqual({
+    changedFiles: 3,
+    changedWorktreeBytes: 15,
+    paths: ['added', 'deleted', 'modified'],
+  });
+  expect(
+    measureEvaluationSourceChanges(
+      [
+        { path: 'duplicate', bytes: bytes('a') },
+        { path: 'duplicate', bytes: bytes('b') },
+      ],
+      [],
+    ),
+  ).toBeUndefined();
+});
 
 describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
   'real parent to contained trial relay',
@@ -28,8 +62,11 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
       'Verified',
       'Unaccountable',
       'UnverifiedCursor',
+      'LegacyCursor',
       'Cumulative',
       'CommandTool',
+      'CommandCompleted',
+      'CommandUnknown',
     ] as const)(
       'mediates a provider-origin edit with %s parent usage and custody-backed E3 debits',
       async (usage) => {
@@ -73,7 +110,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           const profile = prepareEvaluationExecutionProfile({
             os: 'linux',
             architecture: 'aarch64',
-            imageDigest: image,
+            imageDigest: image.slice(image.lastIndexOf('@') + 1),
             runtimeDigest,
             toolchainDigest: `sha256:${'2'.repeat(64)}`,
             sourceGitCommit: '3'.repeat(40),
@@ -166,6 +203,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           const events: EvaluationEvidenceEvent[] = [];
           const rawSaids: string[] = [];
           const toolCalls: unknown[] = [];
+          const commandTool = ['CommandTool', 'CommandCompleted', 'CommandUnknown'].includes(usage);
           const trial = new DockerContainedTrialExecution({
             profile: profile.profile,
             image,
@@ -179,8 +217,8 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             workerProgram: '/app/packages/runtime/dist/pi/evaluation/contained-pi-worker.js',
             source: custody,
             cursor:
-              usage === 'Cumulative'
-                ? {
+              usage === 'LegacyCursor'
+                ? ({
                     nextSequence: 17,
                     previousEventSaid: said('z'),
                     consumed: {
@@ -190,16 +228,34 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                       providerSpendMicroUsd: 3,
                       toolProposals: 2,
                     },
-                  }
-                : usage === 'UnverifiedCursor'
-                  ? { nextSequence: 17, previousEventSaid: said('z') }
-                  : { nextSequence: 0 },
+                  } as unknown as ConstructorParameters<
+                    typeof DockerContainedTrialExecution
+                  >[0]['cursor'])
+                : usage === 'Cumulative'
+                  ? {
+                      nextSequence: 17,
+                      previousEventSaid: said('z'),
+                      consumed: {
+                        providerRequests: 4,
+                        providerInputTokens: 100,
+                        providerOutputTokens: 20,
+                        providerSpendMicroUsd: 3,
+                        toolProposals: 2,
+                        runWallTimeSeconds: 10,
+                        aggregateChildCommandTimeSeconds: 2,
+                        changedFiles: 1,
+                        changedWorktreeBytes: 7,
+                      },
+                    }
+                  : usage === 'UnverifiedCursor'
+                    ? { nextSequence: 17, previousEventSaid: said('z') }
+                    : { nextSequence: 0 },
             now: () => '2026-09-26T04:30:00.000Z',
             modelInference: {
               complete(input) {
                 const content =
                   input.requestOrdinal === 0
-                    ? usage === 'CommandTool'
+                    ? commandTool
                       ? fauxToolCall(
                           'run_tests',
                           { commandId: 'public-test' },
@@ -232,7 +288,17 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                 const prepared = prepareEvidenceArtifact(input.bytes, input.mediaType);
                 if (prepared.kind !== 'Prepared') return { kind: 'Rejected' as const };
                 const artifact = prepared.artifact;
-                await writeFile(join(root, artifact.d), input.bytes, { flag: 'wx' });
+                try {
+                  await writeFile(join(root, artifact.d), input.bytes, { flag: 'wx' });
+                } catch (error) {
+                  if (
+                    !(error instanceof Error && 'code' in error && error.code === 'EEXIST') ||
+                    !Buffer.from(await readFile(join(root, artifact.d))).equals(
+                      Buffer.from(input.bytes),
+                    )
+                  )
+                    throw error;
+                }
                 rawSaids.push(artifact.d);
                 return { kind: 'Stored' as const, artifact };
               },
@@ -258,6 +324,23 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               return {
                 async propose(_binding, proposal) {
                   toolCalls.push(proposal);
+                  if (proposal.input.kind === 'RunTests') {
+                    if (usage === 'CommandTool')
+                      return { kind: 'Rejected' as const, reason: 'CapabilityNotGranted' as const };
+                    const effect = compartment.execute(['node', '-e', 'setTimeout(() => {}, 25)']);
+                    const code = await new Promise<number | null>((resolveExit) =>
+                      effect.once('close', resolveExit),
+                    );
+                    if (code !== 0)
+                      return { kind: 'Rejected' as const, reason: 'ResourceDenied' as const };
+                    return usage === 'CommandUnknown'
+                      ? { kind: 'DependencyUnavailable' as const }
+                      : {
+                          kind: 'Completed' as const,
+                          summary: 'native command completed',
+                          outputArtifactSaids: [],
+                        };
+                  }
                   if (proposal.input.kind !== 'WriteFile')
                     return { kind: 'Rejected' as const, reason: 'CapabilityNotGranted' as const };
                   const effect = compartment.execute([
@@ -291,7 +374,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             containerProfileSaid: profile.profile.d,
             signal: new AbortController().signal,
           });
-          if (usage === 'UnverifiedCursor') {
+          if (usage === 'UnverifiedCursor' || usage === 'LegacyCursor') {
             expect(result).toMatchObject({ kind: 'Invalid', reason: 'ProfileDrift' });
             expect(events).toHaveLength(0);
             return;
@@ -302,16 +385,21 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             expect(toolCalls).toHaveLength(0);
             return;
           }
+          if (usage === 'CommandUnknown') {
+            expect(result).toMatchObject({ kind: 'Invalid', reason: 'UnknownUsage' });
+            expect(events.some((event) => event.detail.kind === 'TrialStopped')).toBe(false);
+            return;
+          }
           expect(result).toMatchObject({ kind: 'Stopped' });
           if (result.kind !== 'Stopped') return;
-          if (usage === 'CommandTool') expect(result.capturedSourceSaid).toBe(clean.sourceSaid);
+          if (commandTool) expect(result.capturedSourceSaid).toBe(clean.sourceSaid);
           else expect(result.capturedSourceSaid).not.toBe(clean.sourceSaid);
           const captured = await custody.open(result.capturedSourceSaid);
           expect(
             Buffer.from(
               captured?.files.find((file) => file.path === 'src/lib.rs')?.bytes ?? [],
             ).toString('utf8'),
-          ).toBe(usage === 'CommandTool' ? 'before\n' : 'after\n');
+          ).toBe(commandTool ? 'before\n' : 'after\n');
           expect(toolCalls).toHaveLength(1);
           expect(events.map((event) => event.detail.kind)).toContain('ToolAuthorization');
           const debits = events.flatMap((event) =>
@@ -323,17 +411,49 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             'providerOutputTokens',
             'providerSpendMicroUsd',
             'toolProposals',
+            ...(commandTool ? ['aggregateChildCommandTimeSeconds'] : []),
             'providerRequests',
             'providerInputTokens',
             'providerOutputTokens',
             'providerSpendMicroUsd',
+            'changedFiles',
+            'changedWorktreeBytes',
+            ...(commandTool ? [] : ['aggregateChildCommandTimeSeconds']),
+            'runWallTimeSeconds',
           ]);
           if (usage === 'Cumulative') {
             expect(debits[0]?.consumed).toBe(5);
             expect(debits.find((debit) => debit.budget === 'toolProposals')?.consumed).toBe(3);
+            expect(debits.find((debit) => debit.budget === 'changedFiles')?.consumed).toBe(2);
+            expect(debits.find((debit) => debit.budget === 'changedWorktreeBytes')?.consumed).toBe(
+              14,
+            );
           }
+          expect(debits.find((debit) => debit.budget === 'changedFiles')?.amount).toBe(
+            commandTool ? 0 : 1,
+          );
+          expect(debits.find((debit) => debit.budget === 'changedWorktreeBytes')?.amount).toBe(
+            commandTool ? 0 : 7,
+          );
+          expect(
+            debits.find((debit) => debit.budget === 'runWallTimeSeconds')?.amount,
+          ).toBeGreaterThan(0);
+          const childSeconds = debits.find(
+            (debit) => debit.budget === 'aggregateChildCommandTimeSeconds',
+          )?.amount;
+          if (usage === 'CommandCompleted') expect(childSeconds).toBeGreaterThan(0);
+          else expect(childSeconds).toBe(0);
           for (const debit of debits) {
             expect(rawSaids).toContain(debit.receiptArtifactSaid);
+            expect(
+              events.some(
+                (event) =>
+                  event.detail.kind === 'ArtifactCaptured' &&
+                  event.detail.artifactSaid === debit.receiptArtifactSaid &&
+                  event.detail.custody === 'Public',
+              ),
+            ).toBe(true);
+            expect(events.some((event) => event.d === debit.sourceEventSaid)).toBe(true);
           }
           const elapsed = await Promise.all(
             rawSaids.map(
@@ -344,7 +464,24 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             expect.objectContaining({
               kind: 'EvaluationToolElapsed',
               toolCallId: 'provider-call-1',
-              childCommandDuration: usage === 'CommandTool' ? 'Unmeasured' : 'NotApplicable',
+              childCommandDuration:
+                usage === 'CommandTool'
+                  ? 'NotExecuted'
+                  : usage === 'CommandCompleted'
+                    ? 'GatewayRoundTripUpperBound'
+                    : 'NotApplicable',
+            }),
+          );
+          expect(elapsed).toContainEqual(
+            expect.objectContaining({
+              kind: 'EvaluationSourceChanges',
+              changedFiles: commandTool ? 0 : 1,
+              changedWorktreeBytes: commandTool ? 0 : 7,
+            }),
+          );
+          expect(elapsed).toContainEqual(
+            expect.objectContaining({
+              kind: 'EvaluationWallElapsed',
             }),
           );
           expect(events.at(-1)?.detail).toEqual({ kind: 'TrialStopped', reason: 'Completed' });
