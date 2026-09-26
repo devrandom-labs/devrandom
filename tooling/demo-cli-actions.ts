@@ -295,7 +295,7 @@ export async function invokeDemoCliAction(
   let environment = { ...process.env, ...input.environment };
   if (input.environmentFile) {
     try {
-      environment = { ...environment, ...parseEnv(await readFile(input.environmentFile, 'utf8')) };
+      environment = { ...parseEnv(await readFile(input.environmentFile, 'utf8')), ...environment };
     } catch {
       return {
         ...base,

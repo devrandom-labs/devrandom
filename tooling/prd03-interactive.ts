@@ -87,7 +87,12 @@ export async function runInteractiveDemo(input: {
   for (;;) {
     const line = await input.read(paint('36', 'devrandom ❯ '));
     if (line === null || ['exit', 'quit'].includes(line.trim())) return;
-    const command = line.trim();
+    const command = line.trim().replace(/^devrandom\s+/, '');
+    const requestedAction = command.startsWith('live ') ? command.slice(5).trim() : command;
+    const action = demoCliActions.find(
+      (candidate) =>
+        candidate.id === requestedAction || candidate.command.join(' ') === requestedAction,
+    );
     if (command === '' || command === 'help') {
       input.write(help);
       continue;
@@ -110,7 +115,7 @@ export async function runInteractiveDemo(input: {
       (walkthrough &&
         !['actions', 'proofs'].includes(command) &&
         !/^(live |enable |proofs )/.test(command) &&
-        !demoCliActions.some((action) => action.command.join(' ') === command))
+        action === undefined)
     ) {
       disclose();
       const next = simulateDemoCommand(
@@ -158,10 +163,6 @@ export async function runInteractiveDemo(input: {
       }
       continue;
     }
-    const id = command.startsWith('live ')
-      ? command.slice(5).trim()
-      : demoCliActions.find((action) => action.command.join(' ') === command)?.id;
-    const action = demoCliActions.find((candidate) => candidate.id === id);
     if (!action) {
       input.write('Unknown command. Use help or actions.\n');
       continue;
@@ -195,6 +196,8 @@ export async function runInteractiveDemo(input: {
         continue;
       }
     }
+    if (action.id === 'init')
+      input.write('Connecting to identity services. Waiting for your registration link…\n');
     const outcome = await (input.invoke ?? invokeDemoCliAction)({
       action: action.id,
       inputs: values,

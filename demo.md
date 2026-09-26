@@ -14,9 +14,13 @@ env -u NO_COLOR \
   DEVRANDOM_DEMO_REPOSITORY_ROOT=/Users/joel/Code/devrandom/devrandom \
   DEVRANDOM_DEMO_WORKING_DIRECTORY=/Users/joel/Code/devrandom/devrandom/.devrandom/prd03-cesr-scoped-20260926a \
   DEVRANDOM_DEMO_ENV_FILE=/Users/joel/Code/devrandom/devrandom/.env.cli \
+  DEVRANDOM_CREDENTIAL_SCHEMA_OOBI_URL=http://server:3211/oobi/EOb-FtVoyOOKTAf9GVdIlmfiSL53StlAY8vobkPRdmt4 \
   FORCE_COLOR=1 \
-  nix develop -c just demo-prd03
+  nix develop -c just demo-prd03 /Users/joel/Code/devrandom/devrandom/.devrandom/prd03-demo
 ```
+
+If an older presenter is already open, type `exit` and relaunch with the block
+above so the current command parser and retained proof directory are used.
 
 You should see the cyan Devrandom heading and a `devrandom ❯` prompt. Paste
 the remaining blocks **inside that prompt**, not into your normal shell.

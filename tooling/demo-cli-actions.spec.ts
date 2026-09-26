@@ -112,3 +112,33 @@ describe('public subprocess adapter', () => {
     }
   });
 });
+it('keeps the explicitly selected presentation identity when an environment file contains a different profile', async () => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), 'devrandom-demo-profile-'));
+  try {
+    await mkdir(join(repositoryRoot, 'apps/cli/dist'), { recursive: true });
+    await writeFile(
+      join(repositoryRoot, 'apps/cli/dist/main.js'),
+      'process.stdout.write(JSON.stringify({state:process.env.DEVRANDOM_USER_STATE_DIR,configured:process.env.DEMO_FROM_FILE}));',
+    );
+    const environmentFile = join(repositoryRoot, 'demo.env');
+    await writeFile(
+      environmentFile,
+      'DEVRANDOM_USER_STATE_DIR=/original-campaign-profile\nDEMO_FROM_FILE=configured\n',
+    );
+    const outcome = await invokeDemoCliAction({
+      action: 'init',
+      inputs: {},
+      confirmed: true,
+      repositoryRoot,
+      environmentFile,
+      environment: { DEVRANDOM_USER_STATE_DIR: '/explicit-presentation-profile' },
+    });
+    expect(outcome.exitCode).toBe(0);
+    expect(JSON.parse(outcome.output)).toEqual({
+      state: '/explicit-presentation-profile',
+      configured: 'configured',
+    });
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
+  }
+});
