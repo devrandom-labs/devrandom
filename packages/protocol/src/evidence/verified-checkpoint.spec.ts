@@ -112,6 +112,28 @@ function draft(
 }
 
 describe('verified checkpoint protocol', () => {
+  it.each([6, 8, 9])(
+    'retains remaining Run quota %s without changing authority or accepting nine',
+    (quota) => {
+      const original = draft(receipt());
+      const prepared = prepareVerifiedCheckpoint(
+        {
+          ...original,
+          budget: {
+            ...original.budget,
+            remaining: { ...original.budget.remaining, runsPerAdmittedUser: quota },
+          },
+        },
+        ['public-tests'],
+      );
+      expect(prepared.kind).toBe(quota <= 8 ? 'Prepared' : 'Rejected');
+      if (prepared.kind === 'Prepared')
+        expect(decodeVerifiedCheckpoint(prepared.checkpoint, ['public-tests']).kind).toBe(
+          'Accepted',
+        );
+    },
+  );
+
   it('accepts only a blocked secret checkpoint with an exact privacy marker pair and no manifest', () => {
     const input = draft(receipt());
     const privacy = {

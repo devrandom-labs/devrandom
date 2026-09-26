@@ -4,6 +4,25 @@ import { runCommandFingerprint, runFixture, runId } from '../test/run-fixture.js
 import { decodeRunDocument, encodeRunDocument } from './run-document.js';
 
 describe('Run Mongo document', () => {
+  it('round-trips an eight-Run admitted budget without rewriting legacy Run budgets', () => {
+    const original = runFixture();
+    const run = {
+      ...original,
+      binding: {
+        ...original.binding,
+        budget: { ...original.binding.budget, runsPerAdmittedUser: 8 },
+      },
+    };
+    expect(decodeRunDocument(encodeRunDocument(run, runCommandFingerprint))).toEqual({
+      run,
+      commandFingerprint: runCommandFingerprint,
+    });
+    expect(
+      decodeRunDocument(encodeRunDocument(original, runCommandFingerprint)).run.binding.budget
+        .runsPerAdmittedUser,
+    ).toBe(6);
+  });
+
   it('round-trips the exact durable Run and command fingerprint', () => {
     const run = runFixture();
     const document = encodeRunDocument(run, runCommandFingerprint);

@@ -99,10 +99,10 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
     }
   });
 
-  it.each(['BudgetExhausted', 'Cancelled'] as const)(
+  it.each(['BudgetExhausted', 'Cancelled', 'CancelledEightRunQuota'] as const)(
     'rejects expired effects and stale/wrong terminal requests, then seals exact %s bookkeeping',
     async (disposition) => {
-      const cancellation = disposition === 'Cancelled';
+      const cancellation = disposition !== 'BudgetExhausted';
       if (client === undefined) throw new Error('Mongo URI unavailable');
       const database = client.db(databaseName);
       await database.dropDatabase();
@@ -154,7 +154,10 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
         commandId: randomUUID(),
         admissionExchangeSaid: `E${'i'.repeat(43)}`,
         evidenceStreamId: randomUUID(),
-        budget: taskBudgetCeilings,
+        budget: {
+          ...taskBudgetCeilings,
+          runsPerAdmittedUser: disposition === 'CancelledEightRunQuota' ? 8 : 6,
+        },
         acceptedAt: '2026-09-24T20:00:00.000Z',
       });
       if (created.kind !== 'Created') throw new Error(`Run fixture: ${created.reason}`);

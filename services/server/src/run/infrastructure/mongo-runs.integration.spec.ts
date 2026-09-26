@@ -18,6 +18,7 @@ import {
 } from '@devrandom/domain';
 import { harnessCommandFingerprint } from '@devrandom/protocol';
 
+import { inspectRun } from '../application/inspect-run.js';
 import { acquireRunLease } from '../application/acquire-run-lease.js';
 import { runRoutes } from '../route/run-routes.js';
 import { MongoHarnessBootstrap } from '../../harness/infrastructure/mongo-harness-bootstrap.js';
@@ -472,90 +473,104 @@ integration('Mongo Run admission storage', () => {
     });
   });
 
-  it('reconciles a committed first lease through the public route after its HTTP response is lost', async () => {
-    const harness = await admittedHarness();
-    const run = proposedRun(harness, randomUUID());
-    const incarnationId = randomUUID();
-    const firstLeaseAt = Date.now() - 5_000;
-    const firstLeaseExpiry = new Date(firstLeaseAt + 45_000).toISOString();
-    await commitRun(run);
-    const owner = {
-      ownerAid: run.binding.ownerAid,
-      credentialSaid: `E${'w'.repeat(43)}`,
-    };
-    let serverTime = new Date(firstLeaseAt).toISOString();
-    let loseFirstLeaseResponse = true;
-    const instance = Fastify().withTypeProvider<TypeBoxTypeProvider>();
-    const path = `/api/runs/${run.binding.runId}/incarnations/${incarnationId}`;
-    instance.addHook('onSend', (request, _reply, payload, next) => {
-      if (request.method === 'PUT' && request.url === path && loseFirstLeaseResponse) {
-        loseFirstLeaseResponse = false;
-        request.raw.socket.destroy();
-      }
-      next(null, payload);
-    });
-    await instance.register(
-      runRoutes({
-        access: {
-          authorize: () => Promise.resolve({ kind: 'RunAccessAuthorized', owner }),
-        },
-        conversation: {
-          admit: () => Promise.reject(new Error('Run was already admitted')),
-          inspect: () => Promise.reject(new Error('Run inspection was not requested')),
-          acquireLease: (input) =>
-            acquireRunLease(input, {
-              currentUserCredential: {
-                verify: () => Promise.resolve({ kind: 'UserCredentialCurrent' }),
-              },
-              leases: runs,
-              now: () => serverTime,
-            }),
-          renewLease: () => Promise.reject(new Error('Lease renewal was not requested')),
-        },
-        now: () => serverTime,
-        newCorrelationId: randomUUID,
-      }),
-    );
-    try {
-      const origin = await instance.listen({ port: 0, host: '127.0.0.1' });
-      const request = () =>
-        fetch(new URL(path, origin), {
-          method: 'PUT',
-          headers: {
-            authorization: `Bearer ${'s'.repeat(43)}`,
-            'content-type': 'application/json',
+  it.each([6, 8])(
+    'reads and reconciles an admitted quota of %s through HTTP after a lease response is lost',
+    async (quota) => {
+      const harness = await admittedHarness();
+      const run = proposedRun(harness, randomUUID(), {
+        ...harness.revision.budgetCeilings.task,
+        runsPerAdmittedUser: quota,
+      });
+      const incarnationId = randomUUID();
+      const firstLeaseAt = Date.now() - 5_000;
+      const firstLeaseExpiry = new Date(firstLeaseAt + 45_000).toISOString();
+      await commitRun(run);
+      const owner = {
+        ownerAid: run.binding.ownerAid,
+        credentialSaid: `E${'w'.repeat(43)}`,
+      };
+      let serverTime = new Date(firstLeaseAt).toISOString();
+      let loseFirstLeaseResponse = true;
+      const instance = Fastify().withTypeProvider<TypeBoxTypeProvider>();
+      const path = `/api/runs/${run.binding.runId}/incarnations/${incarnationId}`;
+      instance.addHook('onSend', (request, _reply, payload, next) => {
+        if (request.method === 'PUT' && request.url === path && loseFirstLeaseResponse) {
+          loseFirstLeaseResponse = false;
+          request.raw.socket.destroy();
+        }
+        next(null, payload);
+      });
+      await instance.register(
+        runRoutes({
+          access: {
+            authorize: () => Promise.resolve({ kind: 'RunAccessAuthorized', owner }),
           },
-          body: JSON.stringify({ version: 1, expectedRunVersion: 0 }),
+          conversation: {
+            admit: () => Promise.reject(new Error('Run was already admitted')),
+            inspect: (input) => inspectRun(input, runs),
+            acquireLease: (input) =>
+              acquireRunLease(input, {
+                currentUserCredential: {
+                  verify: () => Promise.resolve({ kind: 'UserCredentialCurrent' }),
+                },
+                leases: runs,
+                now: () => serverTime,
+              }),
+            renewLease: () => Promise.reject(new Error('Lease renewal was not requested')),
+          },
+          now: () => serverTime,
+          newCorrelationId: randomUUID,
+        }),
+      );
+      try {
+        const origin = await instance.listen({ port: 0, host: '127.0.0.1' });
+        const inspected = await fetch(new URL(`/api/runs/${run.binding.runId}`, origin), {
+          headers: { authorization: `Bearer ${'s'.repeat(43)}` },
         });
-      await expect(request()).rejects.toThrow();
-      await expect(runs.findById(owner.ownerAid, run.binding.runId)).resolves.toMatchObject({
-        kind: 'RunFound',
-        run: {
-          version: 1,
-          lease: {
-            kind: 'Held',
-            incarnationId,
-            expiresAt: firstLeaseExpiry,
+        expect(inspected.status).toBe(200);
+        expect(await inspected.json()).toMatchObject({
+          budget: { ceiling: { runsPerAdmittedUser: quota } },
+        });
+        const request = () =>
+          fetch(new URL(path, origin), {
+            method: 'PUT',
+            headers: {
+              authorization: `Bearer ${'s'.repeat(43)}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ version: 1, expectedRunVersion: 0 }),
+          });
+        await expect(request()).rejects.toThrow();
+        await expect(runs.findById(owner.ownerAid, run.binding.runId)).resolves.toMatchObject({
+          kind: 'RunFound',
+          run: {
+            version: 1,
+            lease: {
+              kind: 'Held',
+              incarnationId,
+              expiresAt: firstLeaseExpiry,
+            },
           },
-        },
-      });
+        });
 
-      serverTime = new Date(firstLeaseAt + 1_000).toISOString();
-      const retried = await request();
-      expect(retried.status).toBe(200);
-      await expect(retried.json()).resolves.toMatchObject({
-        disposition: 'Reconciled',
-        runId: run.binding.runId,
-        incarnationId,
-        runVersion: 1,
-        serverTime,
-        expiresAt: firstLeaseExpiry,
-      });
-      await expect(database.collection(runsCollectionName).countDocuments({})).resolves.toBe(1);
-    } finally {
-      await instance.close();
-    }
-  }, 15_000);
+        serverTime = new Date(firstLeaseAt + 1_000).toISOString();
+        const retried = await request();
+        expect(retried.status).toBe(200);
+        await expect(retried.json()).resolves.toMatchObject({
+          disposition: 'Reconciled',
+          runId: run.binding.runId,
+          incarnationId,
+          runVersion: 1,
+          serverTime,
+          expiresAt: firstLeaseExpiry,
+        });
+        await expect(database.collection(runsCollectionName).countDocuments({})).resolves.toBe(1);
+      } finally {
+        await instance.close();
+      }
+    },
+    15_000,
+  );
 
   it('rejects a competing incarnation and requires a later resume after expiry', async () => {
     const harness = await admittedHarness();

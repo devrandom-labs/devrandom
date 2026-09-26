@@ -4,7 +4,7 @@ import { Saider } from 'signify-ts';
 import Type from 'typebox';
 import Value from 'typebox/value';
 
-import { taskBudgetsSchema } from '../task/task-command.js';
+import { runBudgetCeilingSchema } from '../run/budget-ceiling.js';
 import { runBudgetConsumptionSchema } from '../run/budget-consumption.js';
 import {
   calibrationExclusionReasonSchema,
@@ -376,7 +376,7 @@ const verifiedCheckpointBody = {
     { additionalProperties: false },
   ),
   budget: Type.Object(
-    { consumed: runBudgetConsumptionSchema, remaining: taskBudgetsSchema },
+    { consumed: runBudgetConsumptionSchema, remaining: runBudgetCeilingSchema },
     { additionalProperties: false },
   ),
   runState: checkpointRunStateSchema,

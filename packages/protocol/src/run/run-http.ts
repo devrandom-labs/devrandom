@@ -18,7 +18,8 @@ import {
   workAccessGrantRevokedProblemSchema,
   workAccessGrantScopeRejectedProblemSchema,
 } from '../work-access.js';
-import { preparedRepositorySchema, taskBudgetsSchema } from '../task/task-command.js';
+import { preparedRepositorySchema } from '../task/task-command.js';
+import { runBudgetCeilingSchema } from './budget-ceiling.js';
 import { runBudgetConsumptionSchema } from './budget-consumption.js';
 import {
   calibrationExclusionReasonSchema,
@@ -185,7 +186,7 @@ export const runProjectionSchema = Type.Object(
     admissionExchangeSaid: saidSchema,
     evidenceStreamId: uuidV4Schema,
     budget: Type.Object(
-      { ceiling: taskBudgetsSchema, consumed: runBudgetConsumptionSchema },
+      { ceiling: runBudgetCeilingSchema, consumed: runBudgetConsumptionSchema },
       { additionalProperties: false },
     ),
     lifecycle: runLifecycleSchema,
