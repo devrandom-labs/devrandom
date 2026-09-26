@@ -61,6 +61,7 @@ import { reconcileEvidenceSeal } from './evidence/application/reconcile-evidence
 import { HmacEvidenceTimelineCursor } from './evidence/infrastructure/hmac-evidence-timeline-cursor.js';
 import { issuerEvidenceSealExchanges } from './evidence/infrastructure/issuer-evidence-seal-exchanges.js';
 import { MongoEvidenceArtifacts } from './evidence/infrastructure/mongo-evidence-artifacts.js';
+import { MongoRunArtifactReading } from './evidence/infrastructure/mongo-run-artifact-reading.js';
 import { MongoEvidenceBatches } from './evidence/infrastructure/mongo-evidence-batches.js';
 import { MongoEvidenceBootstrap } from './evidence/infrastructure/mongo-evidence-bootstrap.js';
 import { MongoEvidenceRunContexts } from './evidence/infrastructure/mongo-evidence-run-contexts.js';
@@ -462,6 +463,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     };
     const evidenceRunContexts = new MongoEvidenceRunContexts(hostedDatabase);
     const evidenceArtifacts = new MongoEvidenceArtifacts(hostedWorkCandidate, hostedDatabase);
+    const runArtifactReading = new MongoRunArtifactReading(hostedDatabase);
     const evidenceBatches = new MongoEvidenceBatches(hostedWorkCandidate, hostedDatabase);
     const evidenceSealContexts = new MongoEvidenceSealContexts(hostedDatabase);
     const evidenceSeals = new MongoEvidenceSeals(hostedWorkCandidate, hostedDatabase);
@@ -474,6 +476,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       access: workAccessEvidenceAuthorizer(attempts),
       conversation: {
         admitArtifact: (input) => evidenceArtifacts.admit(input),
+        readArtifact: (input) => runArtifactReading.read(input),
         acceptBatch: (input) =>
           acceptEvidenceBatch(input, {
             contexts: evidenceRunContexts,

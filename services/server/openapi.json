@@ -35090,6 +35090,791 @@
       }
     },
     "/api/runs/{runId}/artifacts/{artifactSaid}": {
+      "get": {
+        "operationId": "readRunEvidenceArtifact",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "in": "path",
+            "name": "runId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "in": "path",
+            "name": "artifactSaid",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer [A-Za-z0-9_-]{43}$"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "in": "header",
+            "name": "range",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exact immutable Run artifact bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "contentMediaType": "application/octet-stream",
+                  "description": "Exact immutable Run artifact bytes"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Exact immutable Run artifact bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "contentMediaType": "application/octet-stream",
+                  "description": "Exact immutable Run artifact bytes"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["type", "title", "status", "code", "correlationId"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "https://devrandom.example/problems/evidence-capability-invalid"
+                        },
+                        "title": {
+                          "type": "string",
+                          "const": "Work Access capability is invalid"
+                        },
+                        "status": {
+                          "type": "number",
+                          "const": 401
+                        },
+                        "code": {
+                          "type": "string",
+                          "const": "EvidenceCapabilityInvalid"
+                        },
+                        "correlationId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["type", "title", "status", "code", "correlationId"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "https://devrandom.example/problems/work-access-grant-expired"
+                        },
+                        "title": {
+                          "type": "string",
+                          "const": "Work Access Grant expired"
+                        },
+                        "status": {
+                          "type": "number",
+                          "const": 401
+                        },
+                        "code": {
+                          "type": "string",
+                          "const": "WorkAccessGrantExpired"
+                        },
+                        "correlationId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["type", "title", "status", "code", "correlationId"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "https://devrandom.example/problems/work-access-grant-released"
+                        },
+                        "title": {
+                          "type": "string",
+                          "const": "Work Access Grant was released"
+                        },
+                        "status": {
+                          "type": "number",
+                          "const": 401
+                        },
+                        "code": {
+                          "type": "string",
+                          "const": "WorkAccessGrantReleased"
+                        },
+                        "correlationId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["type", "title", "status", "code", "correlationId", "reason"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "https://devrandom.example/problems/work-access-grant-revoked"
+                        },
+                        "title": {
+                          "type": "string",
+                          "const": "Work Access Grant was revoked"
+                        },
+                        "status": {
+                          "type": "number",
+                          "const": 403
+                        },
+                        "code": {
+                          "type": "string",
+                          "const": "WorkAccessGrantRevoked"
+                        },
+                        "correlationId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "SecurityIncident"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "correlationId",
+                        "requiredScope"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "https://devrandom.example/problems/work-access-grant-scope-rejected"
+                        },
+                        "title": {
+                          "type": "string",
+                          "const": "Work Access Grant scope was rejected"
+                        },
+                        "status": {
+                          "type": "number",
+                          "const": 403
+                        },
+                        "code": {
+                          "type": "string",
+                          "const": "WorkAccessGrantScopeRejected"
+                        },
+                        "correlationId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "requiredScope": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:renew"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evidence:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
+                            },
+                            {
+                              "type": "string",
+                              "const": "run:create"
+                            },
+                            {
+                              "type": "string",
+                              "const": "run:execute"
+                            },
+                            {
+                              "type": "string",
+                              "const": "run:prepare"
+                            },
+                            {
+                              "type": "string",
+                              "const": "run:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "task:create"
+                            },
+                            {
+                              "type": "string",
+                              "const": "task:read"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["type", "title", "status", "code", "correlationId"],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "https://devrandom.example/problems/evidence-run-not-found"
+                    },
+                    "title": {
+                      "type": "string",
+                      "const": "Evidence Run was not found"
+                    },
+                    "status": {
+                      "type": "number",
+                      "const": 404
+                    },
+                    "code": {
+                      "type": "string",
+                      "const": "EvidenceRunNotFound"
+                    },
+                    "correlationId": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": ["type", "title", "status", "code", "correlationId"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "https://devrandom.example/problems/work-access-grant-concurrent-update"
+                        },
+                        "title": {
+                          "type": "string",
+                          "const": "Work Access Grant changed concurrently"
+                        },
+                        "status": {
+                          "type": "number",
+                          "const": 409
+                        },
+                        "code": {
+                          "type": "string",
+                          "const": "WorkAccessGrantConcurrentUpdate"
+                        },
+                        "correlationId": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "correlationId",
+                            "reason"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "https://devrandom.example/problems/evidence-conflict"
+                            },
+                            "title": {
+                              "type": "string",
+                              "const": "Evidence delivery conflicts with the accepted stream"
+                            },
+                            "status": {
+                              "type": "number",
+                              "const": 409
+                            },
+                            "code": {
+                              "type": "string",
+                              "const": "EvidenceConflict"
+                            },
+                            "correlationId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "ArtifactConflict"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "correlationId",
+                            "reason"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "https://devrandom.example/problems/evidence-conflict"
+                            },
+                            "title": {
+                              "type": "string",
+                              "const": "Evidence delivery conflicts with the accepted stream"
+                            },
+                            "status": {
+                              "type": "number",
+                              "const": 409
+                            },
+                            "code": {
+                              "type": "string",
+                              "const": "EvidenceConflict"
+                            },
+                            "correlationId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "BatchConflict"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "correlationId",
+                            "reason"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "https://devrandom.example/problems/evidence-conflict"
+                            },
+                            "title": {
+                              "type": "string",
+                              "const": "Evidence delivery conflicts with the accepted stream"
+                            },
+                            "status": {
+                              "type": "number",
+                              "const": 409
+                            },
+                            "code": {
+                              "type": "string",
+                              "const": "EvidenceConflict"
+                            },
+                            "correlationId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "CheckpointConflict"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "correlationId",
+                            "reason"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "https://devrandom.example/problems/evidence-conflict"
+                            },
+                            "title": {
+                              "type": "string",
+                              "const": "Evidence delivery conflicts with the accepted stream"
+                            },
+                            "status": {
+                              "type": "number",
+                              "const": 409
+                            },
+                            "code": {
+                              "type": "string",
+                              "const": "EvidenceConflict"
+                            },
+                            "correlationId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "SealConflict"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "correlationId",
+                            "reason"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "https://devrandom.example/problems/evidence-conflict"
+                            },
+                            "title": {
+                              "type": "string",
+                              "const": "Evidence delivery conflicts with the accepted stream"
+                            },
+                            "status": {
+                              "type": "number",
+                              "const": 409
+                            },
+                            "code": {
+                              "type": "string",
+                              "const": "EvidenceConflict"
+                            },
+                            "correlationId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "CursorConcurrentUpdate"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "correlationId",
+                            "reason",
+                            "expectedStartingSequence",
+                            "receivedStartingSequence"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "https://devrandom.example/problems/evidence-conflict"
+                            },
+                            "title": {
+                              "type": "string",
+                              "const": "Evidence delivery conflicts with the accepted stream"
+                            },
+                            "status": {
+                              "type": "number",
+                              "const": 409
+                            },
+                            "code": {
+                              "type": "string",
+                              "const": "EvidenceConflict"
+                            },
+                            "correlationId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "SequenceGap"
+                            },
+                            "expectedStartingSequence": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "receivedStartingSequence": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "correlationId",
+                            "reason",
+                            "acceptedEventCount",
+                            "claimedEventCount"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "https://devrandom.example/problems/evidence-conflict"
+                            },
+                            "title": {
+                              "type": "string",
+                              "const": "Evidence delivery conflicts with the accepted stream"
+                            },
+                            "status": {
+                              "type": "number",
+                              "const": 409
+                            },
+                            "code": {
+                              "type": "string",
+                              "const": "EvidenceConflict"
+                            },
+                            "correlationId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                            },
+                            "reason": {
+                              "type": "string",
+                              "const": "SealCursorIncomplete"
+                            },
+                            "acceptedEventCount": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "claimedEventCount": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Default Response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["type", "title", "status", "code", "correlationId"],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "https://devrandom.example/problems/evidence-artifact-range-unsatisfiable"
+                    },
+                    "title": {
+                      "type": "string",
+                      "const": "Evidence artifact range is unsatisfiable"
+                    },
+                    "status": {
+                      "type": "number",
+                      "const": 416
+                    },
+                    "code": {
+                      "type": "string",
+                      "const": "EvidenceArtifactRangeUnsatisfiable"
+                    },
+                    "correlationId": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["type", "title", "status", "code", "correlationId"],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "https://devrandom.example/problems/work-access-grant-exhausted"
+                    },
+                    "title": {
+                      "type": "string",
+                      "const": "Work Access Grant request budget is exhausted"
+                    },
+                    "status": {
+                      "type": "number",
+                      "const": 429
+                    },
+                    "code": {
+                      "type": "string",
+                      "const": "WorkAccessGrantExhausted"
+                    },
+                    "correlationId": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["type", "title", "status", "code", "correlationId", "dependency"],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "https://devrandom.example/problems/evidence-unavailable"
+                    },
+                    "title": {
+                      "type": "string",
+                      "const": "Evidence dependency is unavailable"
+                    },
+                    "status": {
+                      "type": "number",
+                      "const": 503
+                    },
+                    "code": {
+                      "type": "string",
+                      "const": "EvidenceUnavailable"
+                    },
+                    "correlationId": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                    },
+                    "dependency": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "HostedMongoDB"
+                        },
+                        {
+                          "type": "string",
+                          "const": "Keria"
+                        },
+                        {
+                          "type": "string",
+                          "const": "Witness"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
       "put": {
         "operationId": "admitEvidenceArtifact",
         "requestBody": {

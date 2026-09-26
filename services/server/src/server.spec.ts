@@ -378,6 +378,7 @@ describe('Devrandom Server identity boundary', () => {
           },
           conversation: {
             admitArtifact: () => Promise.resolve(unavailable),
+            readArtifact: () => Promise.resolve({ kind: 'Unavailable' }),
             acceptBatch: () => Promise.resolve(unavailable),
             reconcileSeal: () => Promise.resolve(unavailable),
             inspectTimeline,

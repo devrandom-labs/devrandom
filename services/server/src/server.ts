@@ -160,6 +160,7 @@ function unavailableEvidenceRoutes(): EvidenceRoutesConfiguration {
     },
     conversation: {
       admitArtifact: () => Promise.resolve(unavailable),
+      readArtifact: () => Promise.resolve({ kind: 'Unavailable' }),
       acceptBatch: () => Promise.resolve(unavailable),
       reconcileSeal: () => Promise.resolve(unavailable),
       inspectTimeline: () => Promise.resolve(unavailable),

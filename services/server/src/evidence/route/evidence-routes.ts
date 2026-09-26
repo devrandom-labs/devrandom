@@ -3,11 +3,15 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import {
   appendEvidenceBatchBodySchema,
   decodeEvidenceArtifactUpload,
+  decodeEvidenceArtifactReadRange,
   evidenceArtifactAcknowledgementSchema,
   evidenceArtifactBodyByteLimit,
   evidenceArtifactMetadataHeadersSchema,
   evidenceArtifactParametersSchema,
+  evidenceArtifactReadRangeHeadersSchema,
+  evidenceArtifactRangeUnsatisfiableProblemSchema,
   evidenceArtifactRawBodySchema,
+  evidenceArtifactReadResponseSchema,
   evidenceBatchAcknowledgementSchema,
   evidenceBatchParametersSchema,
   evidenceCapabilityInvalidProblemSchema,
@@ -53,6 +57,7 @@ import type {
   ReconcileEvidenceSealInput,
   ReconcileEvidenceSealOutcome,
 } from '../application/reconcile-evidence-seal.js';
+import type { RunArtifactReading } from '../application/read-run-artifact.js';
 
 type EvidenceScope = Extract<WorkAccessScope, 'evidence:append' | 'evidence:seal' | 'run:read'>;
 
@@ -77,6 +82,9 @@ export interface EvidenceAccessAuthorizer {
 
 export interface EvidenceConversation {
   admitArtifact(input: EvidenceArtifactAdmissionInput): Promise<EvidenceArtifactAdmission>;
+  readArtifact(
+    input: Parameters<RunArtifactReading['read']>[0],
+  ): ReturnType<RunArtifactReading['read']>;
   acceptBatch(input: EvidenceBatchCommandInput): Promise<AcceptEvidenceBatchOutcome>;
   reconcileSeal(input: ReconcileEvidenceSealInput): Promise<ReconcileEvidenceSealOutcome>;
   inspectTimeline(input: InspectEvidenceTimelineInput): Promise<InspectEvidenceTimelineOutcome>;
@@ -460,6 +468,85 @@ function artifactRoutes(configuration: EvidenceRoutesConfiguration): FastifyPlug
       { parseAs: 'buffer' },
       (_request, body, next) => {
         next(null, body);
+      },
+    );
+    server.get(
+      '/api/runs/:runId/artifacts/:artifactSaid',
+      {
+        schema: {
+          operationId: 'readRunEvidenceArtifact',
+          produces: ['application/octet-stream'],
+          headers: Type.Intersect([
+            workAccessAuthorizationHeadersSchema,
+            evidenceArtifactReadRangeHeadersSchema,
+          ]),
+          params: evidenceArtifactParametersSchema,
+          response: {
+            ...authorizationResponses,
+            200: evidenceArtifactReadResponseSchema,
+            206: evidenceArtifactReadResponseSchema,
+            404: evidenceRunNotFoundProblemSchema,
+            416: evidenceArtifactRangeUnsatisfiableProblemSchema,
+            503: evidenceUnavailableProblemSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const ownerAid = await authorize(
+          reply,
+          request.headers.authorization,
+          'run:read',
+          configuration,
+        );
+        if (ownerAid === undefined) return;
+        const outcome = await configuration.conversation.readArtifact({
+          ownerAid,
+          runId: request.params.runId,
+          artifactSaid: request.params.artifactSaid,
+        });
+        if (outcome.kind === 'Unavailable') {
+          await sendUnavailable(reply, 'HostedMongoDB', configuration.newCorrelationId());
+          return;
+        }
+        if (outcome.kind === 'NotFound') {
+          await sendProblem(
+            reply,
+            evidenceProblem('EvidenceRunNotFound', configuration.newCorrelationId()),
+          );
+          return;
+        }
+        const range = decodeEvidenceArtifactReadRange(
+          request.headers.range,
+          outcome.bytes.byteLength,
+        );
+        if (range.kind === 'Unsatisfiable') {
+          reply.header('content-range', `bytes */${String(outcome.bytes.byteLength)}`);
+          await reply.code(416).type('application/problem+json').send({
+            type: 'https://devrandom.example/problems/evidence-artifact-range-unsatisfiable',
+            title: 'Evidence artifact range is unsatisfiable',
+            status: 416,
+            code: 'EvidenceArtifactRangeUnsatisfiable',
+            correlationId: configuration.newCorrelationId(),
+          });
+          return;
+        }
+        const bytes =
+          range.kind === 'Full' ? outcome.bytes : outcome.bytes.slice(range.start, range.end + 1);
+        reply.header('x-content-type-options', 'nosniff');
+        reply.header('accept-ranges', 'bytes');
+        reply.header('etag', `"${outcome.artifact.d}"`);
+        reply.header('x-devrandom-artifact-media-type', outcome.artifact.mediaType);
+        reply.header('content-disposition', `attachment; filename="${outcome.artifact.d}.bin"`);
+        if (range.kind === 'Range') {
+          reply.header(
+            'content-range',
+            `bytes ${String(range.start)}-${String(range.end)}/${String(outcome.bytes.byteLength)}`,
+          );
+        }
+        await reply
+          .code(range.kind === 'Range' ? 206 : 200)
+          .type('application/octet-stream')
+          .send(Buffer.from(bytes));
       },
     );
     server.put(

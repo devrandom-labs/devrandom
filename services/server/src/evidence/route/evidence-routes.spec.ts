@@ -157,6 +157,7 @@ function configuration(
 function conversation(): EvidenceRoutesConfiguration['conversation'] {
   return {
     admitArtifact: vi.fn().mockResolvedValue({ kind: 'EvidenceRunNotFound' }),
+    readArtifact: vi.fn().mockResolvedValue({ kind: 'NotFound' }),
     acceptBatch: vi.fn().mockResolvedValue({ kind: 'EvidenceRunNotFound' }),
     reconcileSeal: vi.fn().mockResolvedValue({ kind: 'EvidenceRunNotFound' }),
     inspectTimeline: vi.fn().mockResolvedValue({ kind: 'EvidenceRunNotFound' }),
@@ -164,6 +165,93 @@ function conversation(): EvidenceRoutesConfiguration['conversation'] {
 }
 
 describe('Evidence HTTP routes', () => {
+  it('returns exact Run artifact bytes through the owner-authorized public read route', async () => {
+    const bytes = new TextEncoder().encode('retained raw receipt');
+    const prepared = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
+    if (prepared.kind !== 'Prepared') throw new Error('artifact fixture failed');
+    const server = Fastify().withTypeProvider<TypeBoxTypeProvider>();
+    await server.register(
+      evidenceRoutes(
+        configuration({
+          ...conversation(),
+          readArtifact: vi.fn().mockResolvedValue({
+            kind: 'Read',
+            artifact: prepared.artifact,
+            bytes,
+          }),
+        }),
+      ),
+    );
+
+    const response = await server.inject({
+      method: 'GET',
+      url: `/api/runs/${runId}/artifacts/${prepared.artifact.d}`,
+      headers: { authorization: `Bearer ${bearer}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.rawPayload).toEqual(Buffer.from(bytes));
+    expect(response.headers['content-type']).toBe('application/octet-stream');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['etag']).toBe(`"${prepared.artifact.d}"`);
+    await server.close();
+  });
+
+  it('returns deterministic bounded ranges and hides bytes after scope denial', async () => {
+    const bytes = new TextEncoder().encode('0123456789');
+    const prepared = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
+    if (prepared.kind !== 'Prepared') throw new Error('artifact fixture failed');
+    const readArtifact = vi.fn().mockResolvedValue({
+      kind: 'Read',
+      artifact: prepared.artifact,
+      bytes,
+    });
+    const access = vi.fn().mockResolvedValue({ kind: 'EvidenceAccessAuthorized', ownerAid });
+    const server = Fastify().withTypeProvider<TypeBoxTypeProvider>();
+    await server.register(
+      evidenceRoutes({
+        ...configuration({ ...conversation(), readArtifact }),
+        access: { authorize: access },
+      }),
+    );
+    const url = `/api/runs/${runId}/artifacts/${prepared.artifact.d}`;
+    const headers = { authorization: `Bearer ${bearer}`, range: 'bytes=2-5' };
+
+    const first = await server.inject({ method: 'GET', url, headers });
+    const retry = await server.inject({ method: 'GET', url, headers });
+    expect(first.statusCode).toBe(206);
+    expect(first.rawPayload).toEqual(Buffer.from('2345'));
+    expect(first.headers['content-range']).toBe('bytes 2-5/10');
+    expect(retry.rawPayload).toEqual(first.rawPayload);
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ scope: 'run:read' }));
+    expect(readArtifact).toHaveBeenCalledWith({
+      ownerAid,
+      runId,
+      artifactSaid: prepared.artifact.d,
+    });
+
+    const invalid = await server.inject({
+      method: 'GET',
+      url,
+      headers: { ...headers, range: 'bytes=0-70000' },
+    });
+    expect(invalid.statusCode).toBe(416);
+    expect(invalid.headers['content-range']).toBe('bytes */10');
+    expect(invalid.payload).not.toContain('0123456789');
+
+    access.mockResolvedValue({ kind: 'EvidenceAccessScopeRejected' });
+    readArtifact.mockClear();
+    const denied = await server.inject({ method: 'GET', url, headers });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({
+      code: 'WorkAccessGrantScopeRejected',
+      requiredScope: 'run:read',
+    });
+    expect(readArtifact).not.toHaveBeenCalled();
+    await server.close();
+  });
+
   it.each([
     'application/octet-stream',
     'application/json',

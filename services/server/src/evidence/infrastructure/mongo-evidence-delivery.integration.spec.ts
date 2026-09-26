@@ -456,6 +456,7 @@ describeMongo('Mongo evidence delivery transaction', () => {
             },
             conversation: {
               admitArtifact: (input) => artifacts.admit(input),
+              readArtifact: () => Promise.resolve({ kind: 'NotFound' }),
               acceptBatch: (input) =>
                 acceptEvidenceBatch(input, {
                   contexts: new MongoEvidenceRunContexts(database),
@@ -612,6 +613,7 @@ describeMongo('Mongo evidence delivery transaction', () => {
             access: workAccessEvidenceAuthorizer(attempts),
             conversation: {
               admitArtifact: (input) => artifacts.admit(input),
+              readArtifact: () => Promise.resolve({ kind: 'NotFound' }),
               acceptBatch: (input) =>
                 acceptEvidenceBatch(input, {
                   contexts: new MongoEvidenceRunContexts(database),
@@ -1114,6 +1116,7 @@ describeMongo('Mongo evidence delivery transaction', () => {
         },
         conversation: {
           admitArtifact: () => Promise.resolve({ kind: 'EvidenceRunNotFound' }),
+          readArtifact: () => Promise.resolve({ kind: 'NotFound' }),
           acceptBatch: (input) =>
             acceptEvidenceBatch(input, {
               contexts: new MongoEvidenceRunContexts(database),

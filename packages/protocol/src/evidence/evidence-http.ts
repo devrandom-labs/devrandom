@@ -53,6 +53,59 @@ export const evidenceArtifactRawBodySchema = Type.Unknown({
 
 export const evidenceArtifactBodyByteLimit = 512 * 1_024;
 
+/** A ranged raw read is deliberately smaller than the immutable upload ceiling. */
+export const evidenceArtifactReadMaximumRangeBytes = 64 * 1_024;
+
+export const evidenceArtifactReadRangeHeadersSchema = Type.Object(
+  { range: Type.Optional(Type.String({ maxLength: 128 })) },
+  { additionalProperties: true },
+);
+
+export type EvidenceArtifactReadRange =
+  | { readonly kind: 'Full' }
+  | { readonly kind: 'Range'; readonly start: number; readonly end: number }
+  | { readonly kind: 'Unsatisfiable' };
+
+export function decodeEvidenceArtifactReadRange(
+  header: unknown,
+  totalBytes: number,
+): EvidenceArtifactReadRange {
+  if (header === undefined) return { kind: 'Full' };
+  if (!Number.isSafeInteger(totalBytes) || totalBytes < 0 || typeof header !== 'string')
+    return { kind: 'Unsatisfiable' };
+  const match = /^bytes=(0|[1-9][0-9]*)-(0|[1-9][0-9]*)$/.exec(header);
+  if (match === null) return { kind: 'Unsatisfiable' };
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    end < start ||
+    end >= totalBytes ||
+    end - start + 1 > evidenceArtifactReadMaximumRangeBytes
+  )
+    return { kind: 'Unsatisfiable' };
+  return { kind: 'Range', start, end };
+}
+
+export const evidenceArtifactReadResponseSchema = Type.Unsafe<Uint8Array>({
+  type: 'string',
+  format: 'binary',
+  contentMediaType: 'application/octet-stream',
+  description: 'Exact immutable Run artifact bytes',
+});
+
+export const evidenceArtifactRangeUnsatisfiableProblemSchema = Type.Object(
+  {
+    type: Type.Literal('https://devrandom.example/problems/evidence-artifact-range-unsatisfiable'),
+    title: Type.Literal('Evidence artifact range is unsatisfiable'),
+    status: Type.Literal(416),
+    code: Type.Literal('EvidenceArtifactRangeUnsatisfiable'),
+    correlationId: uuidV4Schema,
+  },
+  { additionalProperties: false },
+);
+
 export type EvidenceArtifactUploadDecoding =
   | {
       readonly kind: 'Accepted';

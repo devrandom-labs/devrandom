@@ -9,6 +9,7 @@ import {
   decodeAppendEvidenceBatchCommand,
   decodeAppendEvidenceBatchBody,
   decodeEvidenceArtifactUpload,
+  decodeEvidenceArtifactReadRange,
   decodeEvidenceTimelinePage,
   decodeEvidenceStreamProjection,
   evidenceBatchCommandFingerprint,
@@ -46,6 +47,28 @@ function event() {
 }
 
 describe('evidence HTTP protocol', () => {
+  it('accepts only explicit bounded byte ranges over the exact artifact length', () => {
+    expect(decodeEvidenceArtifactReadRange(undefined, 100_000)).toEqual({ kind: 'Full' });
+    expect(decodeEvidenceArtifactReadRange('bytes=0-65535', 100_000)).toEqual({
+      kind: 'Range',
+      start: 0,
+      end: 65_535,
+    });
+    for (const range of [
+      'bytes=0-65536',
+      'bytes=3-2',
+      'bytes=0-100000',
+      'bytes=0-',
+      'bytes=-500',
+      'bytes=0-1,4-5',
+      'bytes=9007199254740992-9007199254740993',
+    ]) {
+      expect(decodeEvidenceArtifactReadRange(range, 100_000)).toEqual({
+        kind: 'Unsatisfiable',
+      });
+    }
+  });
+
   it('recomputes artifact identity from raw bytes and the declared media type', () => {
     const bytes = new TextEncoder().encode('bounded command output\n');
     const prepared = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
