@@ -31,6 +31,7 @@ export * from './harness/successor-revision.js';
 export * from './mandate/mandate-credential.js';
 export * from './mandate/mandate-http.js';
 export * from './promotion/activation-command.js';
+export * from './promotion/active-pointer.js';
 export * from './promotion/activation-receipt.js';
 export * from './promotion/promotion-exchange.js';
 export * from './promotion/selection-record.js';
