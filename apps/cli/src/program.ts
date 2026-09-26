@@ -9,6 +9,8 @@ import type { UserIdentityOutcome } from './identity/application/user-identity.j
 import type { TaskCreation, TaskInspection, TaskListing } from './task/application/user-tasks.js';
 import type { TaskRunExecutionOutcome } from './task/application/task-run-execution.js';
 import type { WorkAccessAcquisition } from './work-access/application/work-access-acquisition.js';
+import type { LocalEvidenceInspection } from './evidence/composition/local-evidence-inspection.js';
+import type { proposeLocalHarness } from './promotion/composition/local-harness-proposal.js';
 import type { LocalHarnessEvaluation } from './harness/composition/local-harness-evaluation.js';
 import type { HarnessEvaluationOutcome } from './harness/application/harness-evaluation.js';
 import type { CesrManifestLockOutcome } from './harness/application/lock-cesr-comparison-manifest.js';
@@ -47,15 +49,17 @@ export interface UserIdentityCommands {
 }
 
 export interface TaskCommands {
+  releaseWorkAccess(): Promise<'Released' | 'Unavailable'>;
+
   resume(
     label: string,
-    runId: string,
+    runId: string | undefined,
     pauseAfterCheckpoint: boolean,
     signal: AbortSignal,
   ): Promise<SupervisedTaskResumption | { readonly kind: 'Blocked'; readonly gate: string }>;
   verify(
     label: string,
-    runId: string,
+    runId: string | undefined,
     signal: AbortSignal,
   ): ReturnType<TaskTerminalVerificationComposition['verify']>;
 
@@ -69,7 +73,14 @@ export interface TaskCommands {
 
 export interface DevrandomCommands extends UserIdentityCommands {
   readonly tasks: TaskCommands;
+  inspectEvidence(artifactSaid: string, signal: AbortSignal): Promise<LocalEvidenceInspection>;
   readonly harness: {
+    inspect(harnessSaid: string): Promise<LocalEvidenceInspection>;
+    propose(
+      label: string,
+      path: string,
+      signal: AbortSignal,
+    ): ReturnType<typeof proposeLocalHarness>;
     publish(
       label: string,
       evaluationId: string,
@@ -207,13 +218,13 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
     .command('resume')
     .description('Continue the same Run from verified durable evidence under committed H2')
     .argument('<label>')
-    .requiredOption('--run <id>', 'the original retained Run ID')
+    .option('--run <id>', 'the original retained Run ID; defaults to the latest accepted Run')
     .option(
       '--pause-after-checkpoint',
       'seal the first changed checkpoint and await external termination',
       false,
     )
-    .action(async (label: string, options: { run: string; pauseAfterCheckpoint: boolean }) => {
+    .action(async (label: string, options: { run?: string; pauseAfterCheckpoint: boolean }) => {
       const interruption = cliProcess.watchInterruption();
       try {
         const outcome = await commands.tasks.resume(
@@ -229,6 +240,9 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
           cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
           return;
         }
+        cliProcess.write(
+          `Continuation context: ${String(outcome.context.includedEventSaids.length)} included events; ${String(outcome.context.addressableEventSaids.length)} addressable events; ${String(outcome.context.addressableArtifactSaids.length)} addressable artifacts.\n`,
+        );
         const supervision = outcome.supervision;
         if (supervision.kind === 'SupervisorIntegrityFailure') {
           cliProcess.writeError('Run supervision: SupervisorIntegrityFailure.\n');
@@ -249,6 +263,12 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
           supervision.run.lifecycle.phase.kind === 'Blocked' &&
           supervision.run.lifecycle.phase.reason === 'CheckpointPause';
         if (paused && options.pauseAfterCheckpoint) {
+          if ((await commands.tasks.releaseWorkAccess()) !== 'Released') {
+            cliProcess.writeError('Checkpoint is sealed, but Work Access release is uncertain.\n');
+            cliProcess.setExitCode(5);
+            return;
+          }
+          cliProcess.write(`CLI PID: ${String(process.pid)}\nWork Access grants released.\n`);
           cliProcess.write(
             'Checkpoint sealed. Awaiting external termination for same-Run recovery.\n',
           );
@@ -279,8 +299,8 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
     .command('verify')
     .description('Verify the accepted immutable final source and original TerminalCase receipt')
     .argument('<label>')
-    .requiredOption('--run <id>', 'the original completed Run ID')
-    .action(async (label: string, options: { run: string }) => {
+    .option('--run <id>', 'the original completed Run ID; defaults to the latest accepted Run')
+    .action(async (label: string, options: { run?: string }) => {
       const interruption = cliProcess.watchInterruption();
       try {
         const outcome = await commands.tasks.verify(label, options.run, interruption.signal);
@@ -316,7 +336,61 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
       }
     });
 
+  program
+    .command('evidence')
+    .description('Inspect exact public or local accepted evidence')
+    .command('inspect')
+    .argument('<artifact-said>')
+    .action(async (artifactSaid: string) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.inspectEvidence(artifactSaid, interruption.signal);
+        if (outcome.kind === 'Inspected')
+          cliProcess.write(JSON.stringify(outcome.document, null, 2) + '\n');
+        else {
+          cliProcess.writeError(`Evidence inspection: ${outcome.kind}.\n`);
+          cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
+        }
+      } finally {
+        interruption.release();
+      }
+    });
   const harness = program.command('harness').description('Inspect and evaluate harness revisions');
+  harness
+    .command('inspect')
+    .description('Inspect one exact locally retained harness revision')
+    .argument('<harness-said>')
+    .action(async (harnessSaid: string) => {
+      const outcome = await commands.harness.inspect(harnessSaid);
+      if (outcome.kind === 'Inspected')
+        cliProcess.write(JSON.stringify(outcome.document, null, 2) + '\n');
+      else {
+        cliProcess.writeError(`Harness inspection: ${outcome.kind}.\n`);
+        cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
+      }
+    });
+  harness
+    .command('propose')
+    .description('Record an operator-injected authority proposal under current mandate law')
+    .argument('<label>')
+    .argument('<file>')
+    .action(async (label: string, path: string) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.harness.propose(label, path, interruption.signal);
+        if (outcome.kind === 'Blocked') {
+          cliProcess.writeError(`Harness proposal blocked: ${outcome.gate}.\n`);
+          cliProcess.setExitCode(6);
+        } else {
+          cliProcess.write(
+            `Proposal attribution: ${outcome.attribution}\nPersonal-agent AID: ${outcome.personalAgentAid}\nProposal: ${outcome.proposalArtifactSaid}\nReceipt: ${outcome.receiptArtifactSaid}\nActive revision: ${outcome.activeRevisionSaid}\nDisposition: ${outcome.kind}${outcome.kind === 'Denied' ? ` (${outcome.reason})` : ''}\n`,
+          );
+          cliProcess.setExitCode(outcome.kind === 'Denied' ? 6 : 0);
+        }
+      } finally {
+        interruption.release();
+      }
+    });
   harness
     .command('publish')
     .description('Publish sanitized behavior from the committed winning revision')
@@ -608,9 +682,7 @@ function renderHarnessEvaluation(
         destination: 'stderr',
         exitCode: 6,
         text:
-          outcome.gate === 'ProtectedCases' &&
-          'evaluationId' in outcome &&
-          outcome.evaluationId !== undefined
+          outcome.gate === 'ProtectedCases' && 'evaluationId' in outcome
             ? `Evaluation ${outcome.evaluationId} admitted; protected cases and M are not locked. No trial started.`
             : `Evaluation blocked: ${outcome.gate}.`,
       };

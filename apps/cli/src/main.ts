@@ -14,6 +14,11 @@ import { GitHarnessInspection } from './harness/infrastructure/git-harness-inspe
 import { DockerCargoExecutionInventory } from './harness/infrastructure/docker-cargo-execution-inventory.js';
 import { HostHarnessExecutionInventory } from './harness/infrastructure/host-harness-execution-inventory.js';
 import { EnvironmentPiModelInspection } from './harness/infrastructure/model-profile-environment.js';
+import {
+  inspectLocalHarness,
+  inspectLocalEvidence,
+} from './evidence/composition/local-evidence-inspection.js';
+import { proposeLocalHarness } from './promotion/composition/local-harness-proposal.js';
 import { evaluateLocalHarness } from './harness/composition/local-harness-evaluation.js';
 import { reconcileStagedCesrManifest } from './harness/application/lock-cesr-comparison-manifest.js';
 import { EvaluationManifestCommandFile } from './harness/infrastructure/evaluation-manifest-command-file.js';
@@ -490,7 +495,22 @@ const commands: DevrandomCommands = {
   initialize: (presentation) => identityApplication(presentation).initialize(),
   whoami: () => identityApplication('PrintBrowserUrl').whoami(),
   rotate: () => identityApplication('PrintBrowserUrl').rotate(),
+  inspectEvidence: async (artifactSaid, signal) => {
+    const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+    const hosted = await currentTaskAuthority().acquireHostedWork();
+    if (hosted.kind !== 'Authorized') return { kind: 'Unavailable' };
+    return inspectLocalEvidence({
+      stateRoot: configuration.stateDirectory,
+      artifactSaid,
+      hosted,
+      signal,
+    });
+  },
   tasks: {
+    releaseWorkAccess: async () =>
+      (await currentTaskAuthority().releaseHeldGrants()).kind === 'Released'
+        ? 'Released'
+        : 'Unavailable',
     resume: async (label, runId, pauseAfterCheckpoint, signal) => {
       const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
       const bundlePath = process.env.DEVRANDOM_LINUX_H1_BUNDLE;
@@ -500,6 +520,13 @@ const commands: DevrandomCommands = {
       if (hosted.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
       const inspected = await hosted.tasks.inspect(label);
       if (inspected.kind !== 'Inspected') return { kind: 'Blocked', gate: 'Task' };
+      if (runId === undefined) {
+        const located = await new RunAdmissionFile(
+          join(configuration.stateDirectory, 'run-admissions'),
+        ).locateAcceptedRun(inspected.task.taskId);
+        if (located.kind !== 'Located') return { kind: 'Blocked', gate: 'Run' };
+        runId = located.admission.run.runId;
+      }
       return resumeLocalTask({
         stateRoot: configuration.stateDirectory,
         issuerAid: configuration.issuerAid,
@@ -518,6 +545,13 @@ const commands: DevrandomCommands = {
       if (hosted.kind !== 'Authorized') return { kind: 'Unavailable' };
       const inspected = await hosted.tasks.inspect(label);
       if (inspected.kind !== 'Inspected') return { kind: 'Rejected' };
+      if (runId === undefined) {
+        const located = await new RunAdmissionFile(
+          join(configuration.stateDirectory, 'run-admissions'),
+        ).locateAcceptedRun(inspected.task.taskId);
+        if (located.kind !== 'Located') return { kind: 'Rejected' };
+        runId = located.admission.run.runId;
+      }
       return new TaskTerminalVerificationComposition(configuration.stateDirectory).verify(
         {
           ownerAid: hosted.user.principal.aid,
@@ -538,6 +572,26 @@ const commands: DevrandomCommands = {
     watch: (label, signal) => taskRunObservations().watch(label, signal),
   },
   harness: {
+    inspect: async (harnessSaid) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      return inspectLocalHarness(configuration.stateDirectory, harnessSaid);
+    },
+    propose: async (label, path, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const hosted = await currentTaskAuthority().acquireHostedWork();
+      if (hosted.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
+      const inspected = await hosted.tasks.inspect(label);
+      if (inspected.kind !== 'Inspected') return { kind: 'Blocked', gate: 'Task' };
+      return proposeLocalHarness({
+        stateRoot: configuration.stateDirectory,
+        issuerAid: configuration.issuerAid,
+        hosted,
+        local: currentLocalMandates(),
+        task: inspected.task,
+        path,
+        signal,
+      });
+    },
     publish: async (label, evaluationId, commandId, signal) => {
       const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
       const hosted = await currentTaskAuthority().acquireHostedWork();

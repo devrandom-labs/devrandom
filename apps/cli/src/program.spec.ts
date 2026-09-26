@@ -53,7 +53,9 @@ function commandFixture(): {
         invocations.push('rotate');
         return Promise.resolve(recovery);
       },
+      inspectEvidence: () => Promise.resolve({ kind: 'NotFound' }),
       tasks: {
+        releaseWorkAccess: () => Promise.resolve('Released'),
         resume: () => Promise.resolve({ kind: 'Blocked', gate: 'Custody' }),
         verify: () => Promise.resolve({ kind: 'Rejected' }),
         create: (path) => {
@@ -116,6 +118,8 @@ function commandFixture(): {
         },
       },
       harness: {
+        inspect: () => Promise.resolve({ kind: 'NotFound' }),
+        propose: () => Promise.resolve({ kind: 'Blocked', gate: 'Authority' }),
         publish: () => Promise.resolve({ kind: 'Rejected' }),
         fetch: () => Promise.resolve({ kind: 'Rejected' }),
         fork: () => Promise.resolve({ kind: 'Rejected' }),
@@ -173,11 +177,77 @@ describe('devrandom command', () => {
     const harnessCommands = program.commands
       .find((command) => command.name() === 'harness')
       ?.commands.map((command) => command.name());
-    expect(harnessCommands).toEqual(expect.arrayContaining(['publish', 'fetch', 'fork']));
+    expect(harnessCommands).toEqual(
+      expect.arrayContaining(['publish', 'fetch', 'fork', 'inspect', 'propose']),
+    );
     const taskCommands = program.commands
       .find((command) => command.name() === 'task')
       ?.commands.map((command) => command.name());
     expect(taskCommands).toEqual(expect.arrayContaining(['resume', 'verify']));
+  });
+
+  it('releases Work Access before exposing a paused process for termination', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const decoded = decodeRunProjection(runProjectionFixture());
+    if (decoded.kind !== 'Accepted') throw new Error('run fixture');
+    const controller = new AbortController();
+    const order: string[] = [];
+    const resume: DevrandomCommands['tasks']['resume'] = () =>
+      Promise.resolve({
+        kind: 'RunSupervised',
+        context: {
+          text: 'Verified checkpoint fixture',
+          sourceEventSaids: [],
+          includedEventSaids: [],
+          addressableEventSaids: [],
+          addressableArtifactSaids: [],
+        },
+        supervision: {
+          kind: 'Stopped',
+          run: {
+            ...decoded.run,
+            lifecycle: {
+              kind: 'Active',
+              phase: {
+                kind: 'Blocked',
+                reason: 'CheckpointPause',
+                checkpointSaid: `E${'a'.repeat(43)}`,
+              },
+            },
+          },
+          cause: { kind: 'UserInterrupted' },
+          latestHostedRunVersion: decoded.run.version,
+        },
+      });
+    const process = {
+      ...runtime.process,
+      watchInterruption: () => ({ signal: controller.signal, release: () => {} }),
+      write: (text: string) => {
+        if (text.includes('CLI PID:')) {
+          order.push('PID');
+          controller.abort();
+        }
+        runtime.process.write(text);
+      },
+    };
+    const releaseWorkAccess = () => {
+      order.push('Release');
+      return Promise.resolve('Released' as const);
+    };
+    await createProgram(
+      { ...commands, tasks: { ...commands.tasks, resume, releaseWorkAccess } },
+      process,
+    ).parseAsync([
+      'node',
+      'devrandom',
+      'task',
+      'resume',
+      'cesr-compat',
+      '--pause-after-checkpoint',
+    ]);
+    expect(order).toEqual(['Release', 'PID']);
+    expect(runtime.output.join('')).toContain('Work Access grants released.');
   });
 
   it('routes same-Run recovery and rejects an unproved terminal verification', async () => {
@@ -1077,6 +1147,8 @@ describe('devrandom command', () => {
       rotate: () => Promise.resolve(proofRejected),
       tasks: commandFixture().commands.tasks,
       harness: commandFixture().commands.harness,
+      inspectEvidence: (artifactSaid, signal) =>
+        commandFixture().commands.inspectEvidence(artifactSaid, signal),
     };
     const runtime = processFixture();
 

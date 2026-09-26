@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
-import { chmod, lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { join } from 'node:path';
 
@@ -77,6 +77,33 @@ export class BaselineHarnessAdmissionFile implements BaselineHarnessAdmissions {
         : { kind: 'NotAccepted' };
     } catch {
       return { kind: 'Unavailable' };
+    }
+  }
+
+  async inspectRevision(
+    harnessSaid: string,
+  ): Promise<
+    | { kind: 'Read'; projection: Type.Static<typeof baselineHarnessProjectionSchema> }
+    | { kind: 'NotFound' | 'Unavailable' }
+  > {
+    if (!Value.Check(saidSchema, harnessSaid)) return { kind: 'NotFound' };
+    try {
+      const entries = await readdir(this.#directory);
+      if (entries.length > 1024) return { kind: 'Unavailable' };
+      for (const entry of entries) {
+        if (!entry.endsWith('.json')) continue;
+        const taskId = entry.slice(0, -5);
+        if (!Value.Check(uuidV4Schema, taskId)) continue;
+        const admission = await this.#read(taskId);
+        if (
+          admission?.disposition.kind === 'Accepted' &&
+          admission.binding.harnessSaid === harnessSaid
+        )
+          return { kind: 'Read', projection: admission.disposition.projection };
+      }
+      return { kind: 'NotFound' };
+    } catch (cause) {
+      return { kind: isAbsent(cause) ? 'NotFound' : 'Unavailable' };
     }
   }
 

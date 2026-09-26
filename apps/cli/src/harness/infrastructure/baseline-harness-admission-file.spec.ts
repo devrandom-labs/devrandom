@@ -60,6 +60,11 @@ describe('baseline Harness admission file', () => {
     await expect(new BaselineHarnessAdmissionFile(directory).acquire(binding)).resolves.toEqual(
       first,
     );
+    expect(typeof file.inspectRevision).toBe('function');
+    await expect(file.inspectRevision(binding.harnessSaid)).resolves.toEqual({
+      kind: 'Read',
+      projection,
+    });
     const path = join(directory, `${binding.taskId}.json`);
     expect((await lstat(path)).mode & 0o777).toBe(0o600);
     expect((await lstat(directory)).mode & 0o777).toBe(0o700);
