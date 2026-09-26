@@ -24,6 +24,7 @@ import { ServerMandatePresentationHttp } from '../../mandate/infrastructure/serv
 import { ServerRunHttp } from '../../run/infrastructure/server-run-http.js';
 import { ServerEvidenceHttp } from '../../run/infrastructure/server-evidence-http.js';
 import { ServerTaskHttp } from '../../task/infrastructure/server-task-http.js';
+import { ServerEvaluationHttp } from '../../harness/infrastructure/server-evaluation-http.js';
 
 export type WorkAccessHttpError =
   | { readonly kind: 'server-url-invalid' }
@@ -224,6 +225,7 @@ export class ServerWorkAccessHttp {
       new ServerHarnessHttp(this.#serverOrigin, this.#bearer, this.#fetch),
       new ServerRunHttp(this.#serverOrigin, this.#bearer, this.#fetch),
       new ServerEvidenceHttp(this.#serverOrigin, this.#bearer, this.#fetch),
+      new ServerEvaluationHttp(this.#serverOrigin, this.#bearer, this.#fetch),
       grant,
       this.#protectedCredentials,
     );
@@ -292,6 +294,7 @@ export class GrantedServerWorkHttp {
   readonly #harnesses: ServerHarnessHttp;
   readonly #runs: ServerRunHttp;
   readonly #evidence: ServerEvidenceHttp;
+  readonly #evaluations: ServerEvaluationHttp;
   readonly grant: GrantedWorkAccess;
   readonly protectedCredentials: ProtectedCredentials;
 
@@ -302,6 +305,7 @@ export class GrantedServerWorkHttp {
     harnesses: ServerHarnessHttp,
     runs: ServerRunHttp,
     evidence: ServerEvidenceHttp,
+    evaluations: ServerEvaluationHttp,
     grant: GrantedWorkAccessProjection,
     protectedCredentials: ProtectedCredentials,
   ) {
@@ -312,6 +316,7 @@ export class GrantedServerWorkHttp {
     this.#harnesses = harnesses;
     this.#runs = runs;
     this.#evidence = evidence;
+    this.#evaluations = evaluations;
     const retained = {
       ...grant,
       scopes: [...grant.scopes],
@@ -348,6 +353,10 @@ export class GrantedServerWorkHttp {
 
   evidence(): ServerEvidenceHttp {
     return this.#evidence;
+  }
+
+  evaluations(): ServerEvaluationHttp {
+    return this.#evaluations;
   }
 }
 

@@ -12,6 +12,11 @@ import { BaselineHarnessPreparation } from './harness/application/baseline-harne
 import { BaselineHarnessAdmissionFile } from './harness/infrastructure/baseline-harness-admission-file.js';
 import { GitHarnessInspection } from './harness/infrastructure/git-harness-inspection.js';
 import { EnvironmentPiModelInspection } from './harness/infrastructure/model-profile-environment.js';
+import { HarnessEvaluation } from './harness/application/harness-evaluation.js';
+import { VerifiedFailureCampaign } from './harness/application/verified-failure-campaign.js';
+import { EvaluationCommandFile } from './harness/infrastructure/evaluation-command-file.js';
+import { EvaluationPolicyFile } from './harness/infrastructure/evaluation-policy-file.js';
+import { PreparedCompatibilityCampaignHistoryFile } from './harness/infrastructure/prepared-compatibility-campaign-history.js';
 import { verifyDemoIssuer } from './identity/application/demo-issuer-compatibility.js';
 import { IdentityFiles } from './identity/infrastructure/identity-files.js';
 import { IssuerHealthHttp } from './identity/infrastructure/issuer-health-http.js';
@@ -228,6 +233,35 @@ function taskRunObservations(): TaskRunObservations {
   });
 }
 
+function harnessEvaluation(): HarnessEvaluation {
+  const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+  return new HarnessEvaluation({
+    policy: new EvaluationPolicyFile(),
+    authority: {
+      acquire: async () => {
+        const authority = await currentTaskAuthority().acquireHostedWork();
+        return authority.kind === 'Authorized'
+          ? {
+              kind: 'Authorized',
+              ownerAid: authority.user.principal.aid,
+              tasks: authority.tasks,
+              runs: authority.runs,
+              evidence: authority.evidence,
+              evaluations: authority.evaluations,
+            }
+          : { kind: 'Unavailable' };
+      },
+    },
+    qualification: new VerifiedFailureCampaign(
+      new PreparedCompatibilityCampaignHistoryFile(configuration.stateDirectory),
+    ),
+    commands: new EvaluationCommandFile(
+      join(configuration.stateDirectory, 'evaluation-commands'),
+      randomUUID,
+    ),
+  });
+}
+
 const commands: DevrandomCommands = {
   status: async () => {
     const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
@@ -244,6 +278,10 @@ const commands: DevrandomCommands = {
     run: (label, signal) => taskRunExecution().run(label, signal),
     status: (label) => taskRunObservations().status(label),
     watch: (label, signal) => taskRunObservations().watch(label, signal),
+  },
+  harness: {
+    evaluate: (label, runId, policyPath, signal) =>
+      harnessEvaluation().evaluate(label, runId, policyPath, signal),
   },
 };
 

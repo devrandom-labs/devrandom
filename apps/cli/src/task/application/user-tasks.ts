@@ -108,6 +108,7 @@ export type HostedWorkAuthorityAcquisition =
       readonly harnesses: ReturnType<GrantedWorkAccess['server']['harnesses']>;
       readonly runs: ReturnType<GrantedWorkAccess['server']['runs']>;
       readonly evidence: ReturnType<GrantedWorkAccess['server']['evidence']>;
+      readonly evaluations: ReturnType<GrantedWorkAccess['server']['evaluations']>;
       readonly protectedCredentials: ProtectedCredentials;
       readonly grantExpiresAt: string;
       readonly workAccessRenewal: RunWorkAccessRenewal;
@@ -178,6 +179,7 @@ export class CurrentTaskAuthority implements TaskAuthority {
       harnesses: access.server.harnesses(),
       runs: access.server.runs(),
       evidence: access.server.evidence(),
+      evaluations: access.server.evaluations(),
       protectedCredentials: access.server.protectedCredentials,
       grantExpiresAt: disposition.expiresAt,
       workAccessRenewal: {

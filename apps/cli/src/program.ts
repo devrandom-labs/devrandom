@@ -9,6 +9,7 @@ import type { UserIdentityOutcome } from './identity/application/user-identity.j
 import type { TaskCreation, TaskInspection, TaskListing } from './task/application/user-tasks.js';
 import type { TaskRunExecutionOutcome } from './task/application/task-run-execution.js';
 import type { WorkAccessAcquisition } from './work-access/application/work-access-acquisition.js';
+import type { HarnessEvaluationOutcome } from './harness/application/harness-evaluation.js';
 import type {
   TaskRunObservationFailure,
   TaskRunStatus,
@@ -39,6 +40,14 @@ export interface TaskCommands {
 
 export interface DevrandomCommands extends UserIdentityCommands {
   readonly tasks: TaskCommands;
+  readonly harness: {
+    evaluate(
+      label: string,
+      fromRunId: string,
+      policyPath: string,
+      signal: AbortSignal,
+    ): Promise<HarnessEvaluationOutcome>;
+  };
 }
 
 export interface CliProcess {
@@ -142,7 +151,56 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
       }
     });
 
+  const harness = program.command('harness').description('Inspect and evaluate harness revisions');
+  harness
+    .command('evaluate')
+    .description('Evaluate a verified retained failure under a closed policy')
+    .argument('<label>')
+    .requiredOption('--from-run <run-id>', 'the verified sixth retained Run ID')
+    .requiredOption('--policy <file>', 'the closed evaluation policy JSON file')
+    .action(async (label: string, options: { fromRun: string; policy: string }) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.harness.evaluate(
+          label,
+          options.fromRun,
+          options.policy,
+          interruption.signal,
+        );
+        writeRenderedCommand(renderHarnessEvaluation(outcome), cliProcess);
+      } finally {
+        interruption.release();
+      }
+    });
+
   return program;
+}
+
+function renderHarnessEvaluation(outcome: HarnessEvaluationOutcome): RenderedCommand {
+  switch (outcome.kind) {
+    case 'Blocked':
+      return { destination: 'stderr', exitCode: 6, text: `Evaluation blocked: ${outcome.gate}.` };
+    case 'InvalidInput':
+      return {
+        destination: 'stderr',
+        exitCode: 2,
+        text: `Evaluation input invalid: ${outcome.reason}.`,
+      };
+    case 'Unavailable':
+      return {
+        destination: 'stderr',
+        exitCode: 5,
+        text: `Evaluation unavailable: ${outcome.reason}.`,
+      };
+    case 'Reconciled':
+      return {
+        destination: 'stdout',
+        exitCode: 0,
+        text: `Evaluation ${outcome.evaluationId} recorded; no trial was restarted.`,
+      };
+    case 'Interrupted':
+      return { destination: 'stderr', exitCode: 130, text: 'Evaluation interrupted.' };
+  }
 }
 
 async function runTaskRunCommand(

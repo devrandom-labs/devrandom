@@ -113,6 +113,9 @@ function commandFixture(): {
           };
         },
       },
+      harness: {
+        evaluate: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
+      },
     },
   };
 }
@@ -155,6 +158,38 @@ function processFixture(): {
 }
 
 describe('devrandom command', () => {
+  it('routes evaluate to the protected campaign and reports a qualification block without starting trials', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const invocations: string[] = [];
+    const evaluator = {
+      ...commands,
+      harness: {
+        evaluate: (label: string, runId: string, policyPath: string, signal: AbortSignal) => {
+          invocations.push(`${label}:${runId}:${policyPath}:${String(signal.aborted)}`);
+          return Promise.resolve({ kind: 'Blocked' as const, gate: 'Qualification' as const });
+        },
+      },
+    };
+
+    await createProgram(evaluator, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'evaluate',
+      'cesr-compat',
+      '--from-run',
+      'retained-run-id',
+      '--policy',
+      'evaluation.json',
+    ]);
+
+    expect(invocations).toEqual(['cesr-compat:retained-run-id:evaluation.json:false']);
+    expect(runtime.errors).toEqual(['Evaluation blocked: Qualification.\n']);
+    expect(runtime.exitCodes).toEqual([6]);
+    expect(runtime.interruptionReleases).toEqual(['released']);
+  });
+
   it('exposes the retained identity and Task surface without deferred runtime commands', () => {
     const { commands } = commandFixture();
     const runtime = processFixture();
@@ -691,6 +726,7 @@ describe('devrandom command', () => {
       whoami: () => Promise.resolve(proofRejected),
       rotate: () => Promise.resolve(proofRejected),
       tasks: commandFixture().commands.tasks,
+      harness: commandFixture().commands.harness,
     };
     const runtime = processFixture();
 
