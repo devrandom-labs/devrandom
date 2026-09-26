@@ -10,6 +10,7 @@ import {
   RunSuccessorSegmentStorageDrift,
   runSuccessorSegmentIndex,
   retainedRunSuccessorSegmentValidator,
+  unlinkedRunSuccessorSegmentValidator,
 } from './mongo-run-continuation-bootstrap.js';
 import {
   runSuccessorSegmentsCollectionName,
@@ -63,7 +64,8 @@ integration('Run successor segment Mongo custody', () => {
       consumedBudget: taskBudgetCeilings,
       admittedAt: '2026-09-26T14:00:00.000Z',
     });
-    if (prepared.kind !== 'Prepared') throw new Error('segment fixture');
+    if (prepared.kind !== 'Prepared' || prepared.segment.version !== 1)
+      throw new Error('segment fixture');
     return prepared.segment;
   }
 
@@ -109,6 +111,76 @@ integration('Run successor segment Mongo custody', () => {
       validationAction: 'error',
     });
     await expect(bootstrap.verify()).rejects.toEqual(new RunSuccessorSegmentStorageDrift());
+  });
+  it('explicitly adds ancestor links while preserving historical v2 records and indexes', async () => {
+    await database.collection(runSuccessorSegmentsCollectionName).drop();
+    await database.createCollection(runSuccessorSegmentsCollectionName, {
+      validator: unlinkedRunSuccessorSegmentValidator,
+      validationLevel: 'strict',
+      validationAction: 'error',
+    });
+    const collection = database.collection<RunSuccessorSegmentDocument>(
+      runSuccessorSegmentsCollectionName,
+    );
+    await collection.createIndex(runSuccessorSegmentIndex.key, {
+      name: runSuccessorSegmentIndex.name,
+      unique: true,
+    });
+    const first = segment(randomUUID(), randomUUID());
+    const { d: _d, activation: _activation, ...body } = first;
+    expect(_d).toBeTruthy();
+    expect(_activation).toBeDefined();
+    const prepared = prepareRunSuccessorSegment({
+      ...body,
+      version: 2,
+      kind: 'CalibrationContinuationSegment',
+      baseline: { pointerVersion: 1, harnessRevisionSaid: first.successor.harnessRevisionSaid },
+    });
+    if (prepared.kind !== 'Prepared') throw new Error('v2 fixture');
+    const original = prepared.segment;
+    const document = {
+      _id: original.d,
+      ownerAid: original.ownerAid,
+      runId: original.runId,
+      segment: original,
+      acceptedAt: new Date(original.admittedAt),
+    };
+    await collection.insertOne(document);
+    const indexes = await collection.listIndexes().toArray();
+    const { d: originalSaid, ...originalBody } = original;
+    const next = prepareRunSuccessorSegment({
+      ...originalBody,
+      predecessor: {
+        ...original.predecessor,
+        evidenceStreamId: original.successor.evidenceStreamId,
+        segmentSaid: originalSaid,
+      },
+      successor: {
+        ...original.successor,
+        incarnationId: randomUUID(),
+        evidenceStreamId: randomUUID(),
+      },
+    });
+    if (next.kind !== 'Prepared') throw new Error('linked fixture');
+    const linked = { ...document, _id: next.segment.d, segment: next.segment };
+    await expect(collection.insertOne(linked)).rejects.toMatchObject({ code: 121 });
+    await expect(bootstrap.bootstrap()).rejects.toEqual(new RunSuccessorSegmentStorageDrift());
+    await collection.updateOne({ _id: original.d }, { $set: { acceptedAt: new Date(0) } });
+    await expect(bootstrap.allowCalibrationContinuation()).rejects.toEqual(
+      new RunSuccessorSegmentStorageDrift(),
+    );
+    await collection.updateOne({ _id: original.d }, { $set: { acceptedAt: document.acceptedAt } });
+    await collection.createIndex({ ownerAid: 1 }, { name: 'unrelated' });
+    await expect(bootstrap.allowCalibrationContinuation()).rejects.toEqual(
+      new RunSuccessorSegmentStorageDrift(),
+    );
+    await collection.dropIndex('unrelated');
+    await bootstrap.allowCalibrationContinuation();
+    await bootstrap.allowCalibrationContinuation();
+    expect(await collection.findOne({ _id: original.d })).toEqual(document);
+    expect(await collection.listIndexes().toArray()).toEqual(indexes);
+    await collection.insertOne(linked);
+    expect(await collection.countDocuments()).toBe(2);
   });
   it('migrates only the exact historical validator without rewriting retained segments', async () => {
     await database.collection(runSuccessorSegmentsCollectionName).drop();

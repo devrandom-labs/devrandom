@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import Type from 'typebox';
 
 import {
   decodeRunSuccessorSegment,
@@ -28,12 +29,35 @@ export const runSuccessorSegmentValidator = Object.freeze({
   },
 });
 
+// Historical schemas are immutable: the additive field never changes their validators.
+const historicalPredecessor = Type.Omit(
+  retainedRunSuccessorSegmentSchema.properties.predecessor,
+  ['segmentSaid'],
+  { additionalProperties: false },
+);
+const historicalRetained = Type.Object(
+  { ...retainedRunSuccessorSegmentSchema.properties, predecessor: historicalPredecessor },
+  { additionalProperties: false },
+);
+const historicalCalibration = Type.Object(
+  { ...runSuccessorSegmentSchema.anyOf[1].properties, predecessor: historicalPredecessor },
+  { additionalProperties: false },
+);
+export const unlinkedRunSuccessorSegmentValidator = Object.freeze({
+  $jsonSchema: {
+    ...runSuccessorSegmentValidator.$jsonSchema,
+    properties: {
+      ...runSuccessorSegmentValidator.$jsonSchema.properties,
+      segment: typeboxMongoSchema(Type.Union([historicalRetained, historicalCalibration])),
+    },
+  },
+});
 export const retainedRunSuccessorSegmentValidator = Object.freeze({
   $jsonSchema: {
     ...runSuccessorSegmentValidator.$jsonSchema,
     properties: {
       ...runSuccessorSegmentValidator.$jsonSchema.properties,
-      segment: typeboxMongoSchema(retainedRunSuccessorSegmentSchema),
+      segment: typeboxMongoSchema(historicalRetained),
     },
   },
 });
@@ -60,7 +84,12 @@ interface ObservedIndex {
 function decodeIndexes(input: readonly unknown[]): readonly ObservedIndex[] {
   const decoded: ObservedIndex[] = [];
   for (const value of input) {
-    if (value === null || typeof value !== 'object') throw new RunSuccessorSegmentStorageDrift();
+    if (
+      value === null ||
+      typeof value !== 'object' ||
+      Object.keys(value).some((key) => !['v', 'key', 'name', 'unique'].includes(key))
+    )
+      throw new RunSuccessorSegmentStorageDrift();
     const name: unknown = Reflect.get(value, 'name');
     const key: unknown = Reflect.get(value, 'key');
     const unique: unknown = Reflect.get(value, 'unique');
@@ -130,14 +159,17 @@ export class MongoRunContinuationBootstrap {
       await this.bootstrap();
       return;
     }
-    if (isDeepStrictEqual(collection.options?.validator, runSuccessorSegmentValidator)) {
-      await this.verify();
-      return;
-    }
+    const current = isDeepStrictEqual(collection.options?.validator, runSuccessorSegmentValidator);
+    const retainedOnly = isDeepStrictEqual(
+      collection.options?.validator,
+      retainedRunSuccessorSegmentValidator,
+    );
     if (
       collection.options?.validationLevel !== 'strict' ||
       collection.options.validationAction !== 'error' ||
-      !isDeepStrictEqual(collection.options.validator, retainedRunSuccessorSegmentValidator)
+      (!current &&
+        !retainedOnly &&
+        !isDeepStrictEqual(collection.options.validator, unlinkedRunSuccessorSegmentValidator))
     )
       throw new RunSuccessorSegmentStorageDrift();
     const indexes = decodeIndexes(
@@ -155,19 +187,32 @@ export class MongoRunContinuationBootstrap {
     )
       throw new RunSuccessorSegmentStorageDrift();
     for await (const document of this.#database
-      .collection<{ _id: string; runId: string; ownerAid: string; segment: unknown }>(
-        runSuccessorSegmentsCollectionName,
-      )
+      .collection<{
+        _id: string;
+        runId: string;
+        ownerAid: string;
+        segment: unknown;
+        acceptedAt: unknown;
+      }>(runSuccessorSegmentsCollectionName)
       .find({})) {
       const decoded = decodeRunSuccessorSegment(document['segment']);
       if (
         decoded.kind !== 'Accepted' ||
-        decoded.segment.version !== 1 ||
+        (retainedOnly && decoded.segment.version !== 1) ||
+        (!current && decoded.segment.predecessor.segmentSaid !== undefined) ||
+        Object.keys(document).sort().join(',') !== '_id,acceptedAt,ownerAid,runId,segment' ||
+        !(document.acceptedAt instanceof Date) ||
+        !Number.isFinite(document.acceptedAt.getTime()) ||
+        document.acceptedAt.toISOString() !== decoded.segment.admittedAt ||
         document['_id'] !== decoded.segment.d ||
         document['runId'] !== decoded.segment.runId ||
         document['ownerAid'] !== decoded.segment.ownerAid
       )
         throw new RunSuccessorSegmentStorageDrift();
+    }
+    if (current) {
+      await this.verify();
+      return;
     }
     await this.#database.command({
       collMod: runSuccessorSegmentsCollectionName,
