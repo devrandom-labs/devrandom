@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { isAbsolute, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -60,6 +61,23 @@ import { readPreparedCompatibilityProviderProof } from './sqlite-prepared-compat
 
 const outboxSoftBound = 60 * 1_024 * 1_024;
 const outboxHardBound = 64 * 1_024 * 1_024;
+
+function terminalCalibrationObservation(observation: EvidenceObservation): boolean {
+  if (
+    observation.producer.kind !== 'RunSupervisor' &&
+    observation.producer.kind !== 'EvidenceRecorder'
+  )
+    return false;
+  const event = observation.event;
+  if (event.kind === 'BudgetDebited')
+    return (
+      (event.budget === 'changedFiles' || event.budget === 'changedWorktreeBytes') &&
+      event.amount > 0
+    );
+  if (event.kind === 'RunCalibrationRecorded')
+    return event.disposition.kind === 'Excluded' && event.disposition.reason === 'BudgetExhausted';
+  return event.kind === 'CheckpointVerified' || event.kind === 'CheckpointAccepted';
+}
 
 function evidenceStoragePurpose(event: EvidenceObservation['event']): 'Execution' | 'Closure' {
   switch (event.kind) {
@@ -666,6 +684,7 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
   readonly #now: () => string;
   readonly #storageByteCeiling: number;
   readonly #executionByteCeiling: number;
+  readonly #terminalCalibrationOnly: boolean;
 
   constructor(
     opening: EvidenceRecorderOpening,
@@ -674,6 +693,7 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
     artifactDirectory: string,
     credentials: ProtectedCredentials,
     now: () => string,
+    terminalCalibrationOnly = false,
   ) {
     this.run = opening.run;
     this.#storageByteCeiling = Math.min(
@@ -688,6 +708,7 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
     this.#artifactDirectory = artifactDirectory;
     this.#credentials = credentials;
     this.#now = now;
+    this.#terminalCalibrationOnly = terminalCalibrationOnly;
   }
 
   readiness(): EvidenceReadinessInspection {
@@ -797,6 +818,11 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
   #appendAtomically(
     observations: readonly [EvidenceObservation, ...EvidenceObservation[]],
   ): EvidenceRecording {
+    if (
+      this.#terminalCalibrationOnly &&
+      observations.some((entry) => !terminalCalibrationObservation(entry))
+    )
+      return { kind: 'ObservationRejected' };
     try {
       this.#database.exec('BEGIN IMMEDIATE');
       const [first, ...following] = observations;
@@ -1217,6 +1243,14 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
   }
 
   storeCheckpoint(input: EvidenceCheckpointInput): EvidenceCheckpointRecording {
+    const outcome = input.checkpoint.runState;
+    if (
+      this.#terminalCalibrationOnly &&
+      (outcome.kind !== 'Ended' ||
+        outcome.outcome.kind !== 'CalibrationExcluded' ||
+        outcome.outcome.reason !== 'BudgetExhausted')
+    )
+      return { kind: 'CheckpointRejected' };
     if (
       !Value.Check(completionConditionIdsSchema, input.completionConditionIds) ||
       decodeVerifiedCheckpoint(input.checkpoint, input.completionConditionIds).kind !== 'Accepted'
@@ -1473,6 +1507,108 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
   constructor(now: () => string, credentials = new ProtectedCredentials()) {
     this.#now = now;
     this.#credentials = credentials;
+  }
+
+  /** Reopens custody for terminal accounting only, never a Pi execution session. */
+  reconcileCalibration(
+    opening: EvidenceRecorderOpening,
+    hostedPrefix: readonly EvidenceEvent[],
+  ):
+    | Exclude<
+        EvidenceRecorderAcquisition<PreparedCompatibilityEvidence>,
+        { readonly kind: 'Opened' }
+      >
+    | {
+        readonly kind: 'Opened';
+        readonly recorder: PreparedCompatibilityEvidence;
+        readonly events: readonly EvidenceEvent[];
+      } {
+    const { run, stateRoot } = opening;
+    if (
+      !isAbsolute(stateRoot) ||
+      run.lease.kind !== 'Held' ||
+      run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
+      run.lifecycle.kind !== 'Active' ||
+      !['Preparing', 'Running'].includes(run.lifecycle.phase.kind) ||
+      !Number.isFinite(Date.parse(this.#now())) ||
+      Date.parse(this.#now()) < Date.parse(run.lease.expiresAt) ||
+      hostedPrefix.length === 0
+    )
+      return { kind: 'LocalStateCorruption' };
+    const runDirectory = join(stateRoot, 'runs', run.binding.runId);
+    const artifactDirectory = join(runDirectory, 'artifacts');
+    const path = join(runDirectory, 'outbox.sqlite');
+    let database: DatabaseSync | undefined;
+    try {
+      if (
+        ![stateRoot, join(stateRoot, 'runs'), runDirectory, artifactDirectory].every(
+          isOwnerOnlyDirectory,
+        ) ||
+        realpathSync(runDirectory) !== join(realpathSync(stateRoot), 'runs', run.binding.runId) ||
+        pathKind(path) !== 'RegularFile' ||
+        (lstatSync(path).mode & 0o777) !== 0o600
+      )
+        return { kind: 'LocalStateCorruption' };
+      database = new DatabaseSync(path);
+      configure(database);
+      if (!existingOutboxIsValid(database, opening)) return { kind: 'LocalStateCorruption' };
+      const rows = database
+        .prepare('SELECT encoded_event FROM evidence_events ORDER BY sequence')
+        .all();
+      if (hostedPrefix.length > rows.length) return { kind: 'LocalStateCorruption' };
+      let previous: string | undefined;
+      let started = false;
+      const events: EvidenceEvent[] = [];
+      for (let index = 0; index < rows.length; index += 1) {
+        const encoded = rows[index]?.encoded_event;
+        if (typeof encoded !== 'string') return { kind: 'LocalStateCorruption' };
+        const decoded = decodeEvidenceEvent(JSON.parse(encoded));
+        if (decoded.kind !== 'Accepted') return { kind: 'LocalStateCorruption' };
+        const event = decoded.event;
+        if (
+          event.sequence !== index ||
+          event.runId !== run.binding.runId ||
+          event.taskId !== run.binding.taskId ||
+          event.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+          event.incarnationId !== run.lease.incarnationId ||
+          event.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+          event.personalAgentAid !== run.binding.personalAgentAid ||
+          event.taskMandateSaid !== run.binding.taskMandateSaid ||
+          (previous === undefined
+            ? event.predecessor.kind !== 'Genesis'
+            : event.predecessor.kind !== 'Previous' || event.predecessor.eventSaid !== previous) ||
+          Date.parse(event.recordedAt) < Date.parse(run.lease.acquiredAt) ||
+          (Date.parse(event.recordedAt) >= Date.parse(run.lease.expiresAt) &&
+            !terminalCalibrationObservation(event)) ||
+          (index < hostedPrefix.length && !isDeepStrictEqual(event, hostedPrefix[index]))
+        )
+          return { kind: 'LocalStateCorruption' };
+        if (
+          event.event.kind === 'RunStarted' &&
+          event.producer.kind === 'RunSupervisor' &&
+          index < hostedPrefix.length
+        )
+          started = true;
+        previous = event.d;
+        events.push(event);
+      }
+      if (!started) return { kind: 'LocalStateCorruption' };
+      const recorder = new SqliteEvidenceRecorder(
+        opening,
+        database,
+        path,
+        artifactDirectory,
+        this.#credentials,
+        this.#now,
+        true,
+      );
+      database = undefined;
+      return { kind: 'Opened', recorder, events };
+    } catch {
+      return { kind: 'LocalStateCorruption' };
+    } finally {
+      database?.close();
+    }
   }
 
   open(

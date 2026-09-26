@@ -1147,4 +1147,121 @@ describe('SQLite evidence outbox', () => {
       kind: 'ExistingOutboxRequiresLaterResume',
     });
   });
+
+  it('rejects original execution accounting recorded after the expired lease', async () => {
+    const original = runFixture();
+    const run: Run = {
+      ...original,
+      binding: {
+        ...original.binding,
+        purpose: {
+          kind: 'PreparedCompatibilityCalibration',
+          campaignId: 'a125a348-0e50-49d4-a106-c3ca22e0b949',
+          ordinal: 1,
+        },
+      },
+    };
+    let time = '2026-09-24T20:00:02.000Z';
+    const root = await stateRoot();
+    const outboxes = new SqliteEvidenceOutboxes(() => time);
+    const opened = outboxes.open({ run, stateRoot: root });
+    if (opened.kind !== 'Opened') throw new Error(opened.kind);
+    const started = opened.recorder.record({
+      occurredAt: time,
+      producer: { kind: 'RunSupervisor' },
+      event: { kind: 'RunStarted', fromRunVersion: run.version },
+    });
+    if (started.kind !== 'Recorded') throw new Error(started.kind);
+    time = '2026-09-24T20:10:00.000Z';
+    expect(
+      opened.recorder.recordBudgetDebit({
+        occurredAt: time,
+        producer: { kind: 'PiExecutor' },
+        debits: [{ kind: 'BudgetDebited', budget: 'providerRequests', amount: 1, consumed: 1 }],
+      }),
+    ).toMatchObject({ kind: 'Recorded' });
+    opened.recorder.close();
+    expect(outboxes.reconcileCalibration({ run, stateRoot: root }, [started.event])).toEqual({
+      kind: 'LocalStateCorruption',
+    });
+  });
+
+  it('reopens an expired calibration only against its exact hosted prefix and rejects execution', async () => {
+    const original = runFixture();
+    const run: Run = {
+      ...original,
+      binding: {
+        ...original.binding,
+        purpose: {
+          kind: 'PreparedCompatibilityCalibration',
+          campaignId: 'a125a348-0e50-49d4-a106-c3ca22e0b949',
+          ordinal: 1,
+        },
+      },
+    };
+    const root = await stateRoot();
+    const opened = new SqliteEvidenceOutboxes(() => '2026-09-24T20:00:02.000Z').open({
+      run,
+      stateRoot: root,
+    });
+    if (opened.kind !== 'Opened') throw new Error(opened.kind);
+    const started = opened.recorder.record({
+      occurredAt: '2026-09-24T20:00:02.000Z',
+      producer: { kind: 'RunSupervisor' },
+      event: { kind: 'RunStarted', fromRunVersion: run.version },
+    });
+    if (started.kind !== 'Recorded') throw new Error(started.kind);
+    opened.recorder.close();
+    const recovery = new SqliteEvidenceOutboxes(() => '2026-09-24T20:10:00.000Z');
+    expect(recovery.reconcileCalibration({ run, stateRoot: root }, [])).toEqual({
+      kind: 'LocalStateCorruption',
+    });
+    expect(
+      recovery.reconcileCalibration({ run, stateRoot: root }, [
+        { ...started.event, taskRevisionSaid: said('z') },
+      ]),
+    ).toEqual({ kind: 'LocalStateCorruption' });
+    const reopened = recovery.reconcileCalibration({ run, stateRoot: root }, [started.event]);
+    expect(reopened.kind).toBe('Opened');
+    if (reopened.kind !== 'Opened') throw new Error(reopened.kind);
+    expect(
+      reopened.recorder.record({
+        occurredAt: '2026-09-24T20:10:00.000Z',
+        producer: { kind: 'RunSupervisor' },
+        event: { kind: 'RunStarted', fromRunVersion: run.version },
+      }),
+    ).toEqual({ kind: 'ObservationRejected' });
+    expect(
+      reopened.recorder.recordBudgetDebit({
+        occurredAt: '2026-09-24T20:10:00.000Z',
+        producer: { kind: 'RunSupervisor' },
+        debits: [{ kind: 'BudgetDebited', budget: 'providerRequests', amount: 1, consumed: 1 }],
+      }),
+    ).toEqual({ kind: 'ObservationRejected' });
+    expect(reopened.recorder.readiness()).toMatchObject({
+      kind: 'Ready',
+      readiness: { nextSequence: 1, previousEventSaid: started.event.d },
+    });
+    expect(
+      reopened.recorder.recordBudgetDebit({
+        occurredAt: '2026-09-24T20:10:00.000Z',
+        producer: { kind: 'EvidenceRecorder' },
+        debits: [
+          {
+            kind: 'BudgetDebited',
+            budget: 'changedWorktreeBytes',
+            amount: 17_000_000,
+            consumed: 17_000_000,
+          },
+        ],
+      }),
+    ).toMatchObject({ kind: 'Recorded' });
+    reopened.recorder.close();
+    const retried = recovery.reconcileCalibration({ run, stateRoot: root }, [started.event]);
+    expect(retried.kind).toBe('Opened');
+    if (retried.kind !== 'Opened') throw new Error(retried.kind);
+    expect(retried.events).toHaveLength(2);
+    expect(retried.events[0]).toEqual(started.event);
+    retried.recorder.close();
+  });
 });
