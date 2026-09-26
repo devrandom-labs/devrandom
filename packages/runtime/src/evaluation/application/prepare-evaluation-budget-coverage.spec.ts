@@ -321,6 +321,30 @@ function fixture() {
 }
 
 describe('trusted parent Evaluation budget coverage', () => {
+  it.each([50, 51, 256])(
+    'covers an accepted reservation of %i calls within the supported Evaluation ceiling',
+    async (providerRequests) => {
+      const given = fixture();
+      const result = await prepareEvaluationBudgetCoverage(
+        { ...given.input, reserved: { ...given.input.reserved, providerRequests } },
+        given.dependencies,
+      );
+      expect(result.kind).toBe('Prepared');
+    },
+  );
+  it.each([0, 257])(
+    'rejects reservation %i when below measured use or above the supported outer ceiling',
+    async (providerRequests) => {
+      const given = fixture();
+      expect(
+        await prepareEvaluationBudgetCoverage(
+          { ...given.input, reserved: { ...given.input.reserved, providerRequests } },
+          given.dependencies,
+        ),
+      ).toEqual({ kind: 'Incomplete', frontier: 'Reservation' });
+    },
+  );
+
   it('prepares coverage for an acknowledged, measured nine-dimension prefix', async () => {
     const given = fixture();
     const result = await prepareEvaluationBudgetCoverage(given.input, given.dependencies);

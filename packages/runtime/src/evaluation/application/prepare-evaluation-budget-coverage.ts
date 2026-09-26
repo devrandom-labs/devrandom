@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import {
-  taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
   validateExecutionBinding,
   type EvaluationAllowance,
   type EvaluationExecutionBinding,
@@ -431,7 +431,8 @@ export async function prepareEvaluationBudgetCoverage(
     validateExecutionBinding(input.binding).kind !== 'Accepted' ||
     budgets.some(
       (budget) =>
-        !safeCount(input.reserved[budget]) || input.reserved[budget] > taskBudgetCeilings[budget],
+        !safeCount(input.reserved[budget]) ||
+        input.reserved[budget] > taskEvaluationBudgetCeilings[budget],
     )
   )
     return incomplete('Reservation');
