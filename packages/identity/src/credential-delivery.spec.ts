@@ -1,5 +1,5 @@
 import { devrandomUserEligibilityClaims } from '@devrandom/domain';
-import { SignifyClient, Tier } from 'signify-ts';
+import { ready, SignifyClient, Tier } from 'signify-ts';
 import Type from 'typebox';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -43,6 +43,7 @@ function credential(credentialSaid: string, issueeAid = issuance.issueeAid) {
 
 describe('credential delivery reconciliation', () => {
   it('reconciles across mixed-schema pages through the Signify delivery boundary', async () => {
+    await ready();
     const client = new SignifyClient('http://keria.invalid', '0123456789abcdefghijk', Tier.low);
     const credentials = client.credentials();
     const operations = client.operations();
