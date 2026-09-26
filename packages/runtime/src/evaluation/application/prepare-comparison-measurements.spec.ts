@@ -216,6 +216,8 @@ describe('parent comparison measurement preparation', () => {
       kind: 'Verified',
       trialEvidenceHeadSaid: measured.trialEvidenceHeadSaid,
       providerUsageEventSaids: measured.providerUsageEventSaids,
+      custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
+      custodyEvidenceSequence: retained.custodyEvidenceSequence,
       usage,
     });
     const prepared = await prepareMeasuredTrialObservation(
@@ -229,6 +231,22 @@ describe('parent comparison measurement preparation', () => {
       kind: 'Verified',
       trialEvidenceHeadSaid: said('Z'),
       providerUsageEventSaids: measured.providerUsageEventSaids,
+      custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
+      custodyEvidenceSequence: retained.custodyEvidenceSequence,
+      usage,
+    });
+    expect(
+      await prepareMeasuredTrialObservation(
+        { binding, manifest: input.manifest, verifier: input.verifier, retained },
+        { measure },
+      ),
+    ).toEqual({ kind: 'Incomplete', reason: 'Usage' });
+    measure.mockResolvedValue({
+      kind: 'Verified',
+      trialEvidenceHeadSaid: measured.trialEvidenceHeadSaid,
+      providerUsageEventSaids: measured.providerUsageEventSaids,
+      custodyEvidenceHeadSaid: said('Z'),
+      custodyEvidenceSequence: retained.custodyEvidenceSequence,
       usage,
     });
     expect(

@@ -21,11 +21,15 @@ export interface VerifiedTrialUsage {
     readonly binding: EvaluationExecutionBinding;
     readonly trialEvidenceHeadSaid: string;
     readonly providerUsageEventSaids: readonly string[];
+    readonly custodyEvidenceHeadSaid: string;
+    readonly custodyEvidenceSequence: number;
   }): Promise<
     | {
         readonly kind: 'Verified';
         readonly trialEvidenceHeadSaid: string;
         readonly providerUsageEventSaids: readonly string[];
+        readonly custodyEvidenceHeadSaid: string;
+        readonly custodyEvidenceSequence: number;
         readonly usage: TrialUsage;
       }
     | { readonly kind: 'Missing' | 'Unavailable' }
@@ -95,6 +99,9 @@ export async function prepareMeasuredTrialObservation(
       publicIds,
     ) ||
     retained.capturedSourceSaid !== retained.frozenArtifact.sourceSaid ||
+    !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(retained.custodyEvidenceHeadSaid) ||
+    !Number.isSafeInteger(retained.custodyEvidenceSequence) ||
+    retained.custodyEvidenceSequence < 0 ||
     !sameStrings(retained.acknowledgedArtifactSaids, [
       verifier.protectedCase.stimulus.d,
       verifier.protectedCase.expected.d,
@@ -108,6 +115,8 @@ export async function prepareMeasuredTrialObservation(
       binding,
       trialEvidenceHeadSaid: retained.trialEvidenceHeadSaid,
       providerUsageEventSaids: retained.providerUsageEventSaids,
+      custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
+      custodyEvidenceSequence: retained.custodyEvidenceSequence,
     });
   } catch {
     return { kind: 'Incomplete', reason: 'Usage' };
@@ -115,7 +124,9 @@ export async function prepareMeasuredTrialObservation(
   if (
     measured.kind !== 'Verified' ||
     measured.trialEvidenceHeadSaid !== retained.trialEvidenceHeadSaid ||
-    !sameStrings(measured.providerUsageEventSaids, retained.providerUsageEventSaids)
+    !sameStrings(measured.providerUsageEventSaids, retained.providerUsageEventSaids) ||
+    measured.custodyEvidenceHeadSaid !== retained.custodyEvidenceHeadSaid ||
+    measured.custodyEvidenceSequence !== retained.custodyEvidenceSequence
   )
     return { kind: 'Incomplete', reason: 'Usage' };
   const publicCases = retained.publicCases.map((item) => ({
