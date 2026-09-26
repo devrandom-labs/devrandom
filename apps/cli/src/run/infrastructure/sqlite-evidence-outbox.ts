@@ -63,6 +63,15 @@ import { readPreparedCompatibilityProviderProof } from './sqlite-prepared-compat
 const outboxSoftBound = 60 * 1_024 * 1_024;
 const outboxHardBound = 64 * 1_024 * 1_024;
 
+function runtimeRecoveryObservation(observation: EvidenceObservation): boolean {
+  return observation.producer.kind === 'EvidenceRecorder'
+    ? observation.event.kind === 'CheckpointVerified' ||
+        observation.event.kind === 'CheckpointAccepted'
+    : observation.producer.kind === 'RunSupervisor' &&
+        observation.event.kind === 'RunBlocked' &&
+        observation.event.reason === 'ProcessLost';
+}
+
 function terminalCalibrationObservation(observation: EvidenceObservation): boolean {
   if (
     observation.producer.kind !== 'RunSupervisor' &&
@@ -697,7 +706,7 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
   readonly #now: () => string;
   readonly #storageByteCeiling: number;
   readonly #executionByteCeiling: number;
-  readonly #terminalCalibrationOnly: boolean;
+  readonly #bookkeeping: 'Execution' | 'TerminalCalibration' | 'RuntimeRecovery';
 
   constructor(
     opening: EvidenceRecorderOpening,
@@ -706,7 +715,7 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
     artifactDirectory: string,
     credentials: ProtectedCredentials,
     now: () => string,
-    terminalCalibrationOnly = false,
+    bookkeeping: 'Execution' | 'TerminalCalibration' | 'RuntimeRecovery' = 'Execution',
   ) {
     this.run = opening.run;
     this.#storageByteCeiling = Math.min(
@@ -721,7 +730,7 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
     this.#artifactDirectory = artifactDirectory;
     this.#credentials = credentials;
     this.#now = now;
-    this.#terminalCalibrationOnly = terminalCalibrationOnly;
+    this.#bookkeeping = bookkeeping;
   }
 
   readiness(): EvidenceReadinessInspection {
@@ -832,8 +841,13 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
     observations: readonly [EvidenceObservation, ...EvidenceObservation[]],
   ): EvidenceRecording {
     if (
-      this.#terminalCalibrationOnly &&
-      observations.some((entry) => !terminalCalibrationObservation(entry))
+      this.#bookkeeping !== 'Execution' &&
+      observations.some(
+        (entry) =>
+          !(this.#bookkeeping === 'RuntimeRecovery'
+            ? runtimeRecoveryObservation(entry)
+            : terminalCalibrationObservation(entry)),
+      )
     )
       return { kind: 'ObservationRejected' };
     try {
@@ -1261,12 +1275,22 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
   storeCheckpoint(input: EvidenceCheckpointInput): EvidenceCheckpointRecording {
     const outcome = input.checkpoint.runState;
     if (
-      this.#terminalCalibrationOnly &&
+      this.#bookkeeping === 'TerminalCalibration' &&
       (outcome.kind !== 'Ended' ||
         (outcome.outcome.kind !== 'Cancelled' &&
           (outcome.outcome.kind !== 'CalibrationExcluded' ||
             outcome.outcome.reason !== 'BudgetExhausted')) ||
         outcome.verification.kind !== 'NotSubmitted')
+    )
+      return { kind: 'CheckpointRejected' };
+    if (
+      this.#bookkeeping === 'RuntimeRecovery' &&
+      (input.checkpoint.version !== 1 ||
+        outcome.kind !== 'Active' ||
+        outcome.phase.kind !== 'Blocked' ||
+        outcome.phase.reason !== 'ProcessLost' ||
+        outcome.verification.kind !== 'NotSubmitted' ||
+        input.checkpoint.continuation.kind !== 'LaterRuntimeRecoveryRequired')
     )
       return { kind: 'CheckpointRejected' };
     if (
@@ -1657,6 +1681,7 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
   reconcileCalibration(
     opening: EvidenceRecorderOpening,
     hostedPrefix: readonly EvidenceEvent[],
+    bookkeeping: 'Terminal' | 'RuntimeRecovery' = 'Terminal',
   ):
     | Exclude<
         EvidenceRecorderAcquisition<PreparedCompatibilityEvidence>,
@@ -1679,7 +1704,11 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
       hostedPrefix.length === 0
     )
       return { kind: 'LocalStateCorruption' };
-    const runDirectory = join(stateRoot, 'runs', run.binding.runId);
+    const rootDirectory = join(stateRoot, 'runs', run.binding.runId);
+    const runDirectory =
+      bookkeeping === 'RuntimeRecovery' && run.currentExecution !== undefined
+        ? join(rootDirectory, 'incarnations', run.lease.incarnationId)
+        : rootDirectory;
     const artifactDirectory = join(runDirectory, 'artifacts');
     const path = join(runDirectory, 'outbox.sqlite');
     let database: DatabaseSync | undefined;
@@ -1688,7 +1717,16 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
         ![stateRoot, join(stateRoot, 'runs'), runDirectory, artifactDirectory].every(
           isOwnerOnlyDirectory,
         ) ||
-        realpathSync(runDirectory) !== join(realpathSync(stateRoot), 'runs', run.binding.runId) ||
+        realpathSync(runDirectory) !==
+          (bookkeeping === 'RuntimeRecovery' && run.currentExecution !== undefined
+            ? join(
+                realpathSync(stateRoot),
+                'runs',
+                run.binding.runId,
+                'incarnations',
+                run.lease.incarnationId,
+              )
+            : join(realpathSync(stateRoot), 'runs', run.binding.runId)) ||
         pathKind(path) !== 'RegularFile' ||
         (lstatSync(path).mode & 0o777) !== 0o600
       )
@@ -1724,7 +1762,9 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
             : event.predecessor.kind !== 'Previous' || event.predecessor.eventSaid !== previous) ||
           Date.parse(event.recordedAt) < Date.parse(run.lease.acquiredAt) ||
           (Date.parse(event.recordedAt) >= Date.parse(run.lease.expiresAt) &&
-            !terminalCalibrationObservation(event)) ||
+            !(bookkeeping === 'RuntimeRecovery'
+              ? runtimeRecoveryObservation(event)
+              : terminalCalibrationObservation(event))) ||
           (index < hostedPrefix.length && !isDeepStrictEqual(event, hostedPrefix[index]))
         )
           return { kind: 'LocalStateCorruption' };
@@ -1745,7 +1785,7 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
         artifactDirectory,
         this.#credentials,
         this.#now,
-        true,
+        bookkeeping === 'RuntimeRecovery' ? 'RuntimeRecovery' : 'TerminalCalibration',
       );
       database = undefined;
       return { kind: 'Opened', recorder, events };

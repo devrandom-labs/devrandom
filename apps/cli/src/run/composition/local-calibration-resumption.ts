@@ -1,3 +1,4 @@
+import { reconcileLocalInterruptedCalibration } from './interrupted-calibration.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -33,7 +34,10 @@ export async function resumeLocalCalibration(
       run.binding.taskId !== input.task.taskId ||
       run.binding.taskRevisionSaid !== input.task.revisionSaid ||
       (run.currentExecution !== undefined &&
-        (run.lifecycle.kind !== 'Active' || run.lifecycle.phase.kind !== 'Preparing'))
+        (run.lifecycle.kind !== 'Active' ||
+          (run.lifecycle.phase.kind !== 'Preparing' &&
+            (run.lifecycle.phase.kind !== 'Blocked' ||
+              run.lifecycle.phase.reason !== 'ProcessLost'))))
     )
       return { kind: 'Blocked', gate: 'CalibrationPredecessor' };
     const pointer = await input.hosted.activationPointer().inspect(input.task.taskId);
@@ -82,6 +86,8 @@ export async function resumeLocalCalibration(
       custody: mandates.executionAuthority.taskMandateCustody,
       now,
     });
+    const recovery = await reconcileLocalInterruptedCalibration(input, run, mandates);
+    if (recovery === 'Rejected') return { kind: 'Blocked', gate: 'InterruptedCalibrationCustody' };
     return await new TaskResumptionComposition({
       stateRoot: input.stateRoot,
       repositoryDirectory: process.cwd(),

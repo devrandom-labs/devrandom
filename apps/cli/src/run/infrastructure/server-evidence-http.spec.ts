@@ -126,6 +126,52 @@ describe('Server Evidence HTTP adapter', () => {
     });
   });
 
+  it('uses the dedicated runtime-recovery route with exact predecessor custody and rejects a forged acknowledgement', async () => {
+    const prepared = fixture();
+    const fetch = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(prepared.acknowledgement), {
+          status: 201,
+          headers: { 'cache-control': 'no-store' },
+        }),
+      ),
+    );
+    const server = new ServerEvidenceHttp(origin(), bearer, fetch);
+    const body = {
+      version: 1 as const,
+      expected: {
+        incarnationId: prepared.event.incarnationId,
+        runStartedSaid: said('s'),
+        acceptedThroughSequence: 0,
+        chainHeadSaid: said('p'),
+      },
+      body: { version: 1 as const, batch: prepared.batch, events: [prepared.event] },
+    };
+    expect(await server.reconcileRuntimeRecovery(runId, body)).toEqual({
+      kind: 'Accepted',
+      acknowledgement: prepared.acknowledgement,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      `http://127.0.0.1:3000/api/runs/${runId}/evidence-runtime-reconciliation`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+      }),
+    );
+    fetch.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ ...prepared.acknowledgement, chainHeadSaid: said('z') }), {
+          status: 201,
+          headers: { 'cache-control': 'no-store' },
+        }),
+      ),
+    );
+    expect(await server.reconcileRuntimeRecovery(runId, body)).toEqual({
+      kind: 'ResponseInvalid',
+    });
+  });
+
   it('reads a checkpoint-bound public verifier receipt and rejects a forged SAID', async () => {
     const prepared = preparePublicVerifierReceipt({
       version: 1,

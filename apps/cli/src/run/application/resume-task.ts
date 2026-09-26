@@ -126,7 +126,8 @@ export async function resumeTask(
           activation.activeRevisionSaid === run.binding.initialHarnessRevisionSaid
         : activation.kind !== 'Initial' ||
           activation.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
-          run.lifecycle.phase.reason !== 'ContextLimitReached')
+          (run.lifecycle.phase.reason !== 'ContextLimitReached' &&
+            run.lifecycle.phase.reason !== 'ProcessLost'))
     )
       return { kind: 'BindingRejected' };
     const authority = await dependencies.authority.verify(run);
@@ -341,6 +342,7 @@ export async function resumeTask(
       segment.segment.taskMandateSaid !== run.binding.taskMandateSaid ||
       segment.segment.fromRunVersion !== run.version ||
       segment.segment.predecessor.incarnationId !== run.lease.incarnationId ||
+      segment.segment.predecessor.segmentSaid !== run.currentExecution?.segmentSaid ||
       segment.segment.predecessor.evidenceStreamId !== stream.evidenceStreamId ||
       segment.segment.predecessor.finalSequence !== stream.cursor.acceptedThroughSequence ||
       segment.segment.taskId !== task.taskId ||
