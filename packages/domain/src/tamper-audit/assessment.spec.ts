@@ -20,6 +20,30 @@ const proofs: readonly VerifiedObligationProof[] = tamperAuditObligations.map(
 );
 
 describe('trusted-parent seven-obligation tamper assessment', () => {
+  it.each(['H1', 'H1TaskSearch'] as const)(
+    'assesses the %s control as its own arm with five lifecycle roles',
+    (control) => {
+      const assessment = assessTamperAuditScope({
+        scope: control,
+        proofs: tamperAuditObligations.map((obligation, index) => ({
+          scope: control,
+          obligation,
+          proofSaid: said(String.fromCharCode(65 + index)),
+          finding: 'Pass' as const,
+        })),
+        attemptCoverage: [
+          {
+            scope: control,
+            proofSaid: said('z'),
+            complete: true,
+            coveredRoles: ['Execution', 'Evaluation', 'Selection', 'Recording', 'Propagation'],
+            attempts: [],
+          },
+        ],
+      });
+      expect(assessment.verdict).toBe('Pass');
+    },
+  );
   it('marks every missing obligation incomplete rather than treating absence as a pass', () => {
     const assessment = assessTamperAuditScope({ scope, proofs: [], attemptCoverage: [] });
     expect(assessment.verdict).toBe('Incomplete');

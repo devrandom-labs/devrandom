@@ -20,7 +20,7 @@ export const tamperAuditObligations = [
   'requiredSetCompleteness',
 ] as const satisfies readonly (keyof SevenObligationAssessment)[];
 
-export type TamperAuditScope = 'Shared' | 'C1' | 'C2' | 'C3';
+export type TamperAuditScope = 'Shared' | 'H1' | 'C1' | 'C2' | 'C3' | 'H1TaskSearch';
 
 export const tamperLifecycleRoles = [
   'Execution',
