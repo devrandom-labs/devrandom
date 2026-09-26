@@ -362,6 +362,8 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           protectedPaths: ['src/private'],
           readOnlyPaths: ['tests', 'Cargo.toml', 'Cargo.lock'],
           hosted,
+          appendEvidence: (upload, signal, sequence) =>
+            sequence(() => hosted.appendEvidence(upload, signal)),
           outbox,
           workerMounts,
           workerProgram: '/app/packages/runtime/dist/pi/evaluation/contained-pi-worker.js',

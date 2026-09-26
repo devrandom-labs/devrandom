@@ -119,6 +119,12 @@ export interface LockedComparisonInput {
     readonly C3: () => NonNullable<Configuration['c3Selection']>;
   };
   readonly hosted: ServerEvaluationHttp;
+  /** Select and reserve authenticated transport before entering the Evaluation write section. */
+  readonly appendEvidence: (
+    upload: Parameters<ServerEvaluationHttp['appendEvidence']>[0],
+    signal: AbortSignal,
+    sequenceMutation: <T>(effect: () => Promise<T>) => Promise<T>,
+  ) => ReturnType<ServerEvaluationHttp['appendEvidence']>;
   readonly outbox: SqliteEvaluationEvidenceOutbox;
   readonly mandate: CurrentToolMandate;
   readonly cases: EvaluationCaseInventory;
@@ -182,7 +188,7 @@ export async function executeLockedComparison(
   };
   const evidenceWriting = {
     appendEvidence: (upload: Parameters<ServerEvaluationHttp['appendEvidence']>[0]) =>
-      sequenceMutation(() => hosted.appendEvidence(upload, signal)),
+      input.appendEvidence(upload, signal, sequenceMutation),
     inspectManifestLock: hosted.inspectManifestLock.bind(hosted),
   };
   const evidence = new SqliteHostedEvaluationEvidence(outbox, evidenceWriting);
