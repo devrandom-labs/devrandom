@@ -21,6 +21,7 @@ export interface VerifiedTrialUsage {
     readonly binding: EvaluationExecutionBinding;
     readonly trialEvidenceHeadSaid: string;
     readonly providerUsageEventSaids: readonly string[];
+    readonly protectedObservationSaid: string;
     readonly custodyEvidenceHeadSaid: string;
     readonly custodyEvidenceSequence: number;
   }): Promise<
@@ -28,6 +29,7 @@ export interface VerifiedTrialUsage {
         readonly kind: 'Verified';
         readonly trialEvidenceHeadSaid: string;
         readonly providerUsageEventSaids: readonly string[];
+        readonly protectedObservationSaid: string;
         readonly custodyEvidenceHeadSaid: string;
         readonly custodyEvidenceSequence: number;
         readonly usage: TrialUsage;
@@ -115,6 +117,7 @@ export async function prepareMeasuredTrialObservation(
       binding,
       trialEvidenceHeadSaid: retained.trialEvidenceHeadSaid,
       providerUsageEventSaids: retained.providerUsageEventSaids,
+      protectedObservationSaid: retained.protectedObservationSaid,
       custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
       custodyEvidenceSequence: retained.custodyEvidenceSequence,
     });
@@ -125,6 +128,7 @@ export async function prepareMeasuredTrialObservation(
     measured.kind !== 'Verified' ||
     measured.trialEvidenceHeadSaid !== retained.trialEvidenceHeadSaid ||
     !sameStrings(measured.providerUsageEventSaids, retained.providerUsageEventSaids) ||
+    measured.protectedObservationSaid !== retained.protectedObservationSaid ||
     measured.custodyEvidenceHeadSaid !== retained.custodyEvidenceHeadSaid ||
     measured.custodyEvidenceSequence !== retained.custodyEvidenceSequence
   )

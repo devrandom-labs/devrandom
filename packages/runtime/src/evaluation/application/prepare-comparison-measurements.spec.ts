@@ -216,6 +216,7 @@ describe('parent comparison measurement preparation', () => {
       kind: 'Verified',
       trialEvidenceHeadSaid: measured.trialEvidenceHeadSaid,
       providerUsageEventSaids: measured.providerUsageEventSaids,
+      protectedObservationSaid: retained.protectedObservationSaid,
       custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
       custodyEvidenceSequence: retained.custodyEvidenceSequence,
       usage,
@@ -227,10 +228,34 @@ describe('parent comparison measurement preparation', () => {
     expect(prepared.kind).toBe('Prepared');
     if (prepared.kind !== 'Prepared') return;
     expect(prepared.evidence.observation).toEqual(measured.observation);
+    expect(measure).toHaveBeenCalledWith({
+      binding,
+      trialEvidenceHeadSaid: retained.trialEvidenceHeadSaid,
+      providerUsageEventSaids: retained.providerUsageEventSaids,
+      protectedObservationSaid: retained.protectedObservationSaid,
+      custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
+      custodyEvidenceSequence: retained.custodyEvidenceSequence,
+    });
+    measure.mockResolvedValue({
+      kind: 'Verified',
+      trialEvidenceHeadSaid: measured.trialEvidenceHeadSaid,
+      providerUsageEventSaids: measured.providerUsageEventSaids,
+      protectedObservationSaid: said('Z'),
+      custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
+      custodyEvidenceSequence: retained.custodyEvidenceSequence,
+      usage,
+    });
+    expect(
+      await prepareMeasuredTrialObservation(
+        { binding, manifest: input.manifest, verifier: input.verifier, retained },
+        { measure },
+      ),
+    ).toEqual({ kind: 'Incomplete', reason: 'Usage' });
     measure.mockResolvedValue({
       kind: 'Verified',
       trialEvidenceHeadSaid: said('Z'),
       providerUsageEventSaids: measured.providerUsageEventSaids,
+      protectedObservationSaid: retained.protectedObservationSaid,
       custodyEvidenceHeadSaid: retained.custodyEvidenceHeadSaid,
       custodyEvidenceSequence: retained.custodyEvidenceSequence,
       usage,
@@ -245,6 +270,7 @@ describe('parent comparison measurement preparation', () => {
       kind: 'Verified',
       trialEvidenceHeadSaid: measured.trialEvidenceHeadSaid,
       providerUsageEventSaids: measured.providerUsageEventSaids,
+      protectedObservationSaid: retained.protectedObservationSaid,
       custodyEvidenceHeadSaid: said('Z'),
       custodyEvidenceSequence: retained.custodyEvidenceSequence,
       usage,
