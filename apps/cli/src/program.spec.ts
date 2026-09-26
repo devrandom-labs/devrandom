@@ -56,6 +56,7 @@ function commandFixture(): {
       inspectEvidence: () => Promise.resolve({ kind: 'NotFound' }),
       tasks: {
         releaseWorkAccess: () => Promise.resolve('Released'),
+        cancel: () => Promise.resolve({ kind: 'Blocked', gate: 'Custody' }),
         resume: () => Promise.resolve({ kind: 'Blocked', gate: 'Custody' }),
         verify: () => Promise.resolve({ kind: 'Rejected' }),
         create: (path) => {
@@ -171,6 +172,110 @@ function processFixture(): {
 }
 
 describe('devrandom command', () => {
+  it('requires an explicit Run for cancellation and reports only a sealed Cancelled outcome', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const decoded = decodeRunProjection(runProjectionFixture());
+    if (decoded.kind !== 'Accepted') throw new Error('Run fixture rejected.');
+    const checkpointSaid = `E${'c'.repeat(43)}`;
+    const cancel = vi.fn(() =>
+      Promise.resolve({
+        kind: 'Reconciled' as const,
+        run: {
+          ...decoded.run,
+          lifecycle: {
+            kind: 'Ended' as const,
+            outcome: { kind: 'Cancelled' as const, checkpointSaid },
+          },
+        },
+        checkpointSaid,
+      }),
+    );
+    const routed = { ...commands, tasks: { ...commands.tasks, cancel } };
+    const missingRun = createProgram(routed, runtime.process);
+    const cancellation = missingRun.commands
+      .find((command) => command.name() === 'task')
+      ?.commands.find((command) => command.name() === 'cancel');
+    if (cancellation === undefined) throw new Error('Cancellation command is absent.');
+    cancellation.exitOverride().configureOutput({ writeErr: () => {} });
+    await expect(
+      missingRun.parseAsync(['node', 'devrandom', 'task', 'cancel', 'cesr-compat']),
+    ).rejects.toMatchObject({ code: 'commander.missingMandatoryOptionValue' });
+    expect(cancel).not.toHaveBeenCalled();
+    await createProgram(routed, runtime.process)
+      .exitOverride()
+      .parseAsync([
+        'node',
+        'devrandom',
+        'task',
+        'cancel',
+        'cesr-compat',
+        '--run',
+        decoded.run.binding.runId,
+      ]);
+    expect(cancel.mock.calls[0]).toEqual([
+      'cesr-compat',
+      decoded.run.binding.runId,
+      runtime.interruptionSignals[0],
+    ]);
+    expect(runtime.output.join('')).toContain(`Run cancelled: ${decoded.run.binding.runId}`);
+    expect(runtime.output.join('')).toContain(`Checkpoint: ${checkpointSaid}`);
+    expect(runtime.output.join('')).toContain('Task completion: not established');
+    expect(runtime.interruptionReleases).toEqual(['released']);
+  });
+
+  it.each(['Unavailable', 'LocalEvidenceRejected'] as const)(
+    'does not announce cancellation when custody returns %s',
+    async (kind) => {
+      const { commands } = commandFixture();
+      const runtime = processFixture();
+      const cancel = () => Promise.resolve({ kind });
+      await createProgram({ ...commands, tasks: { ...commands.tasks, cancel } }, runtime.process)
+        .exitOverride()
+        .parseAsync([
+          'node',
+          'devrandom',
+          'task',
+          'cancel',
+          'cesr-compat',
+          '--run',
+          'original-run',
+        ]);
+      expect(runtime.output).toEqual([]);
+      expect(runtime.errors).toEqual([`Task cancellation: ${kind}.\n`]);
+      expect(runtime.exitCodes).toEqual([kind === 'Unavailable' ? 5 : 6]);
+      expect(runtime.interruptionReleases).toEqual(['released']);
+    },
+  );
+
+  it('rejects a reconciled receipt that has not ended in cancellation', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const decoded = decodeRunProjection(runProjectionFixture());
+    if (decoded.kind !== 'Accepted') throw new Error('Run fixture rejected.');
+    const cancel = () =>
+      Promise.resolve({
+        kind: 'Reconciled' as const,
+        run: decoded.run,
+        checkpointSaid: `E${'c'.repeat(43)}`,
+      });
+    await createProgram(
+      { ...commands, tasks: { ...commands.tasks, cancel } },
+      runtime.process,
+    ).parseAsync([
+      'node',
+      'devrandom',
+      'task',
+      'cancel',
+      'cesr-compat',
+      '--run',
+      decoded.run.binding.runId,
+    ]);
+    expect(runtime.output).toEqual([]);
+    expect(runtime.errors).toEqual(['Task cancellation: BindingRejected.\n']);
+    expect(runtime.exitCodes).toEqual([6]);
+  });
+
   it('exposes publication and same-Run recovery at the real command boundary', () => {
     const { commands } = commandFixture();
     const program = createProgram(commands, processFixture().process);

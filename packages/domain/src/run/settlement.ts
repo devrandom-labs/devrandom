@@ -429,9 +429,7 @@ export function blockRun(run: Run, input: RunBlock): RunBlocking {
 }
 
 /** An unsubmitted Run can end without acquiring failure or calibration meaning. */
-export function planRunCancellation(
-  run: Run,
-):
+export function planRunCancellation(run: Run):
   | {
       readonly kind: 'Planned';
       readonly state: {

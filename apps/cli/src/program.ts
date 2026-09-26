@@ -22,6 +22,7 @@ import type {
 } from './publication/composition/local-harness-publication.js';
 import type { SupervisedTaskResumption } from './run/composition/task-resumption.js';
 import type { TaskTerminalVerificationComposition } from './run/composition/task-terminal-verification.js';
+import type { TerminalCalibrationReconciliation } from './run/application/terminal-calibration-reconciliation.js';
 import type { LocalEvaluationPromotion } from './promotion/composition/local-evaluation-promotion.js';
 import type { QualifiedSourceInventoryPreparation } from './harness/application/prepare-qualified-source-inventory.js';
 import type {
@@ -50,6 +51,14 @@ export interface UserIdentityCommands {
 
 export interface TaskCommands {
   releaseWorkAccess(): Promise<'Released' | 'Unavailable'>;
+
+  cancel(
+    label: string,
+    runId: string,
+    signal: AbortSignal,
+  ): Promise<
+    TerminalCalibrationReconciliation | { readonly kind: 'Blocked'; readonly gate: string }
+  >;
 
   resume(
     label: string,
@@ -210,6 +219,36 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
       const interruption = cliProcess.watchInterruption();
       try {
         await runTaskRunCommand(commands.tasks.run(label, interruption.signal), cliProcess);
+      } finally {
+        interruption.release();
+      }
+    });
+  task
+    .command('cancel')
+    .description('Seal cancellation of one expired interrupted calibration Run')
+    .argument('<label>')
+    .requiredOption('--run <id>', 'the exact expired Run to cancel')
+    .action(async (label: string, options: { run: string }) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.tasks.cancel(label, options.run, interruption.signal);
+        if (
+          outcome.kind === 'Reconciled' &&
+          outcome.run.binding.runId === options.run &&
+          outcome.run.lifecycle.kind === 'Ended' &&
+          outcome.run.lifecycle.outcome.kind === 'Cancelled' &&
+          outcome.run.lifecycle.outcome.checkpointSaid === outcome.checkpointSaid
+        ) {
+          cliProcess.write(
+            `Run cancelled: ${outcome.run.binding.runId}\nCheckpoint: ${outcome.checkpointSaid}\nTask completion: not established\n`,
+          );
+        } else {
+          const kind = outcome.kind === 'Reconciled' ? 'BindingRejected' : outcome.kind;
+          cliProcess.writeError(
+            `Task cancellation: ${kind}${outcome.kind === 'Blocked' ? ` (${outcome.gate})` : ''}.\n`,
+          );
+          cliProcess.setExitCode(kind === 'Unavailable' ? 5 : 6);
+        }
       } finally {
         interruption.release();
       }
