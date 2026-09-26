@@ -18,7 +18,10 @@ import {
 
 import { signifyIssuerActivationReceiptExchange } from './activation-receipt-exchange.js';
 import { governorAid, issuerAid, personalAgentAid } from './keri-identifier.js';
-import { signifyLocalPromotionExchanges } from './local-promotion-exchanges.js';
+import {
+  signifyLocalPromotionExchanges,
+  type StablePromotionExchange,
+} from './local-promotion-exchanges.js';
 import { GOVERNOR_ALIAS, PERSONAL_AGENT_ALIAS } from './local-principal-custody.js';
 import { signifyIssuerPromotionExchanges } from './promotion-exchange-inspection.js';
 import { completeSignifyOperation } from './signify-operation.js';
@@ -141,7 +144,7 @@ describeKeria('real KERIA promotion signatures and issuer activation receipt', (
       recipientAid,
       preparedAt: Date.now(),
       payload: proposal,
-    };
+    } satisfies StablePromotionExchange;
     const preparedProposal = await local.prepare(proposalInput);
     const deliveredProposal = await local.deliver({ ...proposalInput, ...preparedProposal });
     expect(deliveredProposal.exchangeSaid).toBe(preparedProposal.exchangeSaid);
@@ -159,7 +162,7 @@ describeKeria('real KERIA promotion signatures and issuer activation receipt', (
       recipientAid,
       preparedAt: Date.now(),
       payload: decision,
-    };
+    } satisfies StablePromotionExchange;
     const preparedDecision = await local.prepare(decisionInput);
     const deliveredDecision = await local.deliver({ ...decisionInput, ...preparedDecision });
     expect(deliveredDecision.exchangeSaid).toBe(preparedDecision.exchangeSaid);

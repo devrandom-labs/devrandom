@@ -171,7 +171,7 @@ function fixture() {
     harnessLineageId: lineageId,
     evaluationManifestSaid: manifest.manifest.d,
     credential: { credentialSaid: said('A'), issuerAid: issuer, issueeAid: governor },
-  } as CurrentExactPromotionMandate;
+  } as unknown as CurrentExactPromotionMandate;
   const proposal: PromotionProposalPayload = {
     version: 1,
     kind: 'PromotionProposal',
