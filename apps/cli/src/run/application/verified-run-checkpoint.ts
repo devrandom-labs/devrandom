@@ -285,9 +285,12 @@ export class VerifiedRunCheckpoint implements RunCheckpointing {
     if (this.#state.kind === 'Prepared') return this.#persist(this.#state);
     if (this.#state.kind === 'Unprepared') {
       const remaining = remainingBudget(input.run, this.#dependencies.budget.snapshot());
+      const mayAttestExcess = runLifecycleRetainsBudgetExcess(input.disposition.runState);
       const repository = await this.#dependencies.repository.capture(this.#dependencies.worktree, {
         changedFiles: taskBudgetCeilings.changedFiles,
-        changedWorktreeBytes: taskBudgetCeilings.changedWorktreeBytes,
+        changedWorktreeBytes: mayAttestExcess
+          ? 32 * 1024 * 1024
+          : taskBudgetCeilings.changedWorktreeBytes,
       });
       if (repository.kind === 'WithheldSecret') {
         if (!isPrivacyDisposition(input.disposition)) {
@@ -320,14 +323,11 @@ export class VerifiedRunCheckpoint implements RunCheckpointing {
         }
         if (
           repository.repository.changedFiles.length > remaining.changedFiles &&
-          !runLifecycleRetainsBudgetExcess(input.disposition.runState)
+          !mayAttestExcess
         ) {
           return { kind: 'RepositoryRejected', reason: 'ChangedFileLimitExceeded' };
         }
-        if (
-          repository.changedWorktreeBytes > remaining.changedWorktreeBytes &&
-          !runLifecycleRetainsBudgetExcess(input.disposition.runState)
-        ) {
+        if (repository.changedWorktreeBytes > remaining.changedWorktreeBytes && !mayAttestExcess) {
           return { kind: 'RepositoryRejected', reason: 'ChangedWorktreeLimitExceeded' };
         }
         const changedBudget: RunBudgetAmount[] = [

@@ -458,6 +458,25 @@ describe('Git worktree changes', () => {
     ).resolves.toEqual({ kind: 'ChangedWorktreeLimitExceeded' });
   });
 
+  it('captures an over-budget ignored build artifact for a terminal exclusion audit', async () => {
+    const worktree = await worktreeFixture();
+    await writeFile(join(worktree.directory, '.gitignore'), '/target/\n');
+    await mkdir(join(worktree.directory, 'target'));
+    await writeFile(
+      join(worktree.directory, 'target', 'test-binary'),
+      Buffer.alloc(17 * 1024 * 1024),
+    );
+
+    const capture = await new GitWorktreeChanges().capture(worktree, {
+      changedFiles: 256,
+      changedWorktreeBytes: 32 * 1024 * 1024,
+    });
+    expect(capture.kind).toBe('Captured');
+    if (capture.kind !== 'Captured') return;
+    expect(capture.repository.changedFiles.map(({ path }) => path)).toContain('target/test-binary');
+    expect(capture.changedWorktreeBytes).toBeGreaterThan(16 * 1024 * 1024);
+  });
+
   it('withholds credentials in ignored output before creating its content identity', async () => {
     const worktree = await worktreeFixture();
     const commonDirectory = await git(worktree.directory, ['rev-parse', '--git-common-dir']);

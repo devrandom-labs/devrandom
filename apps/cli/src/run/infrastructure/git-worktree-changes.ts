@@ -43,7 +43,9 @@ type FileContent =
   | { readonly kind: 'Unavailable' };
 
 const maximumChangedFiles = 256;
-const maximumChangedWorktreeBytes = 16 * 1024 * 1024;
+// Read-only terminal capture may need to attest an already incurred overrun.
+// Admission still uses the Task's 16 MiB ceiling and cannot spend this allowance.
+const maximumChangedWorktreeBytes = 32 * 1024 * 1024;
 const relativePathPattern = new RegExp(
   '^(?!/)(?!.*//)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^/]+(?:/[^/]+)*$',
   'u',

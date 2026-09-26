@@ -445,32 +445,32 @@ describe('verified Run checkpoint', () => {
           actual: [{ budget: 'providerRequests', amount: 1 }],
         }),
       ).toEqual({ kind: 'Committed' });
+      const capture = vi.fn(() =>
+        Promise.resolve({
+          kind: 'Captured' as const,
+          repository: {
+            objectFormat: 'sha1' as const,
+            baseCommit: run.binding.repository.commit,
+            baseTree: run.binding.repository.tree,
+            changedFiles: [
+              {
+                path: 'src/parser.ts',
+                disposition: 'Modified' as const,
+                mode: '100644',
+                contentSaid: said('f'),
+              },
+            ],
+          },
+          changedWorktreeBytes: 20,
+        }),
+      );
       const checkpointing = new VerifiedRunCheckpoint({
         task,
         harness,
         worktree,
         evidence,
         budget,
-        repository: {
-          capture: () =>
-            Promise.resolve({
-              kind: 'Captured',
-              repository: {
-                objectFormat: 'sha1',
-                baseCommit: run.binding.repository.commit,
-                baseTree: run.binding.repository.tree,
-                changedFiles: [
-                  {
-                    path: 'src/parser.ts',
-                    disposition: 'Modified',
-                    mode: '100644',
-                    contentSaid: said('f'),
-                  },
-                ],
-              },
-              changedWorktreeBytes: 20,
-            }),
-        },
+        repository: { capture },
         now: () => '2026-09-24T20:00:04.000Z',
       });
 
@@ -489,6 +489,11 @@ describe('verified Run checkpoint', () => {
               ? { kind: 'ExternalResolutionRequired', reason }
               : { kind: 'LaterHarnessCompatibilityResolutionRequired' },
         },
+      });
+
+      expect(capture).toHaveBeenCalledWith(worktree, {
+        changedFiles: 256,
+        changedWorktreeBytes: reason === 'BudgetExhausted' ? 32 * 1024 * 1024 : 16 * 1024 * 1024,
       });
 
       if (expectation !== 'Materialized') {
