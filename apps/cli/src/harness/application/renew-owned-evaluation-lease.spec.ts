@@ -93,14 +93,12 @@ it('limits changing concurrent append conflicts to three attempts', async () => 
   const renew = vi
     .fn<EvaluationLeaseRenewalCustody['renew']>()
     .mockResolvedValue({ kind: 'Conflict' });
-  const inspect = vi
-    .fn<EvaluationLeaseRenewalCustody['inspect']>()
-    .mockImplementation(() =>
-      Promise.resolve({
-        kind: 'Read',
-        position: { ...position, currentEvaluationVersion: ++version },
-      }),
-    );
+  const inspect = vi.fn<EvaluationLeaseRenewalCustody['inspect']>().mockImplementation(() =>
+    Promise.resolve({
+      kind: 'Read',
+      position: { ...position, currentEvaluationVersion: ++version },
+    }),
+  );
   expect(await renewOwnedEvaluationLease(input, { inspect, renew })).toEqual({ kind: 'Lost' });
   expect(renew.mock.calls).toEqual([[12], [13], [14]]);
   expect(inspect).toHaveBeenCalledTimes(2);
