@@ -69,6 +69,8 @@ import { MongoEvidenceSeals } from './evidence/infrastructure/mongo-evidence-sea
 import { MongoEvidenceTimelines } from './evidence/infrastructure/mongo-evidence-timelines.js';
 import { workAccessEvidenceAuthorizer } from './evidence/infrastructure/work-access-evidence-authorizer.js';
 import type { EvidenceRoutesConfiguration } from './evidence/route/evidence-routes.js';
+import { composeHostedEvaluation } from './evaluation/composition/hosted-evaluation.js';
+import { MongoEvaluationBootstrap } from './evaluation/infrastructure/mongo-evaluation-bootstrap.js';
 import type { HostedWorkReadinessProbe } from './route/server-readiness-route.js';
 import { admitBaselineHarness } from './harness/application/admit-baseline-harness.js';
 import { MongoHarnessBootstrap } from './harness/infrastructure/mongo-harness-bootstrap.js';
@@ -179,6 +181,8 @@ async function runBootstrap(environment: DevrandomServerEnvironment): Promise<nu
         await new MongoRunBootstrap(hostedWorkMongo.db()).bootstrap();
         storageStage = 'evidence';
         await new MongoEvidenceBootstrap(hostedWorkMongo.db()).bootstrap();
+        storageStage = 'evaluation';
+        await new MongoEvaluationBootstrap(hostedWorkMongo.db()).bootstrap();
       } catch (cause) {
         const failure = cause instanceof Error ? cause.name : typeof cause;
         process.stderr.write(
@@ -300,12 +304,14 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     const harnessBootstrap = new MongoHarnessBootstrap(hostedDatabase);
     const runBootstrap = new MongoRunBootstrap(hostedDatabase);
     const evidenceBootstrap = new MongoEvidenceBootstrap(hostedDatabase);
+    const evaluationBootstrap = new MongoEvaluationBootstrap(hostedDatabase);
     await workAccessBootstrap.verify();
     await taskBootstrap.verify();
     await mandateBootstrap.verify();
     await harnessBootstrap.verify();
     await runBootstrap.verify();
     await evidenceBootstrap.verify();
+    await evaluationBootstrap.verify();
     const attempts = new MongoWorkAccessAttempts(
       hostedDatabase,
       hostedWorkConfiguration.workAccessPolicy,
@@ -490,6 +496,14 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       now: () => new Date().toISOString(),
       newCorrelationId: randomUUID,
     };
+    const hostedEvaluation = composeHostedEvaluation({
+      client: hostedWorkCandidate,
+      database: hostedDatabase,
+      attempts,
+      tasks,
+      presentations: mandatePresentations,
+      currentTaskMandate,
+    });
     hostedWorkMongo = hostedWorkCandidate;
     hostedWorkCandidate = undefined;
     hostedWork = {
@@ -500,6 +514,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       harness: harnessRoutesConfiguration,
       runs: runRoutesConfiguration,
       evidence: evidenceRoutesConfiguration,
+      ...hostedEvaluation,
     };
     hostedWorkReadiness = {
       async verify() {
@@ -512,6 +527,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await harnessBootstrap.verify();
         await runBootstrap.verify();
         await evidenceBootstrap.verify();
+        await evaluationBootstrap.verify();
         await result.infrastructure.taskMandateSchemaAvailability.verify();
         await result.infrastructure.taskMandateV2SchemaAvailability.verify();
         await result.infrastructure.promotionMandateSchemaAvailability.verify();

@@ -32,7 +32,7 @@ export interface EvaluationEligibility {
   >;
 }
 
-/** The repository atomically rechecks immutable bindings and takes the owner reservation. */
+/** The repository rechecks immutable Run bindings and takes the owner slot; residual spend remains an eligibility gate. */
 export interface EvaluationReservations {
   reserve(input: {
     readonly ownerAid: string;

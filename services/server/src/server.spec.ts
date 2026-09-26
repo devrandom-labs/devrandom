@@ -229,6 +229,34 @@ describe('Devrandom Server identity boundary', () => {
     });
   });
 
+  it('keeps the scoped Experience query public and fails closed when hosted work is unavailable', async () => {
+    const server = buildDevrandomServer(
+      verifiedIssuerFixture(),
+      registrationRoutesFixture(),
+      { verify: () => Promise.resolve() },
+      { verify: () => Promise.reject(new Error('hosted work unavailable')) },
+    );
+    servers.push(server);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/experience/query',
+      headers: { authorization: `Bearer ${'s'.repeat(43)}` },
+      payload: {
+        version: 1,
+        taskId: '1cc482f1-98e9-4454-8e4c-5566cb47ce3d',
+        sourceInventorySaid: `E${'i'.repeat(43)}`,
+        corpusSaid: `E${'c'.repeat(43)}`,
+        failureQuery: 'receipt grammar mismatch',
+        maximumResults: 3,
+      },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['content-type']).toContain('application/problem+json');
+    expect(response.json()).toMatchObject({ status: 503 });
+  });
+
   it('serves Task, Run, and Evidence queries through the composed hosted-work boundary', async () => {
     const list = vi.fn(() =>
       Promise.resolve({

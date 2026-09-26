@@ -271,5 +271,42 @@ export class MongoEvaluationBootstrap {
           : {}),
       });
     }
+    await this.verify();
+  }
+
+  async verify(): Promise<void> {
+    for (const [name, validator] of Object.entries(validators)) {
+      const [existing] = await this.#database.listCollections({ name }).toArray();
+      const options =
+        existing !== undefined && 'options' in existing ? existing.options : undefined;
+      if (options === undefined || !isDeepStrictEqual(options.validator, validator))
+        throw new Error(`Evaluation collection ${name} is missing or drifted`);
+    }
+    for (const definition of [...evaluationReservationIndexes(), ...evaluationEvidenceIndexes()]) {
+      const existing: unknown[] = await this.#database
+        .collection(definition.collection)
+        .listIndexes()
+        .toArray();
+      if (
+        !existing.some(
+          (index) =>
+            typeof index === 'object' &&
+            index !== null &&
+            'name' in index &&
+            index.name === definition.name &&
+            'key' in index &&
+            isDeepStrictEqual(index.key, definition.key) &&
+            'unique' in index &&
+            index.unique === definition.unique &&
+            (!('partialFilterExpression' in definition) ||
+              ('partialFilterExpression' in index &&
+                isDeepStrictEqual(
+                  index.partialFilterExpression,
+                  definition.partialFilterExpression,
+                ))),
+        )
+      )
+        throw new Error(`Evaluation index ${definition.name} is missing or drifted`);
+    }
   }
 }

@@ -14,6 +14,7 @@ export interface EvaluationPreparationScopes {
   inspect(input: {
     readonly ownerAid: string;
     readonly taskId: string;
+    readonly experienceMandateSaid: string;
   }): Promise<
     | { readonly kind: 'Authorized'; readonly scope: EvolutionSourceScope }
     | { readonly kind: 'Denied' | 'Unavailable' }
@@ -54,6 +55,7 @@ export async function prepareEvaluation(
   const authority = await dependencies.scopes.inspect({
     ownerAid: input.ownerAid,
     taskId: input.command.taskId,
+    experienceMandateSaid: sourceInventory.experienceMandateSaid,
   });
   if (authority.kind !== 'Authorized')
     return authority.kind === 'Unavailable' ? 'Unavailable' : 'Rejected';

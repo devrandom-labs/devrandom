@@ -19,6 +19,18 @@ import {
   evidenceRoutes,
   type EvidenceRoutesConfiguration,
 } from './evidence/route/evidence-routes.js';
+import {
+  evidenceReadRoutes,
+  type EvidenceReadRoutesConfiguration,
+} from './evidence/route/evidence-read-routes.js';
+import {
+  evaluationRoutes,
+  type EvaluationRoutesConfiguration,
+} from './evaluation/route/evaluation-routes.js';
+import {
+  experienceRoutes,
+  type ExperienceRoutesConfiguration,
+} from './experience/route/experience-routes.js';
 import { harnessRoutes, type HarnessRoutesConfiguration } from './harness/route/harness-routes.js';
 import type { VerifiedDevrandomIssuer } from './domain/verified-devrandom-issuer.js';
 import { mandateRoutes, type MandateRoutesConfiguration } from './mandate/route/mandate-routes.js';
@@ -47,6 +59,9 @@ export type HostedWorkCapabilities =
       readonly harness: HarnessRoutesConfiguration;
       readonly runs: RunRoutesConfiguration;
       readonly evidence: EvidenceRoutesConfiguration;
+      readonly evaluation?: EvaluationRoutesConfiguration;
+      readonly evidenceReading?: EvidenceReadRoutesConfiguration;
+      readonly experience?: ExperienceRoutesConfiguration;
     }
   | { readonly kind: 'Unavailable' };
 
@@ -154,6 +169,40 @@ function unavailableEvidenceRoutes(): EvidenceRoutesConfiguration {
   };
 }
 
+function unavailableEvaluationRoutes(): EvaluationRoutesConfiguration {
+  const unavailable = { kind: 'Unavailable' } as const;
+  return {
+    access: { authorize: () => Promise.resolve(unavailable) },
+    preparation: { prepare: () => Promise.resolve('Unavailable') },
+    admission: { admit: () => Promise.resolve(unavailable) },
+    leases: { renew: () => Promise.resolve(unavailable) },
+    evidence: {
+      accept: () => Promise.resolve(unavailable),
+      close: () => Promise.resolve(unavailable),
+    },
+    now: () => new Date().toISOString(),
+    newCorrelationId: randomUUID,
+  };
+}
+
+function unavailableEvidenceReadRoutes(): EvidenceReadRoutesConfiguration {
+  return {
+    access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
+    conversation: { read: () => Promise.resolve({ kind: 'Unavailable' }) },
+    now: () => new Date().toISOString(),
+    newCorrelationId: randomUUID,
+  };
+}
+
+function unavailableExperienceRoutes(): ExperienceRoutesConfiguration {
+  return {
+    access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
+    conversation: { retrieve: () => Promise.resolve({ kind: 'Unavailable' }) },
+    now: () => new Date().toISOString(),
+    newCorrelationId: randomUUID,
+  };
+}
+
 export function buildDevrandomServer(
   issuer: VerifiedDevrandomIssuer,
   registration: DevrandomServerRegistration,
@@ -213,6 +262,27 @@ export function buildDevrandomServer(
   void server.register(
     evidenceRoutes(
       hostedWork.kind === 'Available' ? hostedWork.evidence : unavailableEvidenceRoutes(),
+    ),
+  );
+  void server.register(
+    evaluationRoutes(
+      hostedWork.kind === 'Available' && hostedWork.evaluation !== undefined
+        ? hostedWork.evaluation
+        : unavailableEvaluationRoutes(),
+    ),
+  );
+  void server.register(
+    evidenceReadRoutes(
+      hostedWork.kind === 'Available' && hostedWork.evidenceReading !== undefined
+        ? hostedWork.evidenceReading
+        : unavailableEvidenceReadRoutes(),
+    ),
+  );
+  void server.register(
+    experienceRoutes(
+      hostedWork.kind === 'Available' && hostedWork.experience !== undefined
+        ? hostedWork.experience
+        : unavailableExperienceRoutes(),
     ),
   );
   void server.register(schemaOobiRoute);
