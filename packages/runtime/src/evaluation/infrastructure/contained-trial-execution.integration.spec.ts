@@ -256,7 +256,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               writable: false,
             },
             {
-              hostPath: resolve('node_modules/.pnpm'),
+              hostPath: process.env.DEVRANDOM_EVAL_PNPM_DIRECTORY ?? resolve('node_modules/.pnpm'),
               containerPath: '/app/node_modules/.pnpm',
               writable: false,
             },
@@ -668,6 +668,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                   api: model.api,
                   provider: model.provider,
                   model: model.id,
+                  responseId: `provider-response-${String(input.requestOrdinal)}`,
                 };
                 return Promise.resolve({
                   kind: 'Completed' as const,
