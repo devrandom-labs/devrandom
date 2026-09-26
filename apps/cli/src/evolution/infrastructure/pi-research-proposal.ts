@@ -62,7 +62,8 @@ export class PiResearchProposal {
     const startedMonotonicMicroseconds = Math.floor(performance.now() * 1000);
     if (
       decodeEvaluationExecutionBinding(binding).kind !== 'Accepted' ||
-      binding.phase.kind !== 'Research'
+      binding.phase.kind !== 'Research' ||
+      Object.values(consumed).some((value) => !Number.isSafeInteger(value) || value < 0)
     )
       return { kind: 'Rejected', reason: 'Binding' };
     let sequence = input.position.nextSequence;

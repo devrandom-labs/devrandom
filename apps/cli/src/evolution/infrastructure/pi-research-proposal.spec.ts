@@ -139,3 +139,13 @@ it('does not release an unacknowledged proposal', async () => {
   f.record.mockImplementationOnce(() => Promise.resolve({ kind: 'Unavailable' }));
   expect(await f.proposal.propose(f.input)).toEqual({ kind: 'Rejected', reason: 'Evidence' });
 });
+it('rejects corrupt prior consumption before spending another paid request', async () => {
+  const f = fixture();
+  expect(
+    await f.proposal.propose({
+      ...f.input,
+      consumed: { ...f.input.consumed, providerRequests: -1 },
+    }),
+  ).toEqual({ kind: 'Rejected', reason: 'Binding' });
+  expect(f.complete).not.toHaveBeenCalled();
+});
