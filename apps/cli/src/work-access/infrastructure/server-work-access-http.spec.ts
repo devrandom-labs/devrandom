@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 
 import { describe, expect, it, vi } from 'vitest';
+import { issuerAid as decodeIssuerAid, personalAgentAid } from '@devrandom/identity';
 
 import type { CreateWorkAccessAttemptBody, WorkAccessAttemptProjection } from '@devrandom/protocol';
 
@@ -79,6 +80,25 @@ function requestUrl(input: string | URL | Request): string {
 }
 
 describe('Devrandom Server Work Access HTTP', () => {
+  it('exposes activation only from an active grant with exact activation:commit scope', () => {
+    const access = new ServerWorkAccessHttp('http://127.0.0.1:3211', new Uint8Array(32).fill(0xab));
+    const receipts = { inspect: vi.fn() };
+    const source = decodeIssuerAid(issuerAid);
+    const recipient = personalAgentAid('EERMVxqeHfFo_eIvyzBXaKdT1EyobZdSs1QXuFyYLjmz');
+    expect(() => access.authorizedWork(granted).activation(receipts, source, recipient)).toThrow();
+    const scoped = access.authorizedWork({ ...granted, scopes: ['activation:commit'] });
+    expect(scoped.activation(receipts, source, recipient)).toBeDefined();
+    expect(() =>
+      access
+        .authorizedWork({
+          ...granted,
+          scopes: ['activation:commit'],
+          disposition: { kind: 'Expired' },
+        })
+        .activation(receipts, source, recipient),
+    ).toThrow();
+  });
+
   it('retries a lost release reply with the exact DELETE path and bearer', async () => {
     const requests: { readonly url: string; readonly init: RequestInit | undefined }[] = [];
     const fetch: DevrandomFetch = (input, init) => {

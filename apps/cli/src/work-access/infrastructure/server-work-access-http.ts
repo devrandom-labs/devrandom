@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 
 import { ProtectedCredentials } from '@devrandom/domain';
+import type {
+  IssuerActivationReceiptExchange,
+  IssuerAid,
+  PersonalAgentAid,
+} from '@devrandom/identity';
 
 import {
   createWorkAccessAttemptBodySchema,
@@ -25,6 +30,7 @@ import { ServerRunHttp } from '../../run/infrastructure/server-run-http.js';
 import { ServerEvidenceHttp } from '../../run/infrastructure/server-evidence-http.js';
 import { ServerTaskHttp } from '../../task/infrastructure/server-task-http.js';
 import { ServerEvaluationHttp } from '../../harness/infrastructure/server-evaluation-http.js';
+import { ServerActivationHttp } from '../../promotion/infrastructure/server-activation-http.js';
 
 export type WorkAccessHttpError =
   | { readonly kind: 'server-url-invalid' }
@@ -231,6 +237,21 @@ export class ServerWorkAccessHttp {
     );
   }
 
+  activation(
+    receipts: Pick<IssuerActivationReceiptExchange, 'inspect'>,
+    issuerAid: IssuerAid,
+    personalAgentAid: PersonalAgentAid,
+  ): ServerActivationHttp {
+    return new ServerActivationHttp(
+      this.#serverOrigin,
+      this.#bearer,
+      this.#fetch,
+      receipts,
+      issuerAid,
+      personalAgentAid,
+    );
+  }
+
   #authorizedHeaders(additional?: Readonly<{ 'content-type': 'application/json' }>): HeadersInit {
     return additional === undefined
       ? { authorization: `Bearer ${this.#bearer}` }
@@ -357,6 +378,19 @@ export class GrantedServerWorkHttp {
 
   evaluations(): ServerEvaluationHttp {
     return this.#evaluations;
+  }
+
+  activation(
+    receipts: Pick<IssuerActivationReceiptExchange, 'inspect'>,
+    issuerAid: IssuerAid,
+    personalAgentAid: PersonalAgentAid,
+  ): ServerActivationHttp {
+    if (
+      this.grant.disposition.kind !== 'Active' ||
+      !this.grant.scopes.includes('activation:commit')
+    )
+      throw new WorkAccessHttpFailure({ kind: 'request-invalid' });
+    return this.#access.activation(receipts, issuerAid, personalAgentAid);
   }
 }
 
