@@ -9,7 +9,7 @@ x-healthcheck: &healthcheck
 services:
   mongodb:
     image: mongo:8.3.11-noble@sha256:02eb14a1130c6d060847c4169eccd4d79d9f172a584da7aea8f160c492537b02
-    command: ['mongod', '--bind_ip_all']
+    command: ['mongod', '--bind_ip_all', '--replSet', 'devrandom-rs']
     ports:
       - '127.0.0.1:${DEVRANDOM_MONGODB_PORT:-27017}:27017'
     volumes:
@@ -84,10 +84,10 @@ services:
     cpus: 2.0
     pids_limit: 512
 
-  issuer:
+  server:
     build:
       context: .
-      dockerfile: services/issuer/Dockerfile
+      dockerfile: services/server/Dockerfile
     command: ['serve']
     environment:
       DEVRANDOM_ISSUER_BRAN: ${DEVRANDOM_ISSUER_BRAN:-}
@@ -96,9 +96,14 @@ services:
       DEVRANDOM_ISSUER_WITNESS_POLICY: unwitnessed
       DEVRANDOM_KERIA_ADMIN_URL: http://keria:3901
       DEVRANDOM_KERIA_BOOT_URL: http://keria:3903
-      DEVRANDOM_MONGODB_URI: mongodb://mongodb:27017/devrandom
+      DEVRANDOM_MONGODB_URI: mongodb://mongodb:27017/devrandom?replicaSet=devrandom-rs
+      DEVRANDOM_HOSTED_WORK_MONGODB_URI: ${DEVRANDOM_HOSTED_WORK_MONGODB_URI:-mongodb://mongodb:27017/devrandom_e0?replicaSet=devrandom-rs}
+      DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS: ${DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS:-}
+      DEVRANDOM_TASK_CURSOR_KEY: ${DEVRANDOM_TASK_CURSOR_KEY:-BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc}
       DEVRANDOM_REGISTRATION_SITE_URL: http://127.0.0.1:${DEVRANDOM_SITE_PORT:-3210}
-      DEVRANDOM_CREDENTIAL_SCHEMA_OOBI_URL: http://issuer:3211/oobi/EOb-FtVoyOOKTAf9GVdIlmfiSL53StlAY8vobkPRdmt4
+      DEVRANDOM_CREDENTIAL_SCHEMA_OOBI_URL: http://server:3211/oobi/EOb-FtVoyOOKTAf9GVdIlmfiSL53StlAY8vobkPRdmt4
+      DEVRANDOM_TASK_MANDATE_SCHEMA_OOBI_URL: http://server:3211/oobi/EA1IvABDQ7L9XtBkLtJmw4ouzR3ie3a_C6oAKpVPqKyk
+      DEVRANDOM_PROMOTION_MANDATE_SCHEMA_OOBI_URL: http://server:3211/oobi/EHL1THTMidi0ibU-Yuw9mOzUyxg0G5eBwmqJsnbFDp-s
       DEVRANDOM_SIGNIFY_TIER: low
       HOST: 0.0.0.0
       PORT: '3211'
@@ -117,7 +122,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:3211/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:3211/ready/identity').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
         ]
       <<: *healthcheck
     restart: unless-stopped
@@ -130,7 +135,7 @@ services:
       context: .
       dockerfile: apps/site/Dockerfile
     depends_on:
-      issuer:
+      server:
         condition: service_healthy
     ports:
       - '127.0.0.1:${DEVRANDOM_SITE_PORT:-3210}:3210'

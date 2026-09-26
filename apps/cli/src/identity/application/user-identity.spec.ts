@@ -22,7 +22,11 @@ import Value from 'typebox/value';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { UserIdentityConfiguration } from '../domain/user-configuration.js';
-import type { UserProfile } from '../domain/user-profile.js';
+import {
+  clientInstanceId,
+  type ClientInstanceId,
+  type UserProfile,
+} from '../domain/user-profile.js';
 import { IdentityFiles } from '../infrastructure/identity-files.js';
 import { IssuerRegistrationHttp } from '../infrastructure/issuer-registration-http.js';
 import { UserIdentityApplication, type UserIdentityDependencies } from './user-identity.js';
@@ -122,7 +126,24 @@ function recoveredInfrastructure(
   kelSequence: number,
   currentEventSaid: string,
   rotate: LocalUserInfrastructure['rotate'],
+  advancedEventKind: 'Rotation' | 'Interaction' = 'Rotation',
 ): LocalUserInfrastructure {
+  const inceptionEvent = {
+    kind: 'Inception' as const,
+    sequence: 0 as const,
+    said: keyEventSaid(current.receiptEvidence.currentEventSaid),
+  };
+  const verifiedKeyEvents =
+    kelSequence === current.receiptEvidence.kelSequence
+      ? [inceptionEvent]
+      : [
+          inceptionEvent,
+          {
+            kind: advancedEventKind,
+            sequence: kelSequence,
+            said: keyEventSaid(currentEventSaid),
+          },
+        ];
   return {
     identity: {
       controllerAid: controllerAid(current.controllerAid),
@@ -138,6 +159,7 @@ function recoveredInfrastructure(
           threshold: 1,
         },
         receiptIndexes: [0],
+        verifiedKeyEvents,
       },
       userAgentOobi: current.userAgentOobi,
     },
@@ -381,6 +403,276 @@ async function untrustedBrowserIssuer(): Promise<string> {
 }
 
 describe('user identity application', () => {
+  it('migrates the admitted legacy profile once without changing an identity anchor', async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), 'devrandom-hosted-work-identity-'));
+    directories.push(stateDirectory);
+    const files = new IdentityFiles(stateDirectory);
+    const legacy = admittedProfile();
+    await files.createCustody({ version: 1, bran: '0123456789abcdefghijk' });
+    await files.commitProfile(undefined, legacy);
+    const events: string[] = [];
+    const infrastructure = recoveredInfrastructure(
+      legacy,
+      legacy.receiptEvidence.kelSequence,
+      legacy.receiptEvidence.currentEventSaid,
+      () => Promise.reject(new Error('rotation is outside this regression')),
+    );
+    const verifiedCredential = infrastructure.credentialReception.verify.bind(
+      infrastructure.credentialReception,
+    );
+    const dependencies: UserIdentityDependencies = {
+      generateBran: () => Promise.reject(new Error('must not generate custody')),
+      createRegistrationKey: () => `registration_${'r'.repeat(43)}`,
+      connectInfrastructure: () => {
+        events.push('recover');
+        return Promise.resolve({
+          ...infrastructure,
+          credentialReception: {
+            ...infrastructure.credentialReception,
+            verify: (input) => {
+              events.push('verify-credential');
+              return verifiedCredential(input);
+            },
+          },
+        });
+      },
+      presentBrowserUrl: () => Promise.resolve(),
+      now: () => 1_790_220_000_000,
+      wait: () => Promise.resolve(),
+    };
+    const expectedClientInstanceId = clientInstanceId('123e4567-e89b-42d3-a456-426614174000');
+    const application = new UserIdentityApplication(
+      configuration(stateDirectory),
+      files,
+      new IssuerRegistrationHttp('http://issuer.test:3211'),
+      dependencies,
+      () => {
+        events.push('create-client-instance');
+        return expectedClientInstanceId;
+      },
+    );
+
+    const outcome = await application.admitHostedWork();
+
+    expect(outcome).toMatchObject({
+      kind: 'Ready',
+      clientInstanceId: expectedClientInstanceId,
+      user: { principal: { aid: legacy.userAid } },
+    });
+    if (outcome.kind !== 'Ready') throw new Error('Expected ready hosted identity');
+    expect(outcome.protectedCredentials).toBeDefined();
+    expect(
+      outcome.protectedCredentials.inspect(new TextEncoder().encode('0123456789abcdefghijk')),
+    ).toEqual({ kind: 'WithheldSecret', reason: 'Credential', byteLength: 21 });
+    expect(JSON.stringify(outcome.protectedCredentials)).toBe('{}');
+    expect(events).toEqual(['recover', 'verify-credential', 'create-client-instance']);
+    await expect(files.readProfile()).resolves.toEqual({
+      ...legacy,
+      version: 2,
+      revision: 1,
+      clientInstanceId: expectedClientInstanceId,
+    });
+
+    const recovered = new UserIdentityApplication(
+      configuration(stateDirectory),
+      new IdentityFiles(stateDirectory),
+      new IssuerRegistrationHttp('http://issuer.test:3211'),
+      dependencies,
+      () => {
+        throw new Error('a retained client instance must not be regenerated');
+      },
+    );
+    await expect(recovered.whoami()).resolves.toMatchObject({
+      kind: 'Ready',
+      recovery: 'ExistingIdentity',
+      user: {
+        principal: { aid: legacy.userAid },
+        credential: { credentialSaid: expectedCredentialSaid },
+      },
+    });
+    await expect(recovered.admitHostedWork()).resolves.toMatchObject({
+      kind: 'Ready',
+      clientInstanceId: expectedClientInstanceId,
+    });
+  });
+
+  it('does not create client-instance metadata before current admission succeeds', async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), 'devrandom-hosted-work-pending-'));
+    directories.push(stateDirectory);
+    const files = new IdentityFiles(stateDirectory);
+    const pending = profile();
+    await files.createCustody({ version: 1, bran: '0123456789abcdefghijk' });
+    await files.commitProfile(undefined, pending);
+    let generated = false;
+    const dependencies: UserIdentityDependencies = {
+      generateBran: () => Promise.reject(new Error('must not generate custody')),
+      createRegistrationKey: () => `registration_${'r'.repeat(43)}`,
+      connectInfrastructure: () =>
+        Promise.resolve(
+          recoveredInfrastructure(
+            pending,
+            pending.receiptEvidence.kelSequence,
+            pending.receiptEvidence.currentEventSaid,
+            () => Promise.reject(new Error('rotation is outside this regression')),
+          ),
+        ),
+      presentBrowserUrl: () => Promise.resolve(),
+      now: () => 1_790_220_000_000,
+      wait: () => Promise.resolve(),
+    };
+    const application = new UserIdentityApplication(
+      configuration(stateDirectory),
+      files,
+      new IssuerRegistrationHttp('http://issuer.test:3211'),
+      dependencies,
+      () => {
+        generated = true;
+        return clientInstanceId('123e4567-e89b-42d3-a456-426614174000');
+      },
+    );
+
+    await expect(application.admitHostedWork()).resolves.toMatchObject({
+      kind: 'RegistrationRequired',
+    });
+    expect(generated).toBe(false);
+    await expect(files.readProfile()).resolves.toEqual(pending);
+  });
+
+  it('returns a proof capability bound to the admitted user and configured issuer', async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), 'devrandom-hosted-work-proof-'));
+    directories.push(stateDirectory);
+    const files = new IdentityFiles(stateDirectory);
+    const current = admittedProfile();
+    await files.createCustody({ version: 1, bran: '0123456789abcdefghijk' });
+    await files.commitProfile(undefined, current);
+    const calls: { readonly stage: 'prepare' | 'deliver'; readonly input: unknown }[] = [];
+    const response = challengeResponseSaid(rotatedEventSaid);
+    const infrastructure = {
+      ...recoveredInfrastructure(
+        current,
+        current.receiptEvidence.kelSequence,
+        current.receiptEvidence.currentEventSaid,
+        () => Promise.reject(new Error('rotation is outside this regression')),
+      ),
+      challengeProof: {
+        prepare: (input) => {
+          calls.push({ stage: 'prepare', input });
+          return Promise.resolve({ responseSaid: response });
+        },
+        deliver: (input) => {
+          calls.push({ stage: 'deliver', input });
+          return Promise.resolve({ responseSaid: response });
+        },
+      },
+    } satisfies LocalUserInfrastructure;
+    const preparedAt = 1_790_220_000_000;
+    const dependencies: UserIdentityDependencies = {
+      generateBran: () => Promise.reject(new Error('must not generate custody')),
+      createRegistrationKey: () => `registration_${'r'.repeat(43)}`,
+      connectInfrastructure: () => Promise.resolve(infrastructure),
+      presentBrowserUrl: () => Promise.resolve(),
+      now: () => preparedAt,
+      wait: () => Promise.resolve(),
+    };
+    const application = new UserIdentityApplication(
+      configuration(stateDirectory),
+      files,
+      new IssuerRegistrationHttp('http://issuer.test:3211'),
+      dependencies,
+      () => clientInstanceId('123e4567-e89b-42d3-a456-426614174000'),
+    );
+    const outcome = await application.admitHostedWork();
+    if (outcome.kind !== 'Ready') {
+      throw new Error(`expected a hosted-work admission, received ${outcome.kind}`);
+    }
+    const challengeWords = Array.from({ length: 24 }, (_value, index) => `word-${String(index)}`);
+
+    await expect(outcome.userAidProof.respond(challengeWords)).resolves.toBe(response);
+    expect(calls).toEqual([
+      {
+        stage: 'prepare',
+        input: {
+          alias: current.alias,
+          sourceAid: current.userAid,
+          recipientAid: expectedIssuerAid,
+          challengeWords,
+          preparedAt,
+        },
+      },
+      {
+        stage: 'deliver',
+        input: {
+          alias: current.alias,
+          sourceAid: current.userAid,
+          recipientAid: expectedIssuerAid,
+          challengeWords,
+          preparedAt,
+          responseSaid: response,
+        },
+      },
+    ]);
+  });
+
+  it('concurrent hosted-work admission converges on the one committed client instance', async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), 'devrandom-hosted-work-concurrent-'));
+    directories.push(stateDirectory);
+    const files = new IdentityFiles(stateDirectory);
+    const current = admittedProfile();
+    await files.createCustody({ version: 1, bran: '0123456789abcdefghijk' });
+    await files.commitProfile(undefined, current);
+    const infrastructure = recoveredInfrastructure(
+      current,
+      current.receiptEvidence.kelSequence,
+      current.receiptEvidence.currentEventSaid,
+      () => Promise.reject(new Error('rotation is outside this regression')),
+    );
+    const dependencies: UserIdentityDependencies = {
+      generateBran: () => Promise.reject(new Error('must not generate custody')),
+      createRegistrationKey: () => `registration_${'r'.repeat(43)}`,
+      connectInfrastructure: () => Promise.resolve(infrastructure),
+      presentBrowserUrl: () => Promise.resolve(),
+      now: () => 1_790_220_000_000,
+      wait: () => Promise.resolve(),
+    };
+    const first = new UserIdentityApplication(
+      configuration(stateDirectory),
+      new IdentityFiles(stateDirectory),
+      new IssuerRegistrationHttp('http://issuer.test:3211'),
+      dependencies,
+      () => clientInstanceId('123e4567-e89b-42d3-a456-426614174000'),
+    );
+    const second = new UserIdentityApplication(
+      configuration(stateDirectory),
+      new IdentityFiles(stateDirectory),
+      new IssuerRegistrationHttp('http://issuer.test:3211'),
+      dependencies,
+      () => clientInstanceId('123e4567-e89b-42d3-b456-426614174001'),
+    );
+
+    const outcomes = await Promise.all(
+      Array.from({ length: 16 }, (_unused, index) =>
+        (index % 2 === 0 ? first : second).admitHostedWork(),
+      ),
+    );
+    const clientInstanceIds: ClientInstanceId[] = [];
+    for (const outcome of outcomes) {
+      if (outcome.kind !== 'Ready') {
+        throw new Error('every concurrent admission must be ready');
+      }
+      clientInstanceIds.push(outcome.clientInstanceId);
+    }
+    const committedClientInstanceId = clientInstanceIds[0];
+    if (committedClientInstanceId === undefined) {
+      throw new Error('at least one concurrent admission must complete');
+    }
+    expect(new Set(clientInstanceIds).size).toBe(1);
+    await expect(files.readProfile()).resolves.toMatchObject({
+      version: 2,
+      revision: 1,
+      clientInstanceId: committedClientInstanceId,
+    });
+  });
+
   it.each(['whoami', 'rotate'] as const)(
     '%s on clean state performs no provisioning or persistence',
     async (command) => {
@@ -551,6 +843,49 @@ describe('user identity application', () => {
       expect(connected).toBe(false);
     },
   );
+
+  it('reconciles verified interaction events appended by user-owned credential issuance', async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), 'devrandom-identity-interactions-'));
+    directories.push(stateDirectory);
+    const files = new IdentityFiles(stateDirectory);
+    const current = admittedProfile();
+    await files.createCustody({ version: 1, bran: '0123456789abcdefghijk' });
+    await files.commitProfile(undefined, current);
+    const infrastructure = recoveredInfrastructure(
+      current,
+      1,
+      rotatedEventSaid,
+      () => Promise.reject(new Error('rotation is outside this regression')),
+      'Interaction',
+    );
+    const application = new UserIdentityApplication(
+      configuration(stateDirectory),
+      files,
+      new IssuerRegistrationHttp('http://issuer.test:3211'),
+      {
+        generateBran: () => Promise.reject(new Error('must not generate custody')),
+        createRegistrationKey: () => `registration_${'r'.repeat(43)}`,
+        connectInfrastructure: () => Promise.resolve(infrastructure),
+        presentBrowserUrl: () => Promise.resolve(),
+        now: () => Date.parse('2025-01-02T00:00:00.000Z'),
+        wait: () => Promise.resolve(),
+      },
+    );
+
+    await expect(application.whoami()).resolves.toMatchObject({
+      kind: 'Ready',
+      recovery: 'ExistingIdentity',
+      user: { principal: { aid: current.userAid } },
+    });
+    await expect(files.readProfile()).resolves.toMatchObject({
+      revision: 1,
+      receiptEvidence: {
+        kelSequence: 1,
+        currentEventSaid: rotatedEventSaid,
+        receiptIndexes: [0],
+      },
+    });
+  });
 
   it('reconciles one completed pending rotation without rotating a second time', async () => {
     const stateDirectory = await mkdtemp(join(tmpdir(), 'devrandom-identity-rotation-'));

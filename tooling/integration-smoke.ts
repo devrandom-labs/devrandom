@@ -64,6 +64,6 @@ await Promise.all(probes);
 
 process.stdout.write(
   scope === 'complete'
-    ? 'integration smoke passed: site, issuer, KERIA, witnesses\n'
-    : 'integration smoke passed: issuer, KERIA, witnesses\n',
+    ? 'integration smoke passed: site, Devrandom Server, KERIA, witnesses\n'
+    : 'integration smoke passed: Devrandom Server, KERIA, witnesses\n',
 );

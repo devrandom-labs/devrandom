@@ -56,12 +56,25 @@ export async function generateSignifyBran(): Promise<string> {
   return bran;
 }
 
+const signifyRequestTimeoutMilliseconds = 10_000;
+
+const signifyFetch: typeof fetch = (input, init) => {
+  const deadline = AbortSignal.timeout(signifyRequestTimeoutMilliseconds);
+  const signal =
+    init?.signal === undefined || init.signal === null
+      ? deadline
+      : AbortSignal.any([init.signal, deadline]);
+  return fetch(input, { ...init, signal });
+};
+
 function signifyClient(configuration: SignifyControllerConfiguration): SignifyClient {
   return new SignifyClient(
     configuration.adminUrl,
     configuration.bran,
     signifyTier(configuration.securityTier),
     configuration.bootUrl,
+    [],
+    signifyFetch,
   );
 }
 

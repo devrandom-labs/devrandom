@@ -38,6 +38,36 @@ function rotationEvent(eventAid: string = user, priorEventSaid: string = user) {
   return { ...event, d: untrusted.d, v: untrusted.v };
 }
 
+function interactionEvent(eventAid: string, priorEventSaid: string) {
+  const event = {
+    v: 'KERI10JSON000000_',
+    t: 'ixn',
+    d: '',
+    i: eventAid,
+    s: '1',
+    p: priorEventSaid,
+    a: [
+      {
+        i: 'EOb-FtVoyOOKTAf9GVdIlmfiSL53StlAY8vobkPRdmt4',
+        s: '0',
+        d: 'EJ6aiZ1xOnnCKGKhOn9LEit6k5eolN26_mB9P_YD0Jfs',
+      },
+    ],
+  };
+  const untrusted: unknown = Saider.saidify(event)[1];
+  if (
+    typeof untrusted !== 'object' ||
+    untrusted === null ||
+    !('d' in untrusted) ||
+    typeof untrusted.d !== 'string' ||
+    !('v' in untrusted) ||
+    typeof untrusted.v !== 'string'
+  ) {
+    throw new Error('interaction event SAID was not produced');
+  }
+  return { ...event, d: untrusted.d, v: untrusted.v };
+}
+
 function evidence() {
   const event = rotationEvent();
   return {
@@ -154,6 +184,42 @@ describe('witnessed user identifier evidence', () => {
         threshold: 1,
       },
       receiptIndexes: [0],
+      verifiedKeyEvents: [
+        { kind: 'Inception', sequence: 0, said: chained.keyEvents[0]?.ked.d },
+        { kind: 'Rotation', sequence: 1, said: chained.identifier.state.d },
+      ],
+    });
+  });
+
+  it('verifies a witnessed interaction-event advance without treating it as a key rotation', () => {
+    const inception = inceptionEvidence();
+    const interaction = interactionEvent(inception.user, inception.said);
+    const advanced = {
+      identifier: {
+        ...inception.evidence.identifier,
+        state: {
+          ...inception.evidence.identifier.state,
+          s: interaction.s,
+          d: interaction.d,
+        },
+      },
+      keyEvents: [...inception.evidence.keyEvents, { ked: interaction }],
+    };
+
+    expect(
+      verifyWitnessedUserEvidence(advanced, 'devrandom-user', {
+        kind: 'witnessed',
+        witnessAids: [witness],
+        threshold: 1,
+      }),
+    ).toMatchObject({
+      aid: inception.user,
+      kelSequence: 1,
+      currentEventSaid: interaction.d,
+      verifiedKeyEvents: [
+        { kind: 'Inception', sequence: 0, said: inception.said },
+        { kind: 'Interaction', sequence: 1, said: interaction.d },
+      ],
     });
   });
 

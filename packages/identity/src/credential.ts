@@ -1,4 +1,8 @@
 import {
+  devrandomUserEligibilityClaims,
+  type DevrandomUserEligibilityClaim,
+} from '@devrandom/domain';
+import {
   Saider,
   type CredentialResult,
   type IssueCredentialResult,
@@ -96,6 +100,16 @@ const keyEventsSchema = Type.Array(
 
 const resolvedSchemaDocument = Type.Object({ $id: nonEmptyString }, { additionalProperties: true });
 
+const credentialEligibilityEvidenceSchema = Type.Object(
+  {
+    a: Type.Object(
+      { capabilities: Type.Array(Type.String({ minLength: 1 })) },
+      { additionalProperties: true },
+    ),
+  },
+  { additionalProperties: true },
+);
+
 type CredentialPayloadSchema = TSchema & { readonly $id: string };
 
 export interface CredentialExpectation<PayloadSchema extends CredentialPayloadSchema> {
@@ -137,11 +151,79 @@ export interface CredentialIssuanceInput<
   readonly operationTimeoutMs: number;
 }
 
+export interface IssuerCurrentUserCredentialExpectation<
+  PayloadSchema extends CredentialPayloadSchema,
+> {
+  readonly issuerAid: IssuerAid;
+  readonly registryId: CredentialRegistryId;
+  readonly schemaId: CredentialSchemaId;
+  readonly payloadSchema: PayloadSchema;
+}
+
+export interface CurrentUserCredentialVerificationInput {
+  readonly userAid: UserAid;
+  readonly credentialSaid: CredentialSaid;
+}
+
+export interface VerifiedCurrentUserCredentialEvidence {
+  readonly kind: 'Current';
+  readonly userAid: UserAid;
+  readonly credentialSaid: CredentialSaid;
+  readonly attributeSaid: string;
+  readonly issuedAt: string;
+  readonly issuerAnchorEventSaid: string;
+  readonly eligibilityClaims: readonly DevrandomUserEligibilityClaim[];
+}
+
+export interface IssuerCurrentUserCredentialVerification {
+  verify(
+    input: CurrentUserCredentialVerificationInput,
+  ): Promise<VerifiedCurrentUserCredentialEvidence>;
+}
+
 function invalidCredential(reason: string, cause?: unknown): never {
   throw new IdentityFailure(
     { kind: 'credential-invalid', reason },
     cause === undefined ? undefined : cause,
   );
+}
+
+function verifiedEligibilityClaims(payload: unknown): readonly DevrandomUserEligibilityClaim[] {
+  if (!Value.Check(credentialEligibilityEvidenceSchema, payload)) {
+    invalidCredential('credential eligibility claims are malformed');
+  }
+  const claims = new Set<DevrandomUserEligibilityClaim>();
+  for (const untrusted of payload.a.capabilities) {
+    const claim = devrandomUserEligibilityClaims.find((candidate) => candidate === untrusted);
+    if (claim === undefined || claims.has(claim)) {
+      invalidCredential('credential eligibility claims do not match expected state');
+    }
+    claims.add(claim);
+  }
+  if (
+    claims.size !== devrandomUserEligibilityClaims.length ||
+    !devrandomUserEligibilityClaims.every((claim) => claims.has(claim))
+  ) {
+    invalidCredential('credential eligibility claims do not match expected state');
+  }
+  return devrandomUserEligibilityClaims;
+}
+
+function missingCurrentCredentialEvidence<PayloadSchema extends CredentialPayloadSchema>(
+  failure: IdentityFailure,
+  input: CurrentUserCredentialVerificationInput,
+  expected: IssuerCurrentUserCredentialExpectation<PayloadSchema>,
+): boolean {
+  if (failure.detail.kind !== 'keria-unavailable') {
+    return false;
+  }
+  const reason = failure.detail.reason;
+  const missingEvidencePrefixes = [
+    `HTTP GET /credentials/${input.credentialSaid} - 404 `,
+    `HTTP GET /registries/${expected.registryId}/${input.credentialSaid} - 404 `,
+    `HTTP GET /schema/${expected.schemaId} - 404 `,
+  ];
+  return missingEvidencePrefixes.some((prefix) => reason.startsWith(prefix));
 }
 
 function verifySaid(document: object, said: string, purpose: string, label = 'd'): void {
@@ -298,6 +380,42 @@ export async function verifyCredential<PayloadSchema extends CredentialPayloadSc
     expected,
   );
   return { ...verified, record };
+}
+
+export function signifyIssuerCurrentUserCredentialVerification<
+  PayloadSchema extends CredentialPayloadSchema,
+>(
+  client: SignifyClient,
+  expected: IssuerCurrentUserCredentialExpectation<PayloadSchema>,
+): IssuerCurrentUserCredentialVerification {
+  return {
+    async verify(input) {
+      let verified: VerifiedCredential<PayloadSchema>;
+      try {
+        verified = await verifyCredential(client, input.credentialSaid, {
+          ...expected,
+          issueeAid: input.userAid,
+        });
+      } catch (cause) {
+        if (
+          cause instanceof IdentityFailure &&
+          missingCurrentCredentialEvidence(cause, input, expected)
+        ) {
+          invalidCredential('credential does not have complete current issuance evidence', cause);
+        }
+        throw cause;
+      }
+      return {
+        kind: 'Current',
+        userAid: input.userAid,
+        credentialSaid: verified.credentialSaid,
+        attributeSaid: verified.attributeSaid,
+        issuedAt: verified.issuedAt,
+        issuerAnchorEventSaid: verified.issuerAnchorEventSaid,
+        eligibilityClaims: verifiedEligibilityClaims(verified.payload),
+      };
+    },
+  };
 }
 
 export async function issueCredential<

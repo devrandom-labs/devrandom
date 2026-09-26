@@ -20,14 +20,50 @@ export interface WitnessedUserPolicy {
   readonly threshold: number;
 }
 
-export interface WitnessedUserIdentifier {
+export type WitnessedKeyEventReference =
+  | {
+      readonly kind: 'Inception';
+      readonly sequence: 0;
+      readonly said: KeyEventSaid;
+    }
+  | {
+      readonly kind: 'Rotation' | 'Interaction';
+      readonly sequence: number;
+      readonly said: KeyEventSaid;
+    };
+
+export interface WitnessedIdentifier<Aid extends string> {
   readonly alias: string;
-  readonly aid: UserAid;
+  readonly aid: Aid;
   readonly kelSequence: number;
   readonly currentEventSaid: KeyEventSaid;
   readonly witnessPolicy: WitnessedUserPolicy;
   readonly receiptIndexes: readonly number[];
+  readonly verifiedKeyEvents: readonly WitnessedKeyEventReference[];
 }
+
+export interface WitnessedKelCheckpoint {
+  readonly kelSequence: number;
+  readonly currentEventSaid: KeyEventSaid;
+}
+
+export type WitnessedKelAdvancement =
+  | { readonly kind: 'Current' }
+  | { readonly kind: 'InteractionsAdvanced' }
+  | { readonly kind: 'RotationAdvanced'; readonly rotationSequence: number }
+  | { readonly kind: 'Diverged' };
+
+export type WitnessedUserIdentifier = WitnessedIdentifier<UserAid>;
+
+export type WitnessedIdentifierProvisioning<Aid extends string> =
+  | {
+      readonly kind: 'identifier-provisioned';
+      readonly identifier: WitnessedIdentifier<Aid>;
+    }
+  | {
+      readonly kind: 'existing-identifier-verified';
+      readonly identifier: WitnessedIdentifier<Aid>;
+    };
 
 const identifierSchema = Type.Object(
   {
@@ -92,7 +128,24 @@ const rotationKeyEventSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const keyEventSchema = Type.Union([inceptionKeyEventSchema, rotationKeyEventSchema]);
+const interactionKeyEventSchema = Type.Object(
+  {
+    v: Type.String({ minLength: 1 }),
+    t: Type.Literal('ixn'),
+    d: Type.String({ minLength: 1 }),
+    i: Type.String({ minLength: 1 }),
+    s: Type.String({ pattern: '^[1-9a-f][0-9a-f]*$' }),
+    p: Type.String({ minLength: 1 }),
+    a: Type.Array(Type.Unknown()),
+  },
+  { additionalProperties: false },
+);
+
+const keyEventSchema = Type.Union([
+  inceptionKeyEventSchema,
+  rotationKeyEventSchema,
+  interactionKeyEventSchema,
+]);
 
 const keyEventsSchema = Type.Array(
   Type.Object({ ked: keyEventSchema }, { additionalProperties: true }),
@@ -157,6 +210,16 @@ function canonicalKeyEvent(event: Type.Static<typeof keyEventSchema>) {
         ba: event.ba,
         a: event.a,
       };
+    case 'ixn':
+      return {
+        v: event.v,
+        t: event.t,
+        d: event.d,
+        i: event.i,
+        s: event.s,
+        p: event.p,
+        a: event.a,
+      };
   }
 }
 
@@ -183,7 +246,9 @@ function eventSequence(event: Type.Static<typeof keyEventSchema>): number {
   return sequence;
 }
 
-function eventWitnessThreshold(event: Type.Static<typeof keyEventSchema>): number {
+function eventWitnessThreshold(
+  event: Type.Static<typeof inceptionKeyEventSchema | typeof rotationKeyEventSchema>,
+): number {
   const threshold = typeof event.bt === 'number' ? event.bt : Number.parseInt(event.bt, 16);
   if (!Number.isSafeInteger(threshold) || threshold < 0) {
     invalidUserIdentifier('KEL event witness threshold is invalid');
@@ -191,9 +256,24 @@ function eventWitnessThreshold(event: Type.Static<typeof keyEventSchema>): numbe
   return threshold;
 }
 
+function keyEventReference(event: Type.Static<typeof keyEventSchema>): WitnessedKeyEventReference {
+  const sequence = eventSequence(event);
+  switch (event.t) {
+    case 'icp':
+      if (sequence !== 0) {
+        invalidUserIdentifier('KEL inception event does not have sequence zero');
+      }
+      return { kind: 'Inception', sequence: 0, said: keyEventSaid(event.d) };
+    case 'rot':
+      return { kind: 'Rotation', sequence, said: keyEventSaid(event.d) };
+    case 'ixn':
+      return { kind: 'Interaction', sequence, said: keyEventSaid(event.d) };
+  }
+}
+
 function verifyKeyEventChain(
   records: Type.Static<typeof keyEventsSchema>,
-  aid: UserAid,
+  aid: string,
   currentSequence: number,
   currentEventSaid: string,
   expectedPolicy: WitnessedUserPolicy,
@@ -213,11 +293,7 @@ function verifyKeyEventChain(
   let priorEventSaid: string | undefined;
   for (let sequence = 0; sequence <= currentSequence; sequence += 1) {
     const event = eventsBySequence.get(sequence);
-    if (
-      event === undefined ||
-      (sequence === 0 && event.t !== 'icp') ||
-      (sequence > 0 && event.t !== 'rot')
-    ) {
+    if (event === undefined || (sequence === 0 ? event.t !== 'icp' : event.t === 'icp')) {
       invalidUserIdentifier('KEL is not a continuous inception-to-current KEL');
     }
     try {
@@ -235,7 +311,7 @@ function verifyKeyEventChain(
       }
       invalidUserIdentifier('KEL event has an invalid SAID', cause);
     }
-    if (eventWitnessThreshold(event) !== expectedPolicy.threshold) {
+    if (event.t !== 'ixn' && eventWitnessThreshold(event) !== expectedPolicy.threshold) {
       invalidUserIdentifier('KEL witness threshold does not match the configured policy');
     }
     if (event.t === 'icp') {
@@ -252,20 +328,21 @@ function verifyKeyEventChain(
   }
 }
 
-export function verifyWitnessedUserEvidence(
+export function verifyWitnessedIdentifierEvidence<Aid extends string>(
   evidence: unknown,
   alias: string,
   expectedPolicy: WitnessedUserPolicy,
-): WitnessedUserIdentifier {
+  decodeAid: (value: string) => Aid,
+): WitnessedIdentifier<Aid> {
   if (!Value.Check(userEvidenceSchema, evidence)) {
     invalidUserIdentifier('user identifier or KEL evidence is malformed');
   }
   if (evidence.identifier.name !== alias) {
     invalidUserIdentifier('managed alias does not match the local profile');
   }
-  const aid = userAid(evidence.identifier.prefix);
+  const aid = decodeAid(evidence.identifier.prefix);
   if (evidence.identifier.state.i !== aid) {
-    invalidUserIdentifier('managed state belongs to another user AID');
+    invalidUserIdentifier('managed state belongs to another AID');
   }
   if (!sameStrings(evidence.identifier.state.b, expectedPolicy.witnessAids)) {
     invalidUserIdentifier('witness AIDs do not match the configured policy');
@@ -316,21 +393,61 @@ export function verifyWitnessedUserEvidence(
       threshold: expectedPolicy.threshold,
     },
     receiptIndexes: [...indexes],
+    verifiedKeyEvents: evidence.keyEvents
+      .map((record) => keyEventReference(record.ked))
+      .sort((left, right) => left.sequence - right.sequence),
   };
 }
 
-export async function verifyWitnessedUserIdentifier(
+export function witnessedKelAdvancement(
+  identifier: WitnessedIdentifier<string>,
+  checkpoint: WitnessedKelCheckpoint,
+): WitnessedKelAdvancement {
+  const checkpointEvent = identifier.verifiedKeyEvents[checkpoint.kelSequence];
+  if (
+    checkpointEvent === undefined ||
+    checkpointEvent.sequence !== checkpoint.kelSequence ||
+    checkpointEvent.said !== checkpoint.currentEventSaid
+  ) {
+    return { kind: 'Diverged' };
+  }
+
+  const subsequent = identifier.verifiedKeyEvents.slice(checkpoint.kelSequence + 1);
+  if (subsequent.length === 0) {
+    return { kind: 'Current' };
+  }
+  if (subsequent.every((event) => event.kind === 'Interaction')) {
+    return { kind: 'InteractionsAdvanced' };
+  }
+  const first = subsequent[0];
+  if (subsequent.length === 1 && first?.kind === 'Rotation') {
+    return { kind: 'RotationAdvanced', rotationSequence: first.sequence };
+  }
+  return { kind: 'Diverged' };
+}
+
+export function verifyWitnessedUserEvidence(
+  evidence: unknown,
+  alias: string,
+  expectedPolicy: WitnessedUserPolicy,
+): WitnessedUserIdentifier {
+  return verifyWitnessedIdentifierEvidence(evidence, alias, expectedPolicy, userAid);
+}
+
+export async function verifyWitnessedIdentifier<Aid extends string>(
   client: SignifyClient,
   alias: string,
   policy: WitnessedUserPolicy,
-): Promise<WitnessedUserIdentifier> {
+  decodeAid: (value: string) => Aid,
+  stage = 'witnessed identifier verification',
+): Promise<WitnessedIdentifier<Aid>> {
   try {
     const identifier: unknown = await client.identifiers().get(alias);
     if (!Value.Check(identifierSchema, identifier)) {
-      invalidUserIdentifier('managed user identifier response is malformed');
+      invalidUserIdentifier('managed identifier response is malformed');
     }
     const keyEvents: unknown = await client.keyEvents().get(identifier.prefix);
-    return verifyWitnessedUserEvidence({ identifier, keyEvents }, alias, policy);
+    return verifyWitnessedIdentifierEvidence({ identifier, keyEvents }, alias, policy, decodeAid);
   } catch (cause) {
     if (cause instanceof IdentityFailure) {
       throw cause;
@@ -338,12 +455,38 @@ export async function verifyWitnessedUserIdentifier(
     throw new IdentityFailure(
       {
         kind: 'keria-unavailable',
-        stage: 'witnessed user identifier verification',
+        stage,
         reason: reasonFromUnknown(cause),
       },
       cause,
     );
   }
+}
+
+export async function verifyWitnessedUserIdentifier(
+  client: SignifyClient,
+  alias: string,
+  policy: WitnessedUserPolicy,
+): Promise<WitnessedUserIdentifier> {
+  return verifyWitnessedIdentifier(
+    client,
+    alias,
+    policy,
+    userAid,
+    'witnessed user identifier verification',
+  );
+}
+
+export async function provisionWitnessedIdentifier<Aid extends string>(
+  client: SignifyClient,
+  alias: string,
+  policy: WitnessedUserPolicy,
+  operationTimeoutMs: number,
+  decodeAid: (value: string) => Aid,
+): Promise<WitnessedIdentifierProvisioning<Aid>> {
+  const outcome = await provisionNamedKeriIdentifier(client, alias, policy, operationTimeoutMs);
+  const identifier = await verifyWitnessedIdentifier(client, alias, policy, decodeAid);
+  return { kind: outcome.kind, identifier };
 }
 
 export async function provisionWitnessedUserIdentifier(
@@ -352,8 +495,8 @@ export async function provisionWitnessedUserIdentifier(
   policy: WitnessedUserPolicy,
   operationTimeoutMs: number,
 ): Promise<WitnessedUserIdentifier> {
-  await provisionNamedKeriIdentifier(client, alias, policy, operationTimeoutMs);
-  return verifyWitnessedUserIdentifier(client, alias, policy);
+  return (await provisionWitnessedIdentifier(client, alias, policy, operationTimeoutMs, userAid))
+    .identifier;
 }
 
 export async function rotateWitnessedUserIdentifier(

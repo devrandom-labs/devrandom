@@ -22,15 +22,15 @@ describe('workspace boundaries', () => {
 
   it('rejects dependencies between deployable applications and services', () => {
     const workspace = [
-      workspacePackage('@devrandom/cli', ['@devrandom/issuer']),
-      workspacePackage('@devrandom/issuer'),
+      workspacePackage('@devrandom/cli', ['@devrandom/server']),
+      workspacePackage('@devrandom/server'),
     ];
 
     expect(findWorkspaceBoundaryViolations(workspace)).toEqual([
       {
         kind: 'deployable-imports-deployable',
         source: '@devrandom/cli',
-        target: '@devrandom/issuer',
+        target: '@devrandom/server',
       },
     ]);
   });

@@ -15,6 +15,8 @@ export type ControllerAid = IdentityValue<'ControllerAid'>;
 export type AgentAid = IdentityValue<'AgentAid'>;
 export type IssuerAid = IdentityValue<'IssuerAid'>;
 export type UserAid = IdentityValue<'UserAid'>;
+export type PersonalAgentAid = IdentityValue<'PersonalAgentAid'>;
+export type GovernorAid = IdentityValue<'GovernorAid'>;
 export type WitnessAid = IdentityValue<'WitnessAid'>;
 export type BackerAid = IdentityValue<'BackerAid'>;
 export type CredentialRegistryId = IdentityValue<'CredentialRegistryId'>;
@@ -112,6 +114,14 @@ export function issuerAid(value: string): IssuerAid {
 
 export function userAid(value: string): UserAid {
   return keriAid(value, 'user AID') as UserAid;
+}
+
+export function personalAgentAid(value: string): PersonalAgentAid {
+  return keriAid(value, 'personal-agent AID') as PersonalAgentAid;
+}
+
+export function governorAid(value: string): GovernorAid {
+  return keriAid(value, 'Governor AID') as GovernorAid;
 }
 
 export function witnessAid(value: string): WitnessAid {

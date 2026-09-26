@@ -6,6 +6,7 @@ import { verifyCredential, type VerifiedCredentialEvidence } from './credential.
 import { IdentityFailure, reasonFromUnknown } from './identity-error.js';
 import {
   correlateIpexGrantNotification,
+  mergeIpexGrantCorrelations,
   verifyIpexAdmitEvidence,
   verifyIpexGrantEvidence,
   type IpexGrantCorrelation,
@@ -128,10 +129,12 @@ export function signifyUserCredentialReception(client: SignifyClient): UserCrede
       }
 
       if (notification.kind === 'expected-grant-available') {
-        try {
-          await client.notifications().mark(notification.notificationId);
-        } catch (cause) {
-          throw unavailable('IPEX grant notification acknowledgement', cause);
+        for (const notificationId of notification.notificationIds) {
+          try {
+            await client.notifications().mark(notificationId);
+          } catch (cause) {
+            throw unavailable('IPEX grant notification acknowledgement', cause);
+          }
         }
       }
       return waitForCredential(client, input);
@@ -163,8 +166,7 @@ async function exactGrantNotification(
   grantSaid: IpexGrantSaid,
 ): Promise<IpexGrantCorrelation> {
   let start = 0;
-  let matched:
-    Exclude<IpexGrantCorrelation, { readonly kind: 'expected-grant-pending' }> | undefined;
+  let matched: IpexGrantCorrelation = { kind: 'expected-grant-pending' };
   for (;;) {
     let page: unknown;
     try {
@@ -176,14 +178,9 @@ async function exactGrantNotification(
       return invalidReception('IPEX notification page does not contain valid range evidence');
     }
     const correlation = correlateIpexGrantNotification({ notes: page.notes }, grantSaid);
-    if (correlation.kind !== 'expected-grant-pending') {
-      if (matched !== undefined && matched.notificationId !== correlation.notificationId) {
-        return invalidReception('more than one page contains the expected IPEX grant');
-      }
-      matched = correlation;
-    }
+    matched = mergeIpexGrantCorrelations(matched, correlation);
     if (page.total === 0 || page.end + 1 >= page.total) {
-      return matched ?? { kind: 'expected-grant-pending' };
+      return matched;
     }
     if (page.end < start) {
       return invalidReception('IPEX notification range did not advance');

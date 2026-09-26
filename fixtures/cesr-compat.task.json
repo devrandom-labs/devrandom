@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "label": "cesr-compat",
+  "title": "Repair CESR receipt group compatibility",
+  "objective": "Parse top-level short-count CESR groups containing multiple qualified payloads with group-local genus/version scope.",
+  "repository": {
+    "kind": "currentHead"
+  },
+  "deliverables": [
+    {
+      "kind": "repositoryFile",
+      "id": "decoder",
+      "path": "src/lib.rs"
+    }
+  ],
+  "completionConditions": [
+    {
+      "id": "cesr-current",
+      "argv": ["cargo", "test", "--locked", "--test", "cesr-current"],
+      "timeoutSeconds": 120,
+      "expected": {
+        "kind": "exitCode",
+        "code": 0
+      }
+    },
+    {
+      "id": "cesr-tamper",
+      "argv": ["cargo", "test", "--locked", "--test", "cesr-tamper"],
+      "timeoutSeconds": 120,
+      "expected": {
+        "kind": "exitCode",
+        "code": 0
+      }
+    },
+    {
+      "id": "cesr-legacy",
+      "argv": ["cargo", "test", "--locked", "--test", "cesr-legacy"],
+      "timeoutSeconds": 120,
+      "expected": {
+        "kind": "exitCode",
+        "code": 0
+      }
+    }
+  ],
+  "constraints": {
+    "protectedPaths": [],
+    "prohibitedEffects": [
+      "NetworkAccess",
+      "PackageInstall",
+      "GitHistoryWrite",
+      "BackgroundProcess",
+      "CredentialAccess",
+      "ExternalFilesystemWrite"
+    ],
+    "dataPolicy": "RepositoryContentOnly"
+  },
+  "requestedCapabilities": ["ReadRepository", "EditRepository", "RunTests", "SubmitResult"],
+  "unavailableCapabilities": [],
+  "budgets": {
+    "workAccessAttemptLifetimeSeconds": 300,
+    "workAccessGrantLifetimeSeconds": 1800,
+    "nonterminalAttemptsPerUserClient": 2,
+    "activeGrantsPerUserClient": 2,
+    "publicAttemptCreationsPerMinutePerLoopbackSource": 20,
+    "nonterminalAttemptsGlobally": 32,
+    "requestsPerGrant": 2000,
+    "tasksPerAdmittedUser": 4,
+    "runsPerAdmittedUser": 6,
+    "activeRunsPerAdmittedUser": 1,
+    "hostedWorkTasksGlobally": 16,
+    "hostedWorkRunsGlobally": 21,
+    "activeHostedWorkRunsGlobally": 1,
+    "ordinaryJsonRequestBodyBytes": 262144,
+    "evidenceBatchBodyBytes": 262144,
+    "artifactRequestBodyBytes": 589824,
+    "evidencePlusArtifactsPerRunBytes": 67108864,
+    "acceptedEvidencePlusArtifactsGloballyBytes": 268435456,
+    "runWallTimeSeconds": 3600,
+    "providerRequests": 50,
+    "providerInputTokens": 500000,
+    "providerOutputTokens": 100000,
+    "toolProposals": 500,
+    "aggregateChildCommandTimeSeconds": 1800,
+    "oneChildCommandTimeSeconds": 300,
+    "changedFiles": 256,
+    "changedWorktreeBytes": 16777216,
+    "providerSpendMicroUsd": 5000000
+  },
+  "expiresAt": "2027-09-24T20:00:00.000Z",
+  "evolutionClasses": ["C1", "C2", "C3"],
+  "checkpointExpectations": [
+    {
+      "kind": "deliverable",
+      "deliverableId": "decoder"
+    },
+    {
+      "kind": "completionCondition",
+      "completionConditionId": "cesr-current"
+    },
+    {
+      "kind": "completionCondition",
+      "completionConditionId": "cesr-tamper"
+    },
+    {
+      "kind": "completionCondition",
+      "completionConditionId": "cesr-legacy"
+    }
+  ]
+}

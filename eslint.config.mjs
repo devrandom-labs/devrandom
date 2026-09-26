@@ -82,7 +82,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['services/issuer/**/*.ts'],
+    files: ['services/server/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

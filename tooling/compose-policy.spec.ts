@@ -2,6 +2,10 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
+import {
+  promotionMandateSchemaSaid,
+  taskMandateSchemaSaid,
+} from '../packages/protocol/src/mandate/mandate-credential.js';
 import { describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
@@ -41,9 +45,9 @@ describe('Compose integration boundary', () => {
     const services = objectValue(config.services, 'Compose services');
 
     expect(Object.keys(services).sort()).toEqual([
-      'issuer',
       'keria',
       'mongodb',
+      'server',
       'site',
       'witnesses',
     ]);
@@ -54,9 +58,21 @@ describe('Compose integration boundary', () => {
       expect(service.healthcheck).toBeDefined();
     }
 
-    const issuer = objectValue(services.issuer, 'Compose service issuer');
-    expect(issuer.build).toBeDefined();
-    expect(issuer.healthcheck).toBeDefined();
+    const mongodb = objectValue(services.mongodb, 'Compose service mongodb');
+    expect(mongodb.command).toEqual(['mongod', '--bind_ip_all', '--replSet', 'devrandom-rs']);
+
+    const server = objectValue(services.server, 'Compose service server');
+    expect(server.build).toBeDefined();
+    expect(server.healthcheck).toBeDefined();
+    expect(objectValue(server.environment, 'server environment')).toMatchObject({
+      DEVRANDOM_MONGODB_URI: 'mongodb://mongodb:27017/devrandom?replicaSet=devrandom-rs',
+      DEVRANDOM_HOSTED_WORK_MONGODB_URI:
+        'mongodb://mongodb:27017/devrandom_e0?replicaSet=devrandom-rs',
+      DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS: '',
+      DEVRANDOM_TASK_CURSOR_KEY: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+      DEVRANDOM_TASK_MANDATE_SCHEMA_OOBI_URL: `http://server:3211/oobi/${taskMandateSchemaSaid}`,
+      DEVRANDOM_PROMOTION_MANDATE_SCHEMA_OOBI_URL: `http://server:3211/oobi/${promotionMandateSchemaSaid}`,
+    });
 
     const keria = objectValue(services.keria, 'Compose service keria');
     expect(keria.command).toEqual([
@@ -79,7 +95,7 @@ describe('Compose integration boundary', () => {
       ]),
     );
 
-    expect(objectValue(issuer.depends_on, 'issuer dependencies')).toMatchObject({
+    expect(objectValue(server.depends_on, 'server dependencies')).toMatchObject({
       keria: { condition: 'service_healthy' },
       mongodb: { condition: 'service_healthy' },
     });
@@ -88,7 +104,7 @@ describe('Compose integration boundary', () => {
     expect(site.build).toBeDefined();
     expect(site.healthcheck).toBeDefined();
     expect(objectValue(site.depends_on, 'site dependencies')).toMatchObject({
-      issuer: { condition: 'service_healthy' },
+      server: { condition: 'service_healthy' },
     });
 
     const siteDockerfile = await readFile('apps/site/Dockerfile', 'utf8');
@@ -146,6 +162,7 @@ describe('Compose integration boundary', () => {
   it('exposes one complete lifecycle and a bounded integration test', async () => {
     const { stdout } = await execFileAsync('just', ['--list']);
     const justfile = await readFile('justfile', 'utf8');
+    const replicaSetScript = await readFile('tooling/mongodb-replica-set.ts', 'utf8');
 
     for (const command of [
       'integration-up',
@@ -172,12 +189,19 @@ describe('Compose integration boundary', () => {
     expect(upStart).toBeGreaterThan(-1);
     expect(downStart).toBeGreaterThan(upStart);
     const upRecipe = justfile.slice(upStart, downStart);
-    expect(upRecipe).toContain('build issuer');
+    expect(upRecipe).toContain('build server');
     expect(upRecipe).toContain('build site');
-    expect(upRecipe).not.toContain('build issuer site');
+    expect(upRecipe).toContain('tooling/mongodb-replica-set.ts');
+    expect(upRecipe).not.toContain('build server site');
 
     expect(justfile).toContain('packages/identity/src/e0/acdc.integration.spec.ts');
-    expect(justfile).toContain('DEVRANDOM_CREDENTIAL_SCHEMA_OOBI_URL="http://issuer:3211/oobi/');
+    expect(justfile).toContain(
+      'services/server/src/task/infrastructure/mongo-tasks.integration.spec.ts',
+    );
+    expect(justfile).toContain('DEVRANDOM_WORK_READY_URL="http://$issuer_endpoint/ready/work"');
+    expect(replicaSetScript).toContain('db.hello()');
+    expect(replicaSetScript).toContain('hello.isWritablePrimary');
+    expect(justfile).toContain('DEVRANDOM_CREDENTIAL_SCHEMA_OOBI_URL="http://server:3211/oobi/');
     expect(justfile).toContain(
       'pnpm --filter @devrandom/identity exec node --input-type=module -e',
     );
@@ -189,7 +213,7 @@ describe('Compose integration boundary', () => {
     const mechanismRecipe = justfile.slice(mechanismStart, journeyStart);
     expect(mechanismRecipe).not.toContain('build site');
     expect(mechanismRecipe).not.toContain('site\n');
-    expect(mechanismRecipe).toContain('integration-health.ts mongodb witnesses keria issuer');
+    expect(mechanismRecipe).toContain('integration-health.ts mongodb witnesses keria server');
     expect(mechanismRecipe).toContain('integration-smoke.ts mechanism');
   });
 });

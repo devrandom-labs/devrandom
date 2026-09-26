@@ -2,6 +2,8 @@ FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd
 
 WORKDIR /workspace
 
+ENV NODE_OPTIONS=--max-old-space-size=1280
+
 COPY . .
 
 RUN corepack enable pnpm \

@@ -20,6 +20,19 @@ const challengeSchema = Type.Object(
   { additionalProperties: true },
 );
 
+const asynchronousChallengeSchema = Type.Object(
+  {
+    words: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), {
+      minItems: 24,
+      maxItems: 24,
+    }),
+    dt: Type.Optional(Type.String()),
+    said: Type.Optional(Type.String()),
+    authenticated: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
 const challengeExchangeSchema = Type.Object(
   {
     v: Type.String({ minLength: 1 }),
@@ -49,6 +62,62 @@ const completedChallengeSchema = Type.Object(
     done: Type.Literal(true),
     response: Type.Object({ exn: challengeExchangeSchema }, { additionalProperties: false }),
   },
+  { additionalProperties: true },
+);
+
+const challengeOperationReferenceSchema = Type.Object(
+  { name: Type.String({ minLength: 1 }) },
+  { additionalProperties: true },
+);
+
+const challengeOperationMetadataSchema = Type.Object(
+  { words: Type.Array(Type.String({ minLength: 1, maxLength: 64 })) },
+  { additionalProperties: false },
+);
+
+const pendingChallengeOperationSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1 }),
+    metadata: Type.Optional(challengeOperationMetadataSchema),
+    done: Type.Literal(false),
+  },
+  { additionalProperties: false },
+);
+
+const failedChallengeOperationSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1 }),
+    metadata: Type.Optional(challengeOperationMetadataSchema),
+    error: Type.Object(
+      {
+        code: Type.Number(),
+        message: Type.String(),
+      },
+      { additionalProperties: true },
+    ),
+    done: Type.Literal(true),
+  },
+  { additionalProperties: false },
+);
+
+const verifiedChallengeOperationSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1 }),
+    metadata: Type.Optional(challengeOperationMetadataSchema),
+    response: Type.Object({ exn: challengeExchangeSchema }, { additionalProperties: false }),
+    done: Type.Literal(true),
+  },
+  { additionalProperties: false },
+);
+
+const challengeOperationSchema = Type.Union([
+  pendingChallengeOperationSchema,
+  failedChallengeOperationSchema,
+  verifiedChallengeOperationSchema,
+]);
+
+const acceptedChallengeResponseSchema = Type.Object(
+  { ok: Type.Literal(true) },
   { additionalProperties: true },
 );
 
@@ -192,6 +261,209 @@ export function signifyIssuerChallengeProof(
           },
           cause,
         );
+      }
+    },
+  };
+}
+
+interface SignifyAsynchronousChallengeClient {
+  challenges(): {
+    generate(strength?: number): Promise<unknown>;
+    verify(source: string, words: string[]): Promise<unknown>;
+    responded(source: string, said: string): Promise<unknown>;
+  };
+  operations(): {
+    get(name: string): Promise<unknown>;
+    delete(name: string): Promise<unknown>;
+  };
+}
+
+export interface IssuerChallengeVerificationStart {
+  readonly sourceAid: UserAid;
+  readonly challengeWords: readonly string[];
+}
+
+export interface IssuerChallengeVerificationReference {
+  readonly operationName: string;
+}
+
+export interface IssuerChallengeVerificationObservation {
+  readonly operationName: string;
+  readonly sourceAid: UserAid;
+  readonly challengeWords: readonly string[];
+  readonly responseSaid: ChallengeResponseSaid;
+}
+
+export interface IssuerChallengeResponseAcknowledgement {
+  readonly sourceAid: UserAid;
+  readonly responseSaid: ChallengeResponseSaid;
+}
+
+export type IssuerChallengeProofInvalidity =
+  | 'MalformedOperation'
+  | 'OperationNameMismatch'
+  | 'ChallengeWordsMismatch'
+  | 'ResponseEvidenceMismatch';
+
+export type IssuerChallengeVerificationRejection =
+  | {
+      readonly kind: 'OperationFailed';
+      readonly status: number;
+      readonly reason: string;
+    }
+  | {
+      readonly kind: 'InvalidProof';
+      readonly reason: IssuerChallengeProofInvalidity;
+    };
+
+export type IssuerChallengeVerificationDisposition =
+  | { readonly kind: 'Pending' }
+  | { readonly kind: 'Verified'; readonly responseSaid: ChallengeResponseSaid }
+  | {
+      readonly kind: 'Rejected';
+      readonly rejection: IssuerChallengeVerificationRejection;
+    };
+
+export interface AsynchronousIssuerChallengeProof {
+  createChallenge(): Promise<readonly string[]>;
+  startVerification(
+    input: IssuerChallengeVerificationStart,
+  ): Promise<IssuerChallengeVerificationReference>;
+  observeVerification(
+    input: IssuerChallengeVerificationObservation,
+  ): Promise<IssuerChallengeVerificationDisposition>;
+  acknowledgeResponse(input: IssuerChallengeResponseAcknowledgement): Promise<void>;
+  cleanupVerification(operationName: string): Promise<void>;
+}
+
+function asynchronousChallengeInfrastructureFailure(
+  stage: string,
+  cause: unknown,
+): IdentityFailure {
+  return new IdentityFailure(
+    {
+      kind: 'keria-unavailable',
+      stage,
+      reason: reasonFromUnknown(cause),
+    },
+    cause,
+  );
+}
+
+function malformedAsynchronousChallenge(stage: string, reason: string): IdentityFailure {
+  return new IdentityFailure({ kind: 'keria-response-invalid', stage, reason });
+}
+
+function invalidObservedProof(
+  reason: IssuerChallengeProofInvalidity,
+): IssuerChallengeVerificationDisposition {
+  return { kind: 'Rejected', rejection: { kind: 'InvalidProof', reason } };
+}
+
+export function signifyAsynchronousIssuerChallengeProof(
+  client: SignifyAsynchronousChallengeClient,
+  recipientAid: IssuerAid,
+): AsynchronousIssuerChallengeProof {
+  return {
+    async createChallenge() {
+      const stage = 'asynchronous challenge generation';
+      let untrusted: unknown;
+      try {
+        untrusted = await client.challenges().generate(256);
+      } catch (cause) {
+        throw asynchronousChallengeInfrastructureFailure(stage, cause);
+      }
+      if (!Value.Check(asynchronousChallengeSchema, untrusted)) {
+        throw malformedAsynchronousChallenge(stage, 'response does not contain exactly 24 words');
+      }
+      return [...untrusted.words];
+    },
+
+    async startVerification(input) {
+      const stage = 'asynchronous challenge verification start';
+      let untrusted: unknown;
+      try {
+        untrusted = await client.challenges().verify(input.sourceAid, [...input.challengeWords]);
+      } catch (cause) {
+        throw asynchronousChallengeInfrastructureFailure(stage, cause);
+      }
+      if (!Value.Check(challengeOperationReferenceSchema, untrusted)) {
+        throw malformedAsynchronousChallenge(stage, 'response does not name a KERIA operation');
+      }
+      return { operationName: untrusted.name };
+    },
+
+    async observeVerification(input) {
+      const stage = 'asynchronous challenge verification observation';
+      let untrusted: unknown;
+      try {
+        untrusted = await client.operations().get(input.operationName);
+      } catch (cause) {
+        throw asynchronousChallengeInfrastructureFailure(stage, cause);
+      }
+      if (!Value.Check(challengeOperationSchema, untrusted)) {
+        return invalidObservedProof('MalformedOperation');
+      }
+      if (untrusted.name !== input.operationName) {
+        return invalidObservedProof('OperationNameMismatch');
+      }
+      if (
+        untrusted.metadata !== undefined &&
+        !sameWords(untrusted.metadata.words, input.challengeWords)
+      ) {
+        return invalidObservedProof('ChallengeWordsMismatch');
+      }
+      if (!untrusted.done) {
+        return { kind: 'Pending' };
+      }
+      if ('error' in untrusted) {
+        return {
+          kind: 'Rejected',
+          rejection: {
+            kind: 'OperationFailed',
+            status: untrusted.error.code,
+            reason: untrusted.error.message,
+          },
+        };
+      }
+      try {
+        const verified = verifyChallengeResponseEvidence(untrusted.response.exn, {
+          sourceAid: input.sourceAid,
+          recipientAid,
+          challengeWords: input.challengeWords,
+          responseSaid: input.responseSaid,
+        });
+        return { kind: 'Verified', responseSaid: verified.responseSaid };
+      } catch (cause) {
+        if (
+          cause instanceof IdentityFailure &&
+          cause.detail.kind === 'challenge-response-invalid'
+        ) {
+          return invalidObservedProof('ResponseEvidenceMismatch');
+        }
+        throw cause;
+      }
+    },
+
+    async acknowledgeResponse(input) {
+      const stage = 'asynchronous challenge response acknowledgement';
+      let untrusted: unknown;
+      try {
+        untrusted = await client.challenges().responded(input.sourceAid, input.responseSaid);
+      } catch (cause) {
+        throw asynchronousChallengeInfrastructureFailure(stage, cause);
+      }
+      if (!Value.Check(acceptedChallengeResponseSchema, untrusted)) {
+        throw malformedAsynchronousChallenge(stage, 'KERIA did not acknowledge the response');
+      }
+    },
+
+    async cleanupVerification(operationName) {
+      const stage = 'asynchronous challenge verification cleanup';
+      try {
+        await client.operations().delete(operationName);
+      } catch (cause) {
+        throw asynchronousChallengeInfrastructureFailure(stage, cause);
       }
     },
   };

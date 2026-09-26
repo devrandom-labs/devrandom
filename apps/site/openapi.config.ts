@@ -9,12 +9,21 @@ export const issuerEndpointGeneration = {
   apiImport: 'issuerApi',
   encodePathParams: true,
   exportName: 'issuerApi',
+  filterEndpoints: [
+    'getIssuerHealth',
+    'createRegistration',
+    'getRegistration',
+    'submitAidProof',
+    'getRegistrationApproval',
+    'approveRegistration',
+    'rejectRegistration',
+  ],
   hooks: true,
   isDataResponse: (statusCode: string) => statusCode === '200',
   prettierConfigFile: resolve(siteRoot, '../../.prettierrc.json'),
-  schemaFile: resolve(siteRoot, '../../services/issuer/openapi.json'),
+  schemaFile: resolve(siteRoot, '../../services/server/openapi.json'),
   useUnknown: true,
-} as const;
+};
 
 export async function generateIssuerEndpoints(): Promise<string> {
   const generated = await generateEndpoints(issuerEndpointGeneration);

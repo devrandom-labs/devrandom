@@ -1,0 +1,365 @@
+{
+  "type": "object",
+  "required": ["v", "d", "i", "ri", "s", "a"],
+  "properties": {
+    "v": {
+      "type": "string",
+      "description": "Credential format version"
+    },
+    "d": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "i": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "ri": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "s": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "a": {
+      "type": "object",
+      "required": [
+        "d",
+        "i",
+        "dt",
+        "authority",
+        "taskId",
+        "taskRevisionSaid",
+        "harnessLineageId",
+        "capabilityCeiling",
+        "budgetCeiling",
+        "evolutionClassCeiling",
+        "requiredEvidenceClasses",
+        "notBefore",
+        "expiresAt"
+      ],
+      "properties": {
+        "d": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+        },
+        "i": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+        },
+        "dt": {
+          "type": "string",
+          "minLength": 1,
+          "format": "date-time"
+        },
+        "authority": {
+          "type": "string",
+          "const": "ActivateEvaluatedSuccessor"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "taskRevisionSaid": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+        },
+        "harnessLineageId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "capabilityCeiling": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "ReadRepository"
+              },
+              {
+                "type": "string",
+                "const": "EditRepository"
+              },
+              {
+                "type": "string",
+                "const": "RunFormatter"
+              },
+              {
+                "type": "string",
+                "const": "RunStaticAnalysis"
+              },
+              {
+                "type": "string",
+                "const": "RunTests"
+              },
+              {
+                "type": "string",
+                "const": "SubmitResult"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true
+        },
+        "budgetCeiling": {
+          "type": "object",
+          "required": [
+            "workAccessAttemptLifetimeSeconds",
+            "workAccessGrantLifetimeSeconds",
+            "nonterminalAttemptsPerUserClient",
+            "activeGrantsPerUserClient",
+            "publicAttemptCreationsPerMinutePerLoopbackSource",
+            "nonterminalAttemptsGlobally",
+            "requestsPerGrant",
+            "tasksPerAdmittedUser",
+            "runsPerAdmittedUser",
+            "activeRunsPerAdmittedUser",
+            "hostedWorkTasksGlobally",
+            "hostedWorkRunsGlobally",
+            "activeHostedWorkRunsGlobally",
+            "ordinaryJsonRequestBodyBytes",
+            "evidenceBatchBodyBytes",
+            "artifactRequestBodyBytes",
+            "evidencePlusArtifactsPerRunBytes",
+            "acceptedEvidencePlusArtifactsGloballyBytes",
+            "runWallTimeSeconds",
+            "providerRequests",
+            "providerInputTokens",
+            "providerOutputTokens",
+            "toolProposals",
+            "aggregateChildCommandTimeSeconds",
+            "oneChildCommandTimeSeconds",
+            "changedFiles",
+            "changedWorktreeBytes",
+            "providerSpendMicroUsd"
+          ],
+          "properties": {
+            "workAccessAttemptLifetimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 300
+            },
+            "workAccessGrantLifetimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1800
+            },
+            "nonterminalAttemptsPerUserClient": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "activeGrantsPerUserClient": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "publicAttemptCreationsPerMinutePerLoopbackSource": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "nonterminalAttemptsGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32
+            },
+            "requestsPerGrant": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2000
+            },
+            "tasksPerAdmittedUser": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4
+            },
+            "runsPerAdmittedUser": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "activeRunsPerAdmittedUser": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "hostedWorkTasksGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16
+            },
+            "hostedWorkRunsGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 21
+            },
+            "activeHostedWorkRunsGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "ordinaryJsonRequestBodyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "evidenceBatchBodyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "artifactRequestBodyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 589824
+            },
+            "evidencePlusArtifactsPerRunBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 67108864
+            },
+            "acceptedEvidencePlusArtifactsGloballyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 268435456
+            },
+            "runWallTimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600
+            },
+            "providerRequests": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 50
+            },
+            "providerInputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500000
+            },
+            "providerOutputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "toolProposals": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "aggregateChildCommandTimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1800
+            },
+            "oneChildCommandTimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 300
+            },
+            "changedFiles": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 256
+            },
+            "changedWorktreeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16777216
+            },
+            "providerSpendMicroUsd": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000000
+            }
+          },
+          "additionalProperties": false
+        },
+        "evolutionClassCeiling": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "C1"
+              },
+              {
+                "type": "string",
+                "const": "C2"
+              },
+              {
+                "type": "string",
+                "const": "C3"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true
+        },
+        "requiredEvidenceClasses": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "Diagnosis"
+              },
+              {
+                "type": "string",
+                "const": "FalsifiableHypothesis"
+              },
+              {
+                "type": "string",
+                "const": "ImmutableCandidate"
+              },
+              {
+                "type": "string",
+                "const": "RepeatedPairedEvaluation"
+              },
+              {
+                "type": "string",
+                "const": "LockedHoldout"
+              },
+              {
+                "type": "string",
+                "const": "SafetyAndAuthorityFloors"
+              },
+              {
+                "type": "string",
+                "const": "TamperAudit"
+              },
+              {
+                "type": "string",
+                "const": "WinnerSelection"
+              }
+            ]
+          },
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "notBefore": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$id": "EHL1THTMidi0ibU-Yuw9mOzUyxg0G5eBwmqJsnbFDp-s",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Devrandom Promotion Mandate",
+  "description": "User-issued authority for one Governor and bounded future activation",
+  "credentialType": "DevrandomPromotionMandate",
+  "version": "1.0.0",
+  "additionalProperties": false
+}

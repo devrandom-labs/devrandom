@@ -37,6 +37,9 @@ catalogs:
       specifier: 5.33.2
       version: 5.33.2
 
+patchedDependencies:
+  signify-ts@0.4.0: ccce299ae7ad4add4c886fe85e4f80a7b5f665b6d54ca4bd52e72a6ea36be8e3
+
 importers:
 
   .:
@@ -83,6 +86,9 @@ importers:
       '@devrandom/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@devrandom/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       commander:
         specifier: 15.0.0
         version: 15.0.0
@@ -154,7 +160,7 @@ importers:
         version: link:../domain
       signify-ts:
         specifier: 'catalog:'
-        version: 0.4.0
+        version: 0.4.0(patch_hash=ccce299ae7ad4add4c886fe85e4f80a7b5f665b6d54ca4bd52e72a6ea36be8e3)
       typebox:
         specifier: 'catalog:'
         version: 1.3.27
@@ -170,13 +176,19 @@ importers:
         version: link:../domain
       signify-ts:
         specifier: 'catalog:'
-        version: 0.4.0
+        version: 0.4.0(patch_hash=ccce299ae7ad4add4c886fe85e4f80a7b5f665b6d54ca4bd52e72a6ea36be8e3)
       typebox:
         specifier: 'catalog:'
         version: 1.3.27
 
   packages/runtime:
     dependencies:
+      '@devrandom/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@devrandom/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@earendil-works/pi-ai':
         specifier: 'catalog:'
         version: 0.87.1(ws@8.21.3)
@@ -196,8 +208,11 @@ importers:
         specifier: 'catalog:'
         version: 7.6.0
 
-  services/issuer:
+  services/server:
     dependencies:
+      '@devrandom/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@devrandom/identity':
         specifier: workspace:*
         version: link:../../packages/identity
@@ -5101,7 +5116,7 @@ snapshots:
 
   signal-exit@3.0.7: {}
 
-  signify-ts@0.4.0:
+  signify-ts@0.4.0(patch_hash=ccce299ae7ad4add4c886fe85e4f80a7b5f665b6d54ca4bd52e72a6ea36be8e3):
     dependencies:
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0

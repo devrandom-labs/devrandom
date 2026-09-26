@@ -18,7 +18,7 @@ describe('stack policy', () => {
         'react-redux': '9.3.0',
       },
     };
-    const issuer: PackageManifest = {
+    const server: PackageManifest = {
       dependencies: {
         '@fastify/swagger': '9.6.1',
         fastify: '5.12.5',
@@ -26,7 +26,7 @@ describe('stack policy', () => {
     };
 
     expect(inspectStackManifest('apps/site/package.json', site)).toEqual([]);
-    expect(inspectStackManifest('services/issuer/package.json', issuer)).toEqual([]);
+    expect(inspectStackManifest('services/server/package.json', server)).toEqual([]);
   });
 
   it('rejects competing libraries even when the selected stack is present', () => {
@@ -48,7 +48,7 @@ describe('stack policy', () => {
         vite: '8.3.0',
       },
     };
-    const issuer: PackageManifest = {
+    const server: PackageManifest = {
       dependencies: {
         '@fastify/swagger': '9.6.1',
         '@nestjs/core': '11.0.0',
@@ -68,10 +68,10 @@ describe('stack policy', () => {
         packageName: 'vite',
       },
     ]);
-    expect(inspectStackManifest('services/issuer/package.json', issuer)).toEqual([
+    expect(inspectStackManifest('services/server/package.json', server)).toEqual([
       {
         kind: 'forbidden-dependency',
-        manifest: 'services/issuer/package.json',
+        manifest: 'services/server/package.json',
         packageName: '@nestjs/core',
       },
     ]);

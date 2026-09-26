@@ -17,12 +17,20 @@
         docker = pkgs.docker-client;
         compose = pkgs.docker-compose;
         colima = pkgs.colima;
+        rustc = pkgs.rustc;
+        cargo = pkgs.cargo;
+        rustfmt = pkgs.rustfmt;
+        clippy = pkgs.clippy;
       in
       assert node.version == "24.20.0";
       assert pnpm.version == "12.3.4";
       assert docker.version == "29.8.0";
       assert compose.version == "5.5.1";
       assert colima.version == "0.10.3";
+      assert rustc.version == "1.98.1";
+      assert cargo.version == "1.98.1";
+      assert rustfmt.version == "1.98.1";
+      assert clippy.version == "1.98.1";
       {
         devShells.default = pkgs.mkShell {
           packages = [
@@ -30,6 +38,10 @@
             docker
             node
             pnpm
+            rustc
+            cargo
+            rustfmt
+            clippy
             pkgs.git
             pkgs.just
           ]
@@ -50,6 +62,10 @@
                 pkgs.just
                 compose
                 docker
+                rustc
+                cargo
+                rustfmt
+                clippy
               ];
             }
             ''
@@ -57,6 +73,10 @@
               test "$(pnpm --version)" = "12.3.4"
               test "$(docker --version)" = "Docker version 29.8.0, build v29.8.0"
               test "$(docker-compose version --short)" = "5.5.1"
+              test "$(rustc --version | cut -d' ' -f1-2)" = "rustc 1.98.1"
+              test "$(cargo --version | cut -d' ' -f1-2)" = "cargo 1.98.0"
+              rustfmt --version >/dev/null
+              cargo clippy --version >/dev/null
               just --version >/dev/null
               touch "$out"
             '';

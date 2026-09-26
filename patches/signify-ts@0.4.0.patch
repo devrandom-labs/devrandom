@@ -1,0 +1,102 @@
+diff --git a/dist/keri/app/clienting.d.ts b/dist/keri/app/clienting.d.ts
+index abbfb0ab7fb5f0018bc861c8e10aba67cace0726..f06736cc02443d5bb508842a2efeedeaa60615d0 100644
+--- a/dist/keri/app/clienting.d.ts
++++ b/dist/keri/app/clienting.d.ts
+@@ -25,6 +25,7 @@ declare class State {
+  * receive messages and act as a proxy for multi-signature operations and delegation operations.
+  */
+ export declare class SignifyClient {
++    private readonly _fetch: typeof globalThis.fetch;
+     controller: Controller;
+     url: string;
+     bran: string;
+@@ -59,8 +60,9 @@ export declare class SignifyClient {
+      * @param {Tier} tier Security tier for generating keys of the client AID (high | mewdium | low)
+      * @param {string} bootUrl KERIA boot interface URL
+      * @param {ExternalModule[]} externalModules list of external modules to load
++     * @param {typeof globalThis.fetch} transport HTTP transport; defaults to global fetch
+      */
+-    constructor(url: string, bran: string, tier?: Tier, bootUrl?: string, externalModules?: ExternalModule[]);
++    constructor(url: string, bran: string, tier?: Tier, bootUrl?: string, externalModules?: ExternalModule[], transport?: typeof globalThis.fetch);
+     get data(): (string | number | Authenticater | null)[];
+     /**
+      * Boot a KERIA agent
+diff --git a/dist/keri/app/clienting.js b/dist/keri/app/clienting.js
+index b92ae6e61ba127e0b4b4fc5367bf9c1a687a73e7..4d0e5c9646b1fab1c7175893cc221ad6607e5028 100644
+--- a/dist/keri/app/clienting.js
++++ b/dist/keri/app/clienting.js
+@@ -33,8 +33,10 @@ export class SignifyClient {
+      * @param {Tier} tier Security tier for generating keys of the client AID (high | mewdium | low)
+      * @param {string} bootUrl KERIA boot interface URL
+      * @param {ExternalModule[]} externalModules list of external modules to load
++     * @param {typeof globalThis.fetch} transport HTTP transport; defaults to global fetch
+      */
+-    constructor(url, bran, tier = Tier.low, bootUrl = DEFAULT_BOOT_URL, externalModules = []) {
++    constructor(url, bran, tier = Tier.low, bootUrl = DEFAULT_BOOT_URL, externalModules = [], transport = (input, init) => globalThis.fetch(input, init)) {
++        this._fetch = transport;
+         this._identifiers = new Identifier(this);
+         this._operations = new Operations(this);
+         this._keyEvents = new KeyEvents(this);
+@@ -84,7 +86,7 @@ export class SignifyClient {
+             pidx: 1,
+             tier: (_d = this.controller) === null || _d === void 0 ? void 0 : _d.tier,
+         };
+-        return await fetch(this.bootUrl + '/boot', {
++        return await this._fetch(this.bootUrl + '/boot', {
+             method: 'POST',
+             body: JSON.stringify(data),
+             headers: {
+@@ -100,7 +102,7 @@ export class SignifyClient {
+     async state() {
+         var _a, _b, _c, _d, _e;
+         const caid = (_a = this.controller) === null || _a === void 0 ? void 0 : _a.pre;
+-        const res = await fetch(this.url + `/agent/${caid}`);
++        const res = await this._fetch(this.url + `/agent/${caid}`);
+         if (res.status == 404) {
+             throw new Error(`agent does not exist for controller ${caid}`);
+         }
+@@ -164,7 +166,7 @@ export class SignifyClient {
+                 final_headers.append(key, value);
+             });
+         }
+-        const res = await fetch(this.url + path, {
++        const res = await this._fetch(this.url + path, {
+             method: method,
+             body: _body,
+             headers: final_headers,
+@@ -223,7 +225,7 @@ export class SignifyClient {
+             ixn: this.controller.serder.sad,
+             sigs: sigs,
+         };
+-        return await fetch(this.url + '/agent/' + this.controller.pre + '?type=ixn', {
++        return await this._fetch(this.url + '/agent/' + this.controller.pre + '?type=ixn', {
+             method: 'PUT',
+             body: JSON.stringify(data),
+             headers: {
+@@ -241,7 +243,7 @@ export class SignifyClient {
+         var _a;
+         const caid = (_a = this.controller) === null || _a === void 0 ? void 0 : _a.pre;
+         const body = { salt: passcode };
+-        return await fetch(this.url + '/salt/' + caid, {
++        return await this._fetch(this.url + '/salt/' + caid, {
+             method: 'PUT',
+             body: JSON.stringify(body),
+             headers: {
+@@ -257,7 +259,7 @@ export class SignifyClient {
+     async deletePasscode() {
+         var _a;
+         const caid = (_a = this.controller) === null || _a === void 0 ? void 0 : _a.pre;
+-        return await fetch(this.url + '/salt/' + caid, {
++        return await this._fetch(this.url + '/salt/' + caid, {
+             method: 'DELETE',
+             headers: {
+                 'Content-Type': 'application/json',
+@@ -273,7 +275,7 @@ export class SignifyClient {
+      */
+     async rotate(nbran, aids) {
+         const data = this.controller.rotate(nbran, aids);
+-        return await fetch(this.url + '/agent/' + this.controller.pre, {
++        return await this._fetch(this.url + '/agent/' + this.controller.pre, {
+             method: 'PUT',
+             body: JSON.stringify(data),
+             headers: {

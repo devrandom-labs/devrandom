@@ -71,7 +71,7 @@ apps/
   site/      browser registration and read-only presentation
 
 services/
-  issuer/    current identity-only registration and ACDC issuance composition
+  server/    Devrandom Server composition with issuer and registration contexts
 
 packages/
   domain/    product states, transitions, and laws
@@ -86,13 +86,13 @@ belongs to the package that owns its invariant; browser, CLI, HTTP, KERI, and
 MongoDB adapters do not create competing task, mandate, harness, or evaluation
 models.
 
-After identity E2E is complete, the proven issuer composition becomes one
-bounded context inside a single Fastify Devrandom Server alongside hosted
-access, work admission, evidence ingestion, experience retrieval, signed
-activation commit, publication admission, and read-only query contexts. Only
-that server receives the Atlas connection string. Pi, XState, candidate
-workers, protected evaluation, tamper audit, promotion selection, and the
-Governor key remain in the trusted local CLI control plane.
+The proven issuer composition is one bounded context inside a single Fastify
+Devrandom Server alongside hosted access, work admission, evidence ingestion,
+and read-only Task and Run queries. Experience retrieval, signed activation
+commit, and publication admission are later server capabilities. Only the
+server receives the Atlas connection string. Pi, XState, candidate workers,
+protected evaluation, tamper audit, promotion selection, and the Governor key
+remain in the trusted local CLI control plane.
 
 The public terminal product is the Commander-based `devrandom` CLI. Identity
 admission completes before the work runtime is constructed. Pi supplies the
@@ -112,17 +112,17 @@ Inside `nix develop`, run each boundary with:
 
 ```sh
 just run-cli
-just run-issuer # http://127.0.0.1:3211/health
+just run-server # http://127.0.0.1:3211/health
 just run-site   # http://127.0.0.1:3210
 ```
 
 `just smoke` exercises all three public boundaries after a build. `just
-openapi` regenerates the committed issuer contract.
+openapi` regenerates the committed server contract.
 
 ## Local integration
 
 Docker Compose supplies only the external integration environment: MongoDB,
-the demo witnesses, KERIA, and the current issuer or eventual Devrandom Server.
+the demo witnesses, KERIA, and the Devrandom Server.
 Pi, XState, candidate workers, protected governance, and the CLI itself remain
 host-side and are never Compose services.
 
@@ -135,6 +135,26 @@ just up
 devrandom init
 just down
 ```
+
+The CLI model configuration is a separate caller-supplied environment. For the
+PRD 02 runtime, put `CONCENTRATE_API_KEY` and the five non-secret
+`DEVRANDOM_MODEL_*` values in the ignored, owner-readable `.env.cli`, then source
+it explicitly in each shell that invokes the CLI or the PRD 02 journey:
+
+```sh
+chmod 600 .env.cli
+set +x
+set -a
+. ./.env.cli
+set +a
+nix develop -c just test-prd02-journey
+```
+
+The pinned profile is provider `concentrate`, model
+`deepinfra/gemma-4-e4b`, a supported Pi thinking level, at most 32768 output
+tokens, and credential source
+`CONCENTRATE_API_KEY`. Neither the CLI nor Just automatically loads `.env.cli`,
+and its values must not be passed to Compose services or child tool commands.
 
 `just up` installs the workspace, which exposes the package-declared
 `devrandom` executable through `node_modules/.bin`, builds the deployables, and

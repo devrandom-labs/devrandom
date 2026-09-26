@@ -12,6 +12,8 @@ describe('issuer browser contract', () => {
 
     expect(committed).toBe(generated);
     expect(generated).toContain('useGetIssuerHealthQuery');
+    expect(generated).toContain('useGetRegistrationApprovalQuery');
+    expect(generated).not.toContain('useRenewRunLeaseMutation');
     expect(generated).not.toContain('useGetCredentialSchemaQuery');
     expect(generated).not.toMatch(/ApiResponse = unknown/u);
     expect(generated).not.toMatch(/\bany\b/u);

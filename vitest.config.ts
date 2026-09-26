@@ -7,6 +7,7 @@ export default defineConfig({
     },
   },
   test: {
+    maxWorkers: 4,
     coverage: {
       enabled: false,
     },

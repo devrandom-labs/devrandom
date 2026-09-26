@@ -2,21 +2,26 @@ import { constants, type Stats } from 'node:fs';
 import { chmod, link, lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as wait } from 'node:timers/promises';
 
 import Type from 'typebox';
 import Value from 'typebox/value';
 
-import type {
-  PendingRegistrationCreation,
-  RegistrationSecrets,
-  SignifyCustody,
-  UserProfile,
+import {
+  clientInstanceId,
+  clientInstanceIdPattern,
+  type PendingRegistrationCreation,
+  type RegistrationSecrets,
+  type SignifyCustody,
+  type UserProfile,
 } from '../domain/user-profile.js';
 
 const nonEmptyString = Type.String({ minLength: 1 });
 const aid = Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' });
 const said = Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' });
 const registrationId = Type.String({ pattern: '^[a-f0-9]{32}$' });
+const profileCommitContentionAttempts = 500;
+const profileCommitContentionIntervalMs = 10;
 
 const custodySchema = Type.Object(
   {
@@ -94,26 +99,43 @@ const pendingRotationSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const profileSchema = Type.Object(
+const profileFields = {
+  revision: Type.Integer({ minimum: 0 }),
+  alias: nonEmptyString,
+  controllerAid: aid,
+  keriaAgentAid: aid,
+  userAid: aid,
+  userAgentOobi: Type.String({ minLength: 1, maxLength: 2048, pattern: '^https?://[^#]+$' }),
+  witnessPolicy: witnessPolicySchema,
+  receiptEvidence: receiptEvidenceSchema,
+  issuer: issuerSchema,
+  credential: Type.Optional(credentialReferenceSchema),
+  registration: Type.Optional(registrationReferenceSchema),
+  rotation: Type.Optional(pendingRotationSchema),
+  provenance: Type.Object({ kind: Type.Literal('live') }, { additionalProperties: false }),
+  custodyReference: Type.Literal('signify-bran-v1'),
+} as const;
+
+const legacyProfileSchema = Type.Object(
   {
     version: Type.Literal(1),
-    revision: Type.Integer({ minimum: 0 }),
-    alias: nonEmptyString,
-    controllerAid: aid,
-    keriaAgentAid: aid,
-    userAid: aid,
-    userAgentOobi: Type.String({ minLength: 1, maxLength: 2048, pattern: '^https?://[^#]+$' }),
-    witnessPolicy: witnessPolicySchema,
-    receiptEvidence: receiptEvidenceSchema,
-    issuer: issuerSchema,
-    credential: Type.Optional(credentialReferenceSchema),
-    registration: Type.Optional(registrationReferenceSchema),
-    rotation: Type.Optional(pendingRotationSchema),
-    provenance: Type.Object({ kind: Type.Literal('live') }, { additionalProperties: false }),
-    custodyReference: Type.Literal('signify-bran-v1'),
+    ...profileFields,
   },
   { additionalProperties: false },
 );
+
+const clientBoundProfileSchema = Type.Object(
+  {
+    version: Type.Literal(2),
+    ...profileFields,
+    clientInstanceId: Type.String({
+      pattern: clientInstanceIdPattern,
+    }),
+  },
+  { additionalProperties: false },
+);
+
+const profileSchema = Type.Union([legacyProfileSchema, clientBoundProfileSchema]);
 
 const registrationSecretsSchema = Type.Union([
   Type.Object(
@@ -220,7 +242,10 @@ export class IdentityFiles {
     if (!Value.Check(profileSchema, value)) {
       throw new IdentityFileFailure({ kind: 'identity-file-invalid', file: 'profile' });
     }
-    return Value.Parse(profileSchema, value);
+    const parsed = Value.Parse(profileSchema, value);
+    return parsed.version === 1
+      ? parsed
+      : { ...parsed, clientInstanceId: clientInstanceId(parsed.clientInstanceId) };
   }
 
   async commitProfile(previousRevision: number | undefined, profile: UserProfile): Promise<void> {
@@ -231,16 +256,7 @@ export class IdentityFiles {
       throw new IdentityFileFailure({ kind: 'identity-file-invalid', file: 'profile' });
     }
     await this.#prepareDirectory();
-    let lock;
-    try {
-      lock = await open(
-        this.#profileLockPath,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-        0o600,
-      );
-    } catch (cause) {
-      throw new IdentityFileFailure({ kind: 'identity-file-conflict', file: 'profile' }, cause);
-    }
+    const lock = await this.#acquireProfileCommit();
     try {
       const current = await this.readProfile();
       if (current?.revision !== previousRevision) {
@@ -251,6 +267,26 @@ export class IdentityFiles {
       await lock.close();
       await unlink(this.#profileLockPath).catch(() => undefined);
     }
+  }
+
+  async #acquireProfileCommit() {
+    let contention: unknown;
+    for (let attempt = 0; attempt < profileCommitContentionAttempts; attempt += 1) {
+      try {
+        return await open(
+          this.#profileLockPath,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+          0o600,
+        );
+      } catch (cause) {
+        if (!isAlreadyPresent(cause)) {
+          throw new IdentityFileFailure({ kind: 'identity-file-conflict', file: 'profile' }, cause);
+        }
+        contention = cause;
+      }
+      await wait(profileCommitContentionIntervalMs);
+    }
+    throw new IdentityFileFailure({ kind: 'identity-file-conflict', file: 'profile' }, contention);
   }
 
   async readRegistrationSecrets(): Promise<RegistrationSecrets | undefined> {
@@ -452,4 +488,8 @@ function ownedByCurrentUser(state: Stats): boolean {
 
 function isAbsent(cause: unknown): boolean {
   return cause instanceof Error && 'code' in cause && cause.code === 'ENOENT';
+}
+
+function isAlreadyPresent(cause: unknown): boolean {
+  return cause instanceof Error && 'code' in cause && cause.code === 'EEXIST';
 }

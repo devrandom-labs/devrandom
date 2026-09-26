@@ -1,5 +1,9 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+
 import {
   confirmCurrentUserCustody,
+  ProtectedCredentials,
   decideUserAdmission,
   verifyDevrandomUserCredential,
   type AdmittedUser,
@@ -16,8 +20,11 @@ import {
   ipexGrantSaid,
   issuerAid,
   issuerOobi,
+  keyEventSaid,
   userAid,
+  witnessedKelAdvancement,
   IdentityFailure,
+  type ChallengeResponseSaid,
   type LocalUserInfrastructure,
   type ProvisionLocalUser,
   type VerifiedCredentialEvidence,
@@ -28,11 +35,15 @@ import {
   devrandomUserAlias,
   type UserIdentityConfiguration,
 } from '../domain/user-configuration.js';
-import type {
-  ActiveRegistrationSecrets,
-  SignifyCustody,
-  UserCredentialReference,
-  UserProfile,
+import {
+  clientInstanceId,
+  type ActiveRegistrationSecrets,
+  type ClientBoundUserProfile,
+  type ClientInstanceId,
+  type LegacyUserProfile,
+  type SignifyCustody,
+  type UserCredentialReference,
+  type UserProfile,
 } from '../domain/user-profile.js';
 import { IdentityFileFailure, type IdentityFiles } from '../infrastructure/identity-files.js';
 import {
@@ -75,6 +86,22 @@ export type UserIdentityOutcome =
       readonly dependency: IdentityInfrastructureDependency;
     };
 
+type UserIdentityNotReady = Exclude<UserIdentityOutcome, { readonly kind: 'Ready' }>;
+
+export interface CurrentUserAidProof {
+  respond(challengeWords: readonly string[]): Promise<ChallengeResponseSaid>;
+}
+
+export type HostedWorkIdentityOutcome =
+  | {
+      readonly kind: 'Ready';
+      readonly user: AdmittedUser;
+      readonly clientInstanceId: ClientInstanceId;
+      readonly userAidProof: CurrentUserAidProof;
+      readonly protectedCredentials: ProtectedCredentials;
+    }
+  | UserIdentityNotReady;
+
 type RegistrationRejectedOutcome = Extract<
   UserIdentityOutcome,
   { readonly kind: 'RegistrationRejected' }
@@ -99,14 +126,17 @@ export const userIdentityDefaults: UserIdentityDependencies = {
 };
 
 interface EstablishedUser {
+  readonly protectedCredentials: ProtectedCredentials;
   readonly profile: UserProfile;
   readonly infrastructure: LocalUserInfrastructure;
   readonly recovery: 'NewIdentity' | 'ExistingIdentity';
-  readonly rotationReconciliation: 'profile-current' | 'completed-rotation-reconciled';
+  readonly rotationReconciliation:
+    'profile-current' | 'authorized-interactions-reconciled' | 'completed-rotation-reconciled';
 }
 
 type RotationReconciliation =
   | { readonly kind: 'profile-current'; readonly profile: UserProfile }
+  | { readonly kind: 'authorized-interactions-reconciled'; readonly profile: UserProfile }
   | { readonly kind: 'completed-rotation-reconciled'; readonly profile: UserProfile }
   | { readonly kind: 'rotation-conflict' };
 
@@ -122,17 +152,20 @@ export class UserIdentityApplication {
   readonly #files: IdentityFiles;
   readonly #issuer: IssuerRegistrationHttp;
   readonly #dependencies: UserIdentityDependencies;
+  readonly #createClientInstanceId: () => ClientInstanceId;
 
   constructor(
     configuration: UserIdentityConfiguration,
     files: IdentityFiles,
     issuer: IssuerRegistrationHttp,
     dependencies: UserIdentityDependencies = userIdentityDefaults,
+    createClientInstanceId: () => ClientInstanceId = () => clientInstanceId(randomUUID()),
   ) {
     this.#configuration = configuration;
     this.#files = files;
     this.#issuer = issuer;
     this.#dependencies = dependencies;
+    this.#createClientInstanceId = createClientInstanceId;
   }
 
   async initialize(): Promise<UserIdentityOutcome> {
@@ -162,6 +195,33 @@ export class UserIdentityApplication {
         return establishment;
       }
       return await this.#admitExisting(establishment.user);
+    } catch (cause) {
+      return classifyFailure(cause);
+    }
+  }
+
+  async admitHostedWork(): Promise<HostedWorkIdentityOutcome> {
+    try {
+      const establishment = await this.#recoverExisting();
+      if (establishment.kind !== 'user-established') {
+        return establishment;
+      }
+      const admission = await this.#admitExisting(establishment.user);
+      if (admission.kind !== 'Ready') {
+        return admission;
+      }
+      const profile = await this.#bindClientInstance(establishment.user.profile);
+      return {
+        kind: 'Ready',
+        user: admission.user,
+        clientInstanceId: profile.clientInstanceId,
+        protectedCredentials: establishment.user.protectedCredentials,
+        userAidProof: currentUserAidProof(
+          establishment.user,
+          this.#configuration.issuerAid,
+          this.#dependencies.now,
+        ),
+      };
     } catch (cause) {
       return classifyFailure(cause);
     }
@@ -281,6 +341,7 @@ export class UserIdentityApplication {
       return {
         kind: 'user-established',
         user: {
+          protectedCredentials: new ProtectedCredentials([activeCustody.bran]),
           profile: reconciled.profile,
           infrastructure,
           recovery,
@@ -318,6 +379,7 @@ export class UserIdentityApplication {
     return {
       kind: 'user-established',
       user: {
+        protectedCredentials: new ProtectedCredentials([activeCustody.bran]),
         profile: created,
         infrastructure,
         recovery,
@@ -375,6 +437,7 @@ export class UserIdentityApplication {
     return {
       kind: 'user-established',
       user: {
+        protectedCredentials: new ProtectedCredentials([custody.bran]),
         profile: reconciled.profile,
         infrastructure,
         recovery: 'ExistingIdentity',
@@ -392,13 +455,33 @@ export class UserIdentityApplication {
         ? { kind: 'profile-current', profile }
         : { kind: 'rotation-conflict' };
     }
+    if (!profileMatchesStableIdentity(profile, infrastructure)) {
+      return { kind: 'rotation-conflict' };
+    }
+    const advancement = witnessedKelAdvancement(infrastructure.identity.user, {
+      kelSequence: profile.receiptEvidence.kelSequence,
+      currentEventSaid: keyEventSaid(profile.receiptEvidence.currentEventSaid),
+    });
     const rotation = profile.rotation;
+    if (rotation === undefined) {
+      if (advancement.kind !== 'InteractionsAdvanced') {
+        return { kind: 'rotation-conflict' };
+      }
+      const reconciled = await this.#commitProfile(profile, {
+        ...profile,
+        receiptEvidence: {
+          kelSequence: infrastructure.identity.user.kelSequence,
+          currentEventSaid: infrastructure.identity.user.currentEventSaid,
+          receiptIndexes: [...infrastructure.identity.user.receiptIndexes],
+        },
+      });
+      return { kind: 'authorized-interactions-reconciled', profile: reconciled };
+    }
     if (
-      rotation === undefined ||
       rotation.priorKelSequence !== profile.receiptEvidence.kelSequence ||
       rotation.priorEventSaid !== profile.receiptEvidence.currentEventSaid ||
-      !profileMatchesStableIdentity(profile, infrastructure) ||
-      infrastructure.identity.user.kelSequence !== rotation.priorKelSequence + 1
+      advancement.kind !== 'RotationAdvanced' ||
+      advancement.rotationSequence !== rotation.priorKelSequence + 1
     ) {
       return { kind: 'rotation-conflict' };
     }
@@ -411,6 +494,32 @@ export class UserIdentityApplication {
       },
     });
     return { kind: 'completed-rotation-reconciled', profile: reconciled };
+  }
+
+  async #bindClientInstance(profile: UserProfile): Promise<ClientBoundUserProfile> {
+    if (profile.version === 2) {
+      return profile;
+    }
+    const candidate = clientBoundProfile(profile, this.#createClientInstanceId());
+    try {
+      await this.#files.commitProfile(profile.revision, candidate);
+      return candidate;
+    } catch (cause) {
+      if (
+        !(cause instanceof IdentityFileFailure) ||
+        cause.detail.kind !== 'identity-file-conflict'
+      ) {
+        throw cause;
+      }
+      const committed = await this.#files.readProfile();
+      if (
+        committed?.version === 2 &&
+        isDeepStrictEqual(committed, clientBoundProfile(profile, committed.clientInstanceId))
+      ) {
+        return committed;
+      }
+      throw cause;
+    }
   }
 
   async #admitExisting(user: EstablishedUser): Promise<UserIdentityOutcome> {
@@ -707,21 +816,48 @@ function profileWithCredential(
   profile: UserProfile,
   credential: UserCredentialReference,
 ): UserProfile {
+  const completed = { ...profile, credential };
+  delete completed.registration;
+  delete completed.rotation;
+  return completed;
+}
+
+function clientBoundProfile(
+  profile: LegacyUserProfile,
+  id: ClientInstanceId,
+): ClientBoundUserProfile {
   return {
-    version: profile.version,
-    revision: profile.revision,
-    alias: profile.alias,
-    controllerAid: profile.controllerAid,
-    keriaAgentAid: profile.keriaAgentAid,
-    userAid: profile.userAid,
-    userAgentOobi: profile.userAgentOobi,
-    witnessPolicy: profile.witnessPolicy,
-    receiptEvidence: profile.receiptEvidence,
-    issuer: profile.issuer,
-    credential,
-    provenance: profile.provenance,
-    custodyReference: profile.custodyReference,
+    ...profile,
+    version: 2,
+    revision: profile.revision + 1,
+    clientInstanceId: id,
   };
+}
+
+function currentUserAidProof(
+  user: EstablishedUser,
+  recipientAid: UserIdentityConfiguration['issuerAid'],
+  now: () => number,
+): CurrentUserAidProof {
+  return Object.freeze({
+    async respond(challengeWords: readonly string[]) {
+      const exactWords = Object.freeze([...challengeWords]);
+      const preparedAt = now();
+      const preparation = {
+        alias: user.profile.alias,
+        sourceAid: userAid(user.profile.userAid),
+        recipientAid,
+        challengeWords: exactWords,
+        preparedAt,
+      };
+      const prepared = await user.infrastructure.challengeProof.prepare(preparation);
+      const delivered = await user.infrastructure.challengeProof.deliver({
+        ...preparation,
+        responseSaid: prepared.responseSaid,
+      });
+      return delivered.responseSaid;
+    },
+  });
 }
 
 function profileWithoutRegistration(profile: UserProfile): UserProfile {
@@ -813,7 +949,7 @@ function fileRecovery(cause: unknown): Establishment {
   throw cause;
 }
 
-function classifyFailure(cause: unknown): UserIdentityOutcome {
+function classifyFailure(cause: unknown): UserIdentityNotReady {
   if (cause instanceof IdentityFileFailure) {
     return {
       kind: 'RecoveryRequired',
@@ -930,4 +1066,3 @@ function identityFileRecoveryReason(
   }
   return failure.detail.file === 'custody' ? 'CustodyUnavailable' : 'ProfileUnavailable';
 }
-import { randomBytes } from 'node:crypto';

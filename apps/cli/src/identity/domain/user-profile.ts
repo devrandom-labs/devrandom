@@ -46,8 +46,25 @@ export interface PendingUserRotation {
   readonly priorEventSaid: string;
 }
 
-export interface UserProfile {
-  readonly version: 1;
+export const clientInstanceIdPattern =
+  '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' as const;
+
+const clientInstanceIdFormat = new RegExp(clientInstanceIdPattern, 'u');
+
+declare const clientInstanceIdBrand: unique symbol;
+
+export type ClientInstanceId = string & {
+  readonly [clientInstanceIdBrand]: 'ClientInstanceId';
+};
+
+export function clientInstanceId(value: string): ClientInstanceId {
+  if (!clientInstanceIdFormat.test(value)) {
+    throw new TypeError('client instance ID must be a lowercase UUIDv4');
+  }
+  return value as ClientInstanceId;
+}
+
+interface UserProfileState {
   readonly revision: number;
   readonly alias: string;
   readonly controllerAid: string;
@@ -63,6 +80,17 @@ export interface UserProfile {
   readonly provenance: { readonly kind: 'live' };
   readonly custodyReference: 'signify-bran-v1';
 }
+
+export interface LegacyUserProfile extends UserProfileState {
+  readonly version: 1;
+}
+
+export interface ClientBoundUserProfile extends UserProfileState {
+  readonly version: 2;
+  readonly clientInstanceId: ClientInstanceId;
+}
+
+export type UserProfile = LegacyUserProfile | ClientBoundUserProfile;
 
 export interface PendingRegistrationCreation {
   readonly version: 1;

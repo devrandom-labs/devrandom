@@ -3,8 +3,8 @@ import {
   credentialSchema,
   type CredentialCapability,
 } from '@devrandom/protocol';
-import { Saider } from 'signify-ts';
-import { describe, expect, it } from 'vitest';
+import { randomPasscode, ready, Saider, SignifyClient, Tier } from 'signify-ts';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   credentialRegistryId,
@@ -13,13 +13,18 @@ import {
   issuerAid,
   userAid,
 } from './keri-identifier.js';
-import { verifyCredentialEvidence } from './credential.js';
+import {
+  signifyIssuerCurrentUserCredentialVerification,
+  verifyCredentialEvidence,
+} from './credential.js';
 
 const issuer = issuerAid('EBcIURLpxmVwahksgrsGW6_dUw0zBhyEHYFk17eWrZfk');
 const anotherIssuer = issuerAid('EJlw5Fw9LKH1CYFEkGiDUlx0cHozvXb7hfqhSoMsH6bs');
 const user = userAid('EERMVxqeHfFo_eIvyzBXaKdT1EyobZdSs1QXuFyYLjmz');
 const registry = credentialRegistryId('EBfdlu8R27Fbx-ehrqwImnK-8Cm79sqbAQ4MmvEAYqao');
 const schema = credentialSchemaId(credentialSchema.$id);
+
+beforeAll(async () => ready());
 
 function saidify<Value extends object & { readonly d: string }>(value: Value): Value {
   const [, document] = Saider.saidify(value);
@@ -89,6 +94,41 @@ function credentialEvidence(
     issuerKeyEvents: [{ ked: anchor }],
     resolvedSchema: credentialSchema,
   };
+}
+
+function credentialClient(
+  evidence: ReturnType<typeof credentialEvidence>,
+  input?: {
+    readonly credentialState?: unknown;
+    readonly failure?: { readonly path: string; readonly cause: Error };
+  },
+) {
+  const client = new SignifyClient(
+    'http://127.0.0.1:3901',
+    randomPasscode(),
+    Tier.low,
+    'http://127.0.0.1:3903',
+  );
+  const responses = new Map<string, unknown>([
+    [`/credentials/${evidence.expectedCredentialSaid}`, evidence.credential],
+    [
+      `/registries/${registry}/${evidence.expectedCredentialSaid}`,
+      input?.credentialState ?? evidence.credentialState,
+    ],
+    [`/events?pre=${issuer}`, evidence.issuerKeyEvents],
+    [`/schema/${schema}`, evidence.resolvedSchema],
+  ]);
+  const fetch = vi.spyOn(client, 'fetch').mockImplementation((path) => {
+    if (input?.failure?.path === path) {
+      return Promise.reject(input.failure.cause);
+    }
+    const response = responses.get(path);
+    if (response === undefined) {
+      return Promise.reject(new Error(`unexpected Signify request: ${path}`));
+    }
+    return Promise.resolve(new Response(JSON.stringify(response)));
+  });
+  return { client, fetch };
 }
 
 describe('credential verification', () => {
@@ -441,5 +481,110 @@ describe('credential verification', () => {
         },
       ),
     ).toThrow('issuer KEL does not contain the credential anchor');
+  });
+});
+
+describe('issuer current user credential verification', () => {
+  it('retrieves each current evidence source once and returns only closed verified evidence', async () => {
+    const evidence = credentialEvidence();
+    const { client, fetch } = credentialClient(evidence);
+    const verification = signifyIssuerCurrentUserCredentialVerification(client, {
+      issuerAid: issuer,
+      registryId: registry,
+      schemaId: schema,
+      payloadSchema: credentialSchema,
+    });
+
+    await expect(
+      verification.verify({
+        userAid: user,
+        credentialSaid: evidence.expectedCredentialSaid,
+      }),
+    ).resolves.toEqual({
+      kind: 'Current',
+      userAid: user,
+      credentialSaid: evidence.expectedCredentialSaid,
+      attributeSaid: evidence.credential.sad.a.d,
+      issuedAt: evidence.credential.sad.a.dt,
+      issuerAnchorEventSaid: evidence.credential.anc.d,
+      eligibilityClaims: credentialCapabilities,
+    });
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      `/credentials/${evidence.expectedCredentialSaid}`,
+      `/registries/${registry}/${evidence.expectedCredentialSaid}`,
+      `/events?pre=${issuer}`,
+      `/schema/${schema}`,
+    ]);
+  });
+
+  it.each([
+    ['revoked TEL state', user, { i: 'revoked-credential', ri: registry, s: '1', et: 'rev' }],
+    ['mismatched issuee', userAid(anotherIssuer), undefined],
+  ])('classifies %s as credential invalidity', async (_label, expectedUser, credentialState) => {
+    const evidence = credentialEvidence();
+    const { client } = credentialClient(evidence, { credentialState });
+    const verification = signifyIssuerCurrentUserCredentialVerification(client, {
+      issuerAid: issuer,
+      registryId: registry,
+      schemaId: schema,
+      payloadSchema: credentialSchema,
+    });
+
+    await expect(
+      verification.verify({
+        userAid: expectedUser,
+        credentialSaid: evidence.expectedCredentialSaid,
+      }),
+    ).rejects.toMatchObject({ detail: { kind: 'credential-invalid' } });
+  });
+
+  it('classifies an exact missing credential-state response as credential invalidity', async () => {
+    const evidence = credentialEvidence();
+    const statePath = `/registries/${registry}/${evidence.expectedCredentialSaid}`;
+    const { client } = credentialClient(evidence, {
+      failure: {
+        path: statePath,
+        cause: new Error(`HTTP GET ${statePath} - 404 Not Found - credential state not found`),
+      },
+    });
+    const verification = signifyIssuerCurrentUserCredentialVerification(client, {
+      issuerAid: issuer,
+      registryId: registry,
+      schemaId: schema,
+      payloadSchema: credentialSchema,
+    });
+
+    await expect(
+      verification.verify({
+        userAid: user,
+        credentialSaid: evidence.expectedCredentialSaid,
+      }),
+    ).rejects.toMatchObject({ detail: { kind: 'credential-invalid' } });
+  });
+
+  it('preserves a credential evidence transport failure as infrastructure failure', async () => {
+    const evidence = credentialEvidence();
+    const credentialPath = `/credentials/${evidence.expectedCredentialSaid}`;
+    const { client } = credentialClient(evidence, {
+      failure: { path: credentialPath, cause: new Error('connection refused') },
+    });
+    const verification = signifyIssuerCurrentUserCredentialVerification(client, {
+      issuerAid: issuer,
+      registryId: registry,
+      schemaId: schema,
+      payloadSchema: credentialSchema,
+    });
+
+    await expect(
+      verification.verify({
+        userAid: user,
+        credentialSaid: evidence.expectedCredentialSaid,
+      }),
+    ).rejects.toMatchObject({
+      detail: {
+        kind: 'keria-unavailable',
+        stage: 'credential verification evidence retrieval',
+      },
+    });
   });
 });

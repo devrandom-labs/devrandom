@@ -4,7 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { UserProfile } from '../domain/user-profile.js';
+import {
+  clientInstanceId,
+  type ClientBoundUserProfile,
+  type UserProfile,
+} from '../domain/user-profile.js';
 import { IdentityFileFailure, IdentityFiles } from './identity-files.js';
 
 const directories: string[] = [];
@@ -54,6 +58,14 @@ function profile(revision: number): UserProfile {
   };
 }
 
+function clientBoundProfile(revision: number, id: string): ClientBoundUserProfile {
+  return {
+    ...profile(revision),
+    version: 2,
+    clientInstanceId: clientInstanceId(id),
+  };
+}
+
 describe('local identity files', () => {
   it('creates custody once with owner-only permissions and never places it in the profile', async () => {
     const { directory, files } = await identityFiles();
@@ -78,6 +90,49 @@ describe('local identity files', () => {
     });
     await files.commitProfile(0, profile(1));
     await expect(files.readProfile()).resolves.toEqual(profile(1));
+  });
+
+  it('reads legacy profiles and persists one closed client-bound profile version', async () => {
+    const { files } = await identityFiles();
+    const legacy = profile(0);
+    const current = clientBoundProfile(1, '123e4567-e89b-42d3-a456-426614174000');
+
+    await files.commitProfile(undefined, legacy);
+    await expect(files.readProfile()).resolves.toEqual(legacy);
+    await files.commitProfile(0, current);
+    await expect(files.readProfile()).resolves.toEqual(current);
+  });
+
+  it.each([
+    ['uppercase UUID', '123E4567-E89B-42D3-A456-426614174000'],
+    ['non-v4 UUID', '123e4567-e89b-12d3-a456-426614174000'],
+  ])('rejects a client-bound profile with an invalid %s', async (_description, invalidId) => {
+    const { directory, files } = await identityFiles();
+    await writeFile(
+      join(directory, 'user-profile.json'),
+      `${JSON.stringify({ ...profile(0), version: 2, clientInstanceId: invalidId })}\n`,
+      { mode: 0o600 },
+    );
+
+    await expect(files.readProfile()).rejects.toMatchObject({
+      detail: { kind: 'identity-file-invalid', file: 'profile' },
+    });
+  });
+
+  it('rejects secret material added to the closed client-bound profile', async () => {
+    const { directory, files } = await identityFiles();
+    await writeFile(
+      join(directory, 'user-profile.json'),
+      `${JSON.stringify({
+        ...clientBoundProfile(0, '123e4567-e89b-42d3-a456-426614174000'),
+        grantSecret: 'must-never-persist',
+      })}\n`,
+      { mode: 0o600 },
+    );
+
+    await expect(files.readProfile()).rejects.toMatchObject({
+      detail: { kind: 'identity-file-invalid', file: 'profile' },
+    });
   });
 
   it('atomically preserves the first durable Registration Session creation key', async () => {

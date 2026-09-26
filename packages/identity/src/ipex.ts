@@ -3,7 +3,13 @@ import Type from 'typebox';
 import Value from 'typebox/value';
 
 import { IdentityFailure } from './identity-error.js';
-import { type IpexGrantSaid, type IssuerAid, type UserAid } from './keri-identifier.js';
+import type {
+  GovernorAid,
+  IpexGrantSaid,
+  IssuerAid,
+  PersonalAgentAid,
+  UserAid,
+} from './keri-identifier.js';
 
 const notificationPageSchema = Type.Object(
   {
@@ -35,8 +41,12 @@ const grantExchangeSchema = Type.Object(
         d: Type.String({ minLength: 1 }),
         i: Type.String({ minLength: 1 }),
         rp: Type.String({ minLength: 1 }),
+        p: Type.String(),
         r: Type.Literal('/ipex/grant'),
-        a: Type.Object({ i: Type.String({ minLength: 1 }) }, { additionalProperties: true }),
+        a: Type.Object(
+          { i: Type.String({ minLength: 1 }), m: Type.String() },
+          { additionalProperties: true },
+        ),
         e: Type.Object(
           {
             d: Type.String({ minLength: 1 }),
@@ -45,6 +55,10 @@ const grantExchangeSchema = Type.Object(
                 d: Type.String({ minLength: 1 }),
                 i: Type.String({ minLength: 1 }),
                 ri: Type.String({ minLength: 1 }),
+                a: Type.Object(
+                  { i: Type.String({ minLength: 1 }) },
+                  { additionalProperties: true },
+                ),
               },
               { additionalProperties: true },
             ),
@@ -109,11 +123,20 @@ export interface VerifiedIpexGrant {
   readonly credentialSaid: string;
 }
 
+export interface MandateIpexGrantExpectation {
+  readonly grantSaid: IpexGrantSaid;
+  readonly exchangeSenderAid: string;
+  readonly exchangeRecipientAid: string;
+  readonly credentialIssuerAid: string;
+  readonly credentialIssueeAid: string;
+  readonly credentialSaid: string;
+}
+
 export interface IpexAdmitExpectation {
   readonly admitSaid: string;
   readonly grantSaid: IpexGrantSaid;
-  readonly sourceAid: UserAid;
-  readonly recipientAid: IssuerAid;
+  readonly sourceAid: UserAid | PersonalAgentAid | GovernorAid | IssuerAid;
+  readonly recipientAid: UserAid | PersonalAgentAid | GovernorAid | IssuerAid;
 }
 
 export function verifyIpexGrantEvidence(
@@ -159,10 +182,60 @@ export function verifyIpexGrantEvidence(
   };
 }
 
+export function verifyMandateIpexGrantEvidence(
+  evidence: unknown,
+  expected: MandateIpexGrantExpectation,
+): MandateIpexGrantExpectation {
+  if (!Value.Check(grantExchangeSchema, evidence)) {
+    return invalidMandateGrant();
+  }
+  const { exn } = evidence;
+  if (
+    exn.d !== expected.grantSaid ||
+    exn.i !== expected.exchangeSenderAid ||
+    exn.rp !== expected.exchangeRecipientAid ||
+    exn.p !== '' ||
+    exn.a.i !== expected.exchangeRecipientAid ||
+    exn.a.m !== '' ||
+    exn.e.acdc.d !== expected.credentialSaid ||
+    exn.e.acdc.i !== expected.credentialIssuerAid ||
+    exn.e.acdc.a.i !== expected.credentialIssueeAid ||
+    exn.e.iss.i !== exn.e.acdc.d ||
+    exn.e.iss.ri !== exn.e.acdc.ri ||
+    exn.e.anc.i !== expected.credentialIssuerAid ||
+    !exn.e.anc.a.some(
+      (seal) => seal.i === exn.e.acdc.d && seal.s === exn.e.iss.s && seal.d === exn.e.iss.d,
+    )
+  ) {
+    return invalidMandateGrant();
+  }
+  try {
+    if (
+      !new Saider({ qb64: exn.d }).verify(exn, true, true) ||
+      !new Saider({ qb64: exn.e.d }).verify(exn.e, true) ||
+      !new Saider({ qb64: exn.e.acdc.d }).verify(exn.e.acdc, true, true) ||
+      !new Saider({ qb64: exn.e.iss.d }).verify(exn.e.iss, true, true) ||
+      !new Saider({ qb64: exn.e.anc.d }).verify(exn.e.anc, true, true)
+    ) {
+      return invalidMandateGrant();
+    }
+  } catch {
+    return invalidMandateGrant();
+  }
+  return { ...expected };
+}
+
 function invalidGrant(): never {
   throw new IdentityFailure({
     kind: 'ipex-evidence-invalid',
     reason: 'IPEX grant does not match the exact Registration Session evidence',
+  });
+}
+
+function invalidMandateGrant(): never {
+  throw new IdentityFailure({
+    kind: 'ipex-evidence-invalid',
+    reason: 'IPEX grant does not match the exact mandate presentation evidence',
   });
 }
 
@@ -197,14 +270,60 @@ export type IpexGrantCorrelation =
   | { readonly kind: 'expected-grant-pending' }
   | {
       readonly kind: 'expected-grant-available';
-      readonly notificationId: string;
+      readonly notificationIds: readonly [string, ...string[]];
       readonly grantSaid: IpexGrantSaid;
     }
   | {
       readonly kind: 'expected-grant-already-read';
-      readonly notificationId: string;
       readonly grantSaid: IpexGrantSaid;
     };
+
+function duplicateNotificationIdentity(): never {
+  throw new IdentityFailure({
+    kind: 'ipex-evidence-invalid',
+    reason: 'IPEX notification identity is duplicated for the exact expected grant',
+  });
+}
+
+export function mergeIpexGrantCorrelations(
+  accumulated: IpexGrantCorrelation,
+  next: IpexGrantCorrelation,
+): IpexGrantCorrelation {
+  if (accumulated.kind === 'expected-grant-pending') {
+    return next;
+  }
+  if (next.kind === 'expected-grant-pending') {
+    return accumulated;
+  }
+  if (accumulated.grantSaid !== next.grantSaid) {
+    throw new IdentityFailure({
+      kind: 'ipex-evidence-invalid',
+      reason: 'IPEX notification pages correlate different expected grants',
+    });
+  }
+  if (accumulated.kind === 'expected-grant-already-read') {
+    return next.kind === 'expected-grant-already-read' ? accumulated : next;
+  }
+  if (next.kind === 'expected-grant-already-read') {
+    return accumulated;
+  }
+  const identities = new Set(accumulated.notificationIds);
+  for (const notificationId of next.notificationIds) {
+    if (identities.has(notificationId)) {
+      return duplicateNotificationIdentity();
+    }
+    identities.add(notificationId);
+  }
+  return {
+    kind: 'expected-grant-available',
+    notificationIds: [
+      accumulated.notificationIds[0],
+      ...accumulated.notificationIds.slice(1),
+      ...next.notificationIds,
+    ],
+    grantSaid: accumulated.grantSaid,
+  };
+}
 
 export function correlateIpexGrantNotification(
   evidence: unknown,
@@ -223,22 +342,23 @@ export function correlateIpexGrantNotification(
   if (matching.length === 0) {
     return { kind: 'expected-grant-pending' };
   }
-  if (matching.length !== 1 || matching[0] === undefined) {
-    throw new IdentityFailure({
-      kind: 'ipex-evidence-invalid',
-      reason: 'more than one notification claims the exact expected IPEX grant',
-    });
+  const identities = new Set<string>();
+  const unreadNotificationIds: string[] = [];
+  for (const notification of matching) {
+    if (identities.has(notification.i)) {
+      return duplicateNotificationIdentity();
+    }
+    identities.add(notification.i);
+    if (!notification.r) {
+      unreadNotificationIds.push(notification.i);
+    }
   }
-  const notification = matching[0];
-  return notification.r
-    ? {
-        kind: 'expected-grant-already-read',
-        notificationId: notification.i,
-        grantSaid: expectedGrantSaid,
-      }
+  const [firstUnread, ...remainingUnread] = unreadNotificationIds;
+  return firstUnread === undefined
+    ? { kind: 'expected-grant-already-read', grantSaid: expectedGrantSaid }
     : {
         kind: 'expected-grant-available',
-        notificationId: notification.i,
+        notificationIds: [firstUnread, ...remainingUnread],
         grantSaid: expectedGrantSaid,
       };
 }

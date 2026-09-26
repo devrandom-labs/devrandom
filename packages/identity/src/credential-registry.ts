@@ -20,20 +20,20 @@ export type CredentialRegistryPolicy =
       readonly threshold: number;
     };
 
-export interface NamedCredentialRegistry {
+export interface NamedCredentialRegistry<CredentialIssuer extends string = IssuerAid> {
   readonly name: string;
   readonly id: CredentialRegistryId;
-  readonly issuerAid: IssuerAid;
+  readonly issuerAid: CredentialIssuer;
 }
 
-export type CredentialRegistryOutcome =
+export type CredentialRegistryOutcome<CredentialIssuer extends string = IssuerAid> =
   | {
       readonly kind: 'credential-registry-provisioned';
-      readonly registry: NamedCredentialRegistry;
+      readonly registry: NamedCredentialRegistry<CredentialIssuer>;
     }
   | {
       readonly kind: 'existing-credential-registry-verified';
-      readonly registry: NamedCredentialRegistry;
+      readonly registry: NamedCredentialRegistry<CredentialIssuer>;
     };
 
 const registryStateSchema = Type.Object({
@@ -89,7 +89,7 @@ function expectedBackerThreshold(policy: CredentialRegistryPolicy): number {
 function verifyRegistryPolicy(
   state: RegistryState,
   name: string,
-  issuer: IssuerAid,
+  issuer: string,
   policy: CredentialRegistryPolicy,
 ): CredentialRegistryId {
   const id = credentialRegistryId(state.i);
@@ -134,12 +134,12 @@ function verifyRegistryPolicy(
   return id;
 }
 
-function verifiedRegistry(
+function verifiedRegistry<CredentialIssuer extends string>(
   candidate: ListedRegistry,
   name: string,
-  issuer: IssuerAid,
+  issuer: CredentialIssuer,
   policy: CredentialRegistryPolicy,
-): NamedCredentialRegistry {
+): NamedCredentialRegistry<CredentialIssuer> {
   if (candidate.name !== name || candidate.pre !== issuer || candidate.state.i !== candidate.regk) {
     throw new IdentityFailure({
       kind: 'registry-conflict',
@@ -187,13 +187,13 @@ async function registries(
   return untrusted;
 }
 
-async function namedRegistry(
+async function namedRegistry<CredentialIssuer extends string>(
   client: SignifyClient,
   issuerAlias: string,
-  issuer: IssuerAid,
+  issuer: CredentialIssuer,
   name: string,
   policy: CredentialRegistryPolicy,
-): Promise<NamedCredentialRegistry | undefined> {
+): Promise<NamedCredentialRegistry<CredentialIssuer> | undefined> {
   const matches = (await registries(client, issuerAlias)).filter(
     (candidate) => candidate.name === name,
   );
@@ -218,13 +218,13 @@ async function namedRegistry(
   return verifiedRegistry(match, name, issuer, policy);
 }
 
-export async function verifyNamedCredentialRegistry(
+export async function verifyNamedCredentialRegistry<CredentialIssuer extends string>(
   client: SignifyClient,
   issuerAlias: string,
-  issuer: IssuerAid,
+  issuer: CredentialIssuer,
   name: string,
   policy: CredentialRegistryPolicy,
-): Promise<NamedCredentialRegistry> {
+): Promise<NamedCredentialRegistry<CredentialIssuer>> {
   const existing = await namedRegistry(client, issuerAlias, issuer, name, policy);
   if (existing === undefined) {
     throw new IdentityFailure({
@@ -236,14 +236,14 @@ export async function verifyNamedCredentialRegistry(
   return existing;
 }
 
-export async function provisionNamedCredentialRegistry(
+export async function provisionNamedCredentialRegistry<CredentialIssuer extends string>(
   client: SignifyClient,
   issuerAlias: string,
-  issuer: IssuerAid,
+  issuer: CredentialIssuer,
   name: string,
   policy: CredentialRegistryPolicy,
   operationTimeoutMs: number,
-): Promise<CredentialRegistryOutcome> {
+): Promise<CredentialRegistryOutcome<CredentialIssuer>> {
   const existing = await namedRegistry(client, issuerAlias, issuer, name, policy);
   if (existing !== undefined) {
     return { kind: 'existing-credential-registry-verified', registry: existing };

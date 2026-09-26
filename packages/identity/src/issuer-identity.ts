@@ -1,13 +1,27 @@
+import { promotionMandateSchema, taskMandateSchema } from '@devrandom/protocol';
 import { type EventResult, type OOBIOperation, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
 import Value from 'typebox/value';
 
-import { signifyIssuerChallengeProof, type IssuerChallengeProof } from './challenge.js';
+import {
+  signifyAsynchronousIssuerChallengeProof,
+  signifyIssuerChallengeProof,
+  type AsynchronousIssuerChallengeProof,
+  type IssuerChallengeProof,
+} from './challenge.js';
 import {
   signifyDevrandomUserCredentialDelivery,
   type CredentialPayloadSchema,
   type DevrandomUserCredentialDelivery,
 } from './credential-delivery.js';
+import {
+  signifyIssuerEvidenceSealExchange,
+  type IssuerEvidenceSealExchange,
+} from './evidence-seal-exchange.js';
+import {
+  signifyIssuerCurrentUserCredentialVerification,
+  type IssuerCurrentUserCredentialVerification,
+} from './credential.js';
 import {
   signifyCredentialSchemaAvailability,
   type CredentialSchemaAvailability,
@@ -28,7 +42,13 @@ import {
   type IdentifierWitnessPolicy,
   type IssuerAid,
   type IssuerOobi,
+  credentialSchemaId,
 } from './keri-identifier.js';
+import { signifyMandateAdmission, type MandateAdmission } from './mandate-exchange.js';
+import {
+  signifyIssuerRunAdmissionExchange,
+  type IssuerRunAdmissionExchange,
+} from './run-admission-exchange.js';
 import {
   connectOrBootstrapSignifyController,
   connectSignifyController,
@@ -86,9 +106,16 @@ export interface IssuerIdentityVerificationInput {
 export interface VerifiedIssuerInfrastructure {
   readonly identity: VerifiedIssuerIdentity;
   readonly challengeProof: IssuerChallengeProof;
+  readonly asynchronousChallengeProof: AsynchronousIssuerChallengeProof;
   readonly userOobiResolution: IssuerUserOobiResolution;
   readonly credentialDelivery: DevrandomUserCredentialDelivery;
+  readonly currentUserCredentialVerification: IssuerCurrentUserCredentialVerification;
   readonly credentialSchema: CredentialSchemaAvailability;
+  readonly taskMandateSchemaAvailability: CredentialSchemaAvailability;
+  readonly promotionMandateSchemaAvailability: CredentialSchemaAvailability;
+  readonly mandateAdmission: MandateAdmission;
+  readonly runAdmissionExchange: IssuerRunAdmissionExchange;
+  readonly evidenceSealExchange: IssuerEvidenceSealExchange;
   readonly readiness: VerifiedIssuerReadiness;
 }
 
@@ -521,16 +548,49 @@ export async function connectVerifiedIssuerInfrastructure(
   return {
     identity: verified.identity,
     challengeProof: signifyIssuerChallengeProof(verified.client, verified.identity.issuerAid),
+    asynchronousChallengeProof: signifyAsynchronousIssuerChallengeProof(
+      verified.client,
+      verified.identity.issuerAid,
+    ),
     userOobiResolution: signifyIssuerUserOobiResolution(verified.client, input.operationTimeoutMs),
     credentialDelivery: signifyDevrandomUserCredentialDelivery(
       verified.client,
       credentialPayloadSchema,
+    ),
+    currentUserCredentialVerification: signifyIssuerCurrentUserCredentialVerification(
+      verified.client,
+      {
+        issuerAid: verified.identity.issuerAid,
+        registryId: verified.identity.registryId,
+        schemaId: credentialSchemaId(credentialPayloadSchema.$id),
+        payloadSchema: credentialPayloadSchema,
+      },
     ),
     credentialSchema: signifyCredentialSchemaAvailability(
       verified.client,
       credentialPayloadSchema,
       input.operationTimeoutMs,
     ),
+    taskMandateSchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      taskMandateSchema,
+      input.operationTimeoutMs,
+    ),
+    promotionMandateSchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      promotionMandateSchema,
+      input.operationTimeoutMs,
+    ),
+    mandateAdmission: signifyMandateAdmission(
+      verified.client,
+      input.issuerAlias,
+      verified.identity.issuerAid,
+    ),
+    runAdmissionExchange: signifyIssuerRunAdmissionExchange(
+      verified.client,
+      verified.identity.issuerAid,
+    ),
+    evidenceSealExchange: signifyIssuerEvidenceSealExchange(verified.client),
     readiness: signifyIssuerReadiness(verified.client, verified.identity.issuerAid),
   };
 }

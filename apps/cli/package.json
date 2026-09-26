@@ -16,6 +16,7 @@
     "@devrandom/domain": "workspace:*",
     "@devrandom/identity": "workspace:*",
     "@devrandom/protocol": "workspace:*",
+    "@devrandom/runtime": "workspace:*",
     "commander": "15.0.0",
     "typebox": "catalog:"
   }

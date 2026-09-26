@@ -56,7 +56,7 @@ const policies: Readonly<Record<string, ManifestPolicy>> = {
       /^vue$/,
     ],
   },
-  'services/issuer/package.json': {
+  'services/server/package.json': {
     required: new Set(['@fastify/swagger', 'fastify']),
     forbidden: [/^@nestjs\//, /^express$/, /^hono$/, /^koa$/],
   },
