@@ -1,12 +1,20 @@
 import { randomBytes } from 'node:crypto';
-import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { prepareEvidenceArtifact, prepareEvaluationExecutionProfile } from '@devrandom/protocol';
-import { describe, expect, it } from 'vitest';
+import {
+  encodeEvaluationVerifierBundle,
+  prepareEvidenceArtifact,
+  prepareEvaluationExecutionProfile,
+  prepareEvaluationManifest,
+  prepareEvaluationVerifierBundle,
+} from '@devrandom/protocol';
+import { describe, expect, it, vi } from 'vitest';
 
 import { assessProtectedCesrCase } from '../application/assess-protected-cesr-case.js';
+import { observeProtectedTrialArtifact } from '../application/observe-protected-trial-artifact.js';
 import { AesGcmProtectedCaseCustody } from './aes-gcm-protected-case-custody.js';
+import { FileEvaluationCaseInventory } from './file-evaluation-case-inventory.js';
 import {
   DockerReceiptObservation,
   DockerTaskArtifactConstruction,
@@ -302,6 +310,236 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         observation: { kind: 'Rejected' },
       });
 
+      // Fixture-only lock, trial stop and oracle identity; the build and all four
+      // observations below cross real pinned OCI/Cargo/native boundaries.
+      const terminalObjectSaid = said('f');
+      const terminalStimulus = await protectedCases.seal({
+        evaluationId,
+        objectSaid: terminalObjectSaid,
+        purpose: 'TerminalCase',
+        segment: 1,
+        plaintext: Buffer.from(`-AAL${said('z')}`),
+      });
+      const terminalExpected = await protectedCases.seal({
+        evaluationId,
+        objectSaid: terminalObjectSaid,
+        purpose: 'OracleObservation',
+        segment: 1,
+        plaintext: Buffer.from(
+          JSON.stringify({
+            kind: 'Parsed',
+            receipts: [
+              {
+                version: 'Current',
+                payload: said('z'),
+              },
+            ],
+          }),
+        ),
+      });
+      expect(terminalStimulus.kind).toBe('Sealed');
+      expect(terminalExpected.kind).toBe('Sealed');
+      if (terminalStimulus.kind !== 'Sealed' || terminalExpected.kind !== 'Sealed') return;
+      const oracleAdapterDigest = `sha256:${'a'.repeat(64)}`;
+      const bundlePreparation = prepareEvaluationVerifierBundle({
+        evaluationId,
+        taskId: '22222222-2222-4222-8222-222222222222',
+        taskRevisionSaid: said('t'),
+        ownerAid: said('o'),
+        personalAgentAid: said('a'),
+        policySaid: said('p'),
+        executionProfileSaid: prepared.profile.d,
+        oracleAdapterDigest,
+        reviewedRecipeSaid: said('r'),
+        toolchainSaid: said('t'),
+        publicConditions: [
+          {
+            id: 'cesr-current',
+            stimulusBase64Url: current.toString('base64url'),
+            expected: { kind: 'Parsed', receipts: [{ version: 'Current', payload }] },
+          },
+          {
+            id: 'cesr-legacy',
+            stimulusBase64Url: legacy.toString('base64url'),
+            expected: { kind: 'Parsed', receipts: [{ version: 'Legacy', payload }] },
+          },
+          {
+            id: 'cesr-tamper',
+            stimulusBase64Url: tamper.toString('base64url'),
+            expected: { kind: 'Rejected', error: 'AnyRejection' },
+          },
+        ],
+        protectedCase: {
+          objectSaid,
+          stimulus: sealedStimulus.artifact,
+          expected: sealedExpected.artifact,
+        },
+        terminalCase: {
+          objectSaid: terminalObjectSaid,
+          stimulus: terminalStimulus.artifact,
+          expected: terminalExpected.artifact,
+        },
+      });
+      expect(bundlePreparation.kind).toBe('Prepared');
+      if (bundlePreparation.kind !== 'Prepared') return;
+      const bundleEncoding = encodeEvaluationVerifierBundle(bundlePreparation.bundle);
+      expect(bundleEncoding.kind).toBe('Encoded');
+      if (bundleEncoding.kind !== 'Encoded') return;
+      const manifestPreparation = prepareEvaluationManifest({
+        evaluationId,
+        taskId: '22222222-2222-4222-8222-222222222222',
+        taskRevisionSaid: said('t'),
+        originRunId: '33333333-3333-4333-8333-333333333333',
+        ownerAid: said('o'),
+        personalAgentAid: said('a'),
+        taskMandateSaid: said('m'),
+        retainedCheckpointSaid: said('c'),
+        retainedSealSaid: said('s'),
+        policySaid: said('p'),
+        revisions: { H1: said('h'), C1: said('j'), C2: said('k'), C3: said('l') },
+        executionProfileSaid: prepared.profile.d,
+        sourceInventorySaid: said('i'),
+        verifierSaid: bundlePreparation.bundle.d,
+        protectedCaseArtifactSaid: sealedStimulus.artifact.d,
+        finalCaseArtifactSaid: terminalStimulus.artifact.d,
+        publicConditionIds: ['cesr-current', 'cesr-legacy', 'cesr-tamper'],
+        heldOutCaseCount: 1,
+        allocation: {
+          diagnosis: {
+            providerRequests: 0,
+            providerInputTokens: 0,
+            providerOutputTokens: 0,
+            providerSpendMicroUsd: 0,
+            runWallTimeSeconds: 120,
+            toolProposals: 0,
+            aggregateChildCommandTimeSeconds: 0,
+            changedFiles: 0,
+            changedWorktreeBytes: 0,
+            evidencePlusArtifactsPerRunBytes: 65536,
+          },
+          perEntry: {
+            providerRequests: 0,
+            providerInputTokens: 0,
+            providerOutputTokens: 0,
+            providerSpendMicroUsd: 0,
+            runWallTimeSeconds: 120,
+            toolProposals: 0,
+            aggregateChildCommandTimeSeconds: 0,
+            changedFiles: 0,
+            changedWorktreeBytes: 0,
+            evidencePlusArtifactsPerRunBytes: 65536,
+          },
+          finalization: {
+            providerRequests: 0,
+            providerInputTokens: 0,
+            providerOutputTokens: 0,
+            providerSpendMicroUsd: 0,
+            runWallTimeSeconds: 120,
+            toolProposals: 0,
+            aggregateChildCommandTimeSeconds: 0,
+            changedFiles: 0,
+            changedWorktreeBytes: 0,
+            evidencePlusArtifactsPerRunBytes: 65536,
+          },
+        },
+      });
+      expect(manifestPreparation.kind).toBe('Prepared');
+      if (manifestPreparation.kind !== 'Prepared') return;
+      const manifest = manifestPreparation.manifest;
+      const caseDirectory = join(root, 'private-case-inventory');
+      await mkdir(caseDirectory, { mode: 0o700 });
+      await writeFile(join(caseDirectory, manifest.verifierSaid), bundleEncoding.bytes, {
+        mode: 0o600,
+      });
+      const retained = vi.fn().mockResolvedValue({ kind: 'Unavailable' as const });
+      const realObserve = vi.spyOn(protectedObserver, 'observe');
+      const composed = await observeProtectedTrialArtifact(
+        {
+          manifest,
+          binding: {
+            kind: 'Evaluation',
+            evaluationId,
+            taskId: manifest.taskId,
+            taskRevisionSaid: manifest.taskRevisionSaid,
+            originRunId: manifest.originRunId,
+            personalAgentAid: manifest.personalAgentAid,
+            taskMandateSaid: manifest.taskMandateSaid,
+            harnessRevisionSaid: manifest.revisions.C2,
+            evaluationLeaseId: '44444444-4444-4444-8444-444444444444',
+            evidenceStreamId: '55555555-5555-4555-8555-555555555555',
+            phase: {
+              kind: 'Trial',
+              manifestSaid: manifest.d,
+              arm: 'C2',
+              repetition: 1,
+              attempt: 1,
+            },
+          },
+          lease: {
+            evaluationId,
+            leaseId: '44444444-4444-4444-8444-444444444444',
+            version: 1,
+            serverTime: '2026-09-26T03:00:00.000Z',
+            expiresAt: '2026-09-26T03:00:45.000Z',
+          },
+          leaseRequestStartedAt: 1000,
+          now: 2000,
+          cleanSourceSaid: said('n'),
+          reviewedBehaviorSaid: said('b'),
+          modelProfileSaid: said('d'),
+          containerProfileSaid: prepared.profile.d,
+          signal: new AbortController().signal,
+        },
+        {
+          lock: {
+            inspect: () =>
+              Promise.resolve({
+                kind: 'Acknowledged',
+                evaluationId,
+                manifestSaid: manifest.d,
+                ownerAid: manifest.ownerAid,
+                policySaid: manifest.policySaid,
+                leaseId: '44444444-4444-4444-8444-444444444444',
+                leaseVersion: 1,
+                acknowledgementSaid: said('a'),
+              }),
+          },
+          cases: new FileEvaluationCaseInventory(caseDirectory),
+          oracle: {
+            inspect: () => Promise.resolve({ kind: 'Reviewed', digest: oracleAdapterDigest }),
+          },
+          execution: {
+            run: () =>
+              Promise.resolve({
+                kind: 'Stopped',
+                capturedSourceSaid: corrected.sourceSaid,
+                evidenceHeadSaid: said('e'),
+                providerUsageEventSaids: [],
+                cleanupReceiptSaid: said('u'),
+              }),
+          },
+          construction,
+          observation: protectedObserver,
+          custody: protectedCases,
+          protectedArtifacts: { retain: retained },
+        },
+      );
+      expect(composed).toMatchObject({
+        kind: 'Incomplete',
+        frontier: 'ProtectedCustody',
+        frozenArtifact: { sourceSaid: corrected.sourceSaid },
+      });
+      expect(realObserve).toHaveBeenCalledTimes(4);
+      expect(retained).toHaveBeenCalledWith({
+        evaluationId,
+        artifacts: [
+          sealedStimulus.artifact,
+          sealedExpected.artifact,
+          expect.objectContaining({ purpose: 'OracleObservation', segment: 0 }),
+        ],
+      });
+      expect(realObserve).not.toHaveBeenCalledWith(expect.objectContaining({ segment: 1 }));
+
       const forgedParser = `pub fn parse_receipt_stream(_stream: &str) -> Result<Vec<VerifiedReceipt<'_>>, ReceiptError> {
     println!("DV1|P|Current:${payload}");
     Err(ReceiptError::InvalidFrame)
@@ -365,6 +603,6 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
       expect(maliciousBuild.kind).toBe('Frozen');
       expect(await readFile(parentCanary, 'utf8')).toBe('parent-private');
       expect(await readFile(holdoutCanary, 'utf8')).toBe('holdout-private');
-    }, 180_000);
+    }, 240_000);
   },
 );
