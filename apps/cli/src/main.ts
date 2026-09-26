@@ -22,6 +22,7 @@ import { VerifiedFailureCampaign } from './harness/application/verified-failure-
 import { EvaluationCommandFile } from './harness/infrastructure/evaluation-command-file.js';
 import { EvaluationPolicyFile } from './harness/infrastructure/evaluation-policy-file.js';
 import { progressQualifiedH0 } from './evolution/application/progress-qualified-h0.js';
+import { promoteLocalEvaluation } from './promotion/composition/local-evaluation-promotion.js';
 import type { QualifiedH0ProgressOutcome } from './evolution/application/progress-qualified-h0.js';
 import { FilePublicAnalogyReviews } from './evolution/infrastructure/file-public-analogy-reviews.js';
 import { FileQualifiedH0Records } from './evolution/infrastructure/file-qualified-h0-records.js';
@@ -519,6 +520,25 @@ const commands: DevrandomCommands = {
     watch: (label, signal) => taskRunObservations().watch(label, signal),
   },
   harness: {
+    promote: async (label, evaluationId, closureSaid, commandId, manifestSaid, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const hosted = await currentTaskAuthority().acquireHostedWork();
+      if (hosted.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
+      const inspection = await hosted.tasks.inspect(label);
+      if (inspection.kind !== 'Inspected') return { kind: 'Blocked', gate: 'Authority' };
+      return promoteLocalEvaluation({
+        stateRoot: configuration.stateDirectory,
+        issuerAid: configuration.issuerAid,
+        hosted,
+        local: currentLocalMandates(),
+        task: inspection.task,
+        evaluationId,
+        closureSaid,
+        commandId,
+        confirmation: { manifestSaid, closureSaid },
+        signal,
+      });
+    },
     evaluate: (label, runId, policyPath, signal) =>
       harnessEvaluation().evaluate(label, runId, policyPath, signal),
     progressH0: progressH0Command,

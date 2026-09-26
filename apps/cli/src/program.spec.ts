@@ -114,6 +114,7 @@ function commandFixture(): {
         },
       },
       harness: {
+        promote: () => Promise.resolve({ kind: 'Blocked', gate: 'Custody' }),
         evaluate: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
         resumeManifest: () => Promise.resolve({ kind: 'Blocked', gate: 'Manifest' }),
         progressH0: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
@@ -161,6 +162,47 @@ function processFixture(): {
 }
 
 describe('devrandom command', () => {
+  it('routes exact manifest confirmation through the public promotion command', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const promote = vi.fn(() =>
+      Promise.resolve({ kind: 'Blocked' as const, gate: 'Custody' as const }),
+    );
+    const program = createProgram(
+      { ...commands, harness: { ...commands.harness, promote } },
+      runtime.process,
+    );
+    expect(
+      program.commands
+        .find((command) => command.name() === 'harness')
+        ?.commands.map((command) => command.name()),
+    ).toContain('promote');
+    await program.parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'promote',
+      'cesr-compat',
+      '--evaluation',
+      'evaluation-id',
+      '--closure',
+      'closure-said',
+      '--command-id',
+      'command-id',
+      '--confirm-manifest',
+      'manifest-said',
+    ]);
+    expect(promote.mock.calls[0]?.slice(0, 5)).toEqual([
+      'cesr-compat',
+      'evaluation-id',
+      'closure-said',
+      'command-id',
+      'manifest-said',
+    ]);
+    expect(runtime.errors).toEqual(['Harness promotion blocked: Custody.\n']);
+    expect(runtime.exitCodes).toEqual([6]);
+  });
+
   it('routes H0 progression through the public command and reports missing Q without an H0 claim', async () => {
     const { commands } = commandFixture();
     const runtime = processFixture();

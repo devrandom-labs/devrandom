@@ -226,3 +226,5 @@ export * from './evaluation/application/inspect-parent-trial-usage.js';
 export * from './run/successor-run-behavior.js';
 
 export * from './run/current-run-history.js';
+
+export { inspectConcentrateProviderReport } from './evaluation/infrastructure/concentrate-provider-report.js';

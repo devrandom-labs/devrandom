@@ -12,6 +12,7 @@ import type { WorkAccessAcquisition } from './work-access/application/work-acces
 import type { HarnessEvaluationOutcome } from './harness/application/harness-evaluation.js';
 import type { CesrManifestLockOutcome } from './harness/application/lock-cesr-comparison-manifest.js';
 import type { QualifiedH0ProgressOutcome } from './evolution/application/progress-qualified-h0.js';
+import type { LocalEvaluationPromotion } from './promotion/composition/local-evaluation-promotion.js';
 import type { QualifiedSourceInventoryPreparation } from './harness/application/prepare-qualified-source-inventory.js';
 import type {
   TaskRunObservationFailure,
@@ -49,6 +50,14 @@ export interface TaskCommands {
 export interface DevrandomCommands extends UserIdentityCommands {
   readonly tasks: TaskCommands;
   readonly harness: {
+    promote(
+      label: string,
+      evaluationId: string,
+      closureSaid: string,
+      commandId: string,
+      manifestSaid: string,
+      signal: AbortSignal,
+    ): Promise<LocalEvaluationPromotion>;
     evaluate(
       label: string,
       fromRunId: string,
@@ -178,6 +187,54 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
     });
 
   const harness = program.command('harness').description('Inspect and evaluate harness revisions');
+  harness
+    .command('promote')
+    .description('Verify and sign an exact Evaluation closure for governed activation')
+    .argument('<label>')
+    .requiredOption('--evaluation <id>', 'the closed Evaluation ID')
+    .requiredOption('--closure <said>', 'the sealed Evaluation closure SAID')
+    .requiredOption('--command-id <id>', 'a stable activation command UUID for safe retry')
+    .requiredOption('--confirm-manifest <said>', 'explicitly confirm this exact locked manifest')
+    .action(
+      async (
+        label: string,
+        options: {
+          evaluation: string;
+          closure: string;
+          commandId: string;
+          confirmManifest: string;
+        },
+      ) => {
+        const interruption = cliProcess.watchInterruption();
+        try {
+          const outcome = await commands.harness.promote(
+            label,
+            options.evaluation,
+            options.closure,
+            options.commandId,
+            options.confirmManifest,
+            interruption.signal,
+          );
+          if (outcome.kind === 'Blocked') {
+            cliProcess.writeError(
+              `Harness promotion blocked: ${'gate' in outcome ? outcome.gate : outcome.reason}.\n`,
+            );
+            cliProcess.setExitCode(6);
+          } else if (outcome.kind === 'Activated') {
+            cliProcess.write(
+              `Harness activated: ${outcome.revisionSaid}\nActivation receipt: ${outcome.receiptSaid}\n`,
+            );
+          } else if (outcome.kind === 'Retained') {
+            cliProcess.write(`Incumbent retained.\nActivation receipt: ${outcome.receiptSaid}\n`);
+          } else {
+            cliProcess.writeError(`Harness promotion requires reconciliation: ${outcome.kind}.\n`);
+            cliProcess.setExitCode(5);
+          }
+        } finally {
+          interruption.release();
+        }
+      },
+    );
   harness
     .command('evaluate')
     .description('Evaluate a verified retained failure under a closed policy')
