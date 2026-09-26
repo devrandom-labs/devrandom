@@ -20,8 +20,10 @@ import {
   prepareTaskCommandV2,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
   promotionMandateV3SchemaSaid,
   promotionMandateV5SchemaSaid,
+  promotionMandateV7SchemaSaid,
 } from '@devrandom/protocol';
 import { expect, it, vi } from 'vitest';
 import {
@@ -129,7 +131,11 @@ function fixture(quota = 6) {
     credential: credential(
       agent,
       said('A'),
-      quota > 6 ? taskMandateV3SchemaSaid : taskMandateV2SchemaSaid,
+      quota > 8
+        ? taskMandateV4SchemaSaid
+        : quota > 6
+          ? taskMandateV3SchemaSaid
+          : taskMandateV2SchemaSaid,
     ),
     authority: 'ExecutePrivateTask',
     taskId: task.taskId,
@@ -147,7 +153,11 @@ function fixture(quota = 6) {
     credential: credential(
       governor,
       said('B'),
-      quota > 6 ? promotionMandateV5SchemaSaid : promotionMandateV3SchemaSaid,
+      quota > 8
+        ? promotionMandateV7SchemaSaid
+        : quota > 6
+          ? promotionMandateV5SchemaSaid
+          : promotionMandateV3SchemaSaid,
     ),
     authority: 'ActivateEvaluatedSuccessor',
     taskId: task.taskId,
@@ -269,7 +279,7 @@ it('rejects expired authority and a revoked Task Mandate even when exact-M promo
   expect(f.inspectCredential).toHaveBeenCalledTimes(4);
 });
 
-it.each([6, 8])(
+it.each([6, 8, 9])(
   'accepts exact schema for %s Runs and rejects substituted schema',
   async (quota) => {
     const f = fixture(quota);
@@ -283,12 +293,16 @@ it.each([6, 8])(
         if (reply.kind !== target) return reply;
         const schemaSaid =
           target === 'TaskMandate'
-            ? quota > 6
-              ? taskMandateV2SchemaSaid
-              : taskMandateV3SchemaSaid
-            : quota > 6
-              ? promotionMandateV3SchemaSaid
-              : promotionMandateV5SchemaSaid;
+            ? quota > 8
+              ? taskMandateV3SchemaSaid
+              : quota > 6
+                ? taskMandateV2SchemaSaid
+                : taskMandateV3SchemaSaid
+            : quota > 8
+              ? promotionMandateV5SchemaSaid
+              : quota > 6
+                ? promotionMandateV3SchemaSaid
+                : promotionMandateV5SchemaSaid;
         const credential = {
           ...reply.value.credential,
           schemaSaid,

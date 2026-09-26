@@ -5,6 +5,7 @@ import {
   prepareTaskCommandV2,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
 } from '@devrandom/protocol';
 import {
   taskSourceFixture,
@@ -37,7 +38,7 @@ describe('current experience mandate', () => {
   });
 });
 
-it.each([6, 8])(
+it.each([6, 8, 9])(
   'accepts %s Run authority only under its exact experience mandate schema',
   async (quota) => {
     const source = taskSourceFixture();
@@ -69,8 +70,18 @@ it.each([6, 8])(
     const agent = `E${'a'.repeat(43)}`;
     const registry = `E${'s'.repeat(43)}`;
     const credentialSaid = `E${'A'.repeat(43)}`;
-    const correct = quota > 6 ? taskMandateV3SchemaSaid : taskMandateV2SchemaSaid;
-    const substitute = quota > 6 ? taskMandateV2SchemaSaid : taskMandateV3SchemaSaid;
+    const correct =
+      quota > 8
+        ? taskMandateV4SchemaSaid
+        : quota > 6
+          ? taskMandateV3SchemaSaid
+          : taskMandateV2SchemaSaid;
+    const substitute =
+      quota > 8
+        ? taskMandateV3SchemaSaid
+        : quota > 6
+          ? taskMandateV2SchemaSaid
+          : taskMandateV3SchemaSaid;
     for (const schemaSaid of [correct, substitute]) {
       const inspected: TaskMandateInspection = {
         credential: {

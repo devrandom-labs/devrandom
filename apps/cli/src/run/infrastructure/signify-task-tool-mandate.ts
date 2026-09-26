@@ -1,20 +1,10 @@
-import {
-  taskBudgetCeilings,
-  verifyTaskMandate,
-  type MandateTask,
-  type TaskToolCapability,
-} from '@devrandom/domain';
+import { verifyTaskMandate, type MandateTask, type TaskToolCapability } from '@devrandom/domain';
 import {
   credentialSaid,
   type LocalMandateCustody,
   type MandateInspection,
 } from '@devrandom/identity';
-import {
-  taskMandateSchemaSaid,
-  taskMandateV2SchemaSaid,
-  taskMandateV3SchemaSaid,
-  type TaskProjection,
-} from '@devrandom/protocol';
+import { selectTaskMandateSchemaSaid, type TaskProjection } from '@devrandom/protocol';
 import type { CurrentToolMandate, CurrentToolMandateInspection } from '@devrandom/runtime';
 
 export interface SignifyTaskToolMandateOptions {
@@ -105,13 +95,10 @@ export class SignifyTaskToolMandate implements CurrentToolMandate {
             issuerAid: this.#options.task.ownerAid,
             issueeAid: this.#options.personalAgentAid,
             registryId: this.#options.mandateRegistryId,
-            schemaSaid:
-              this.#options.task.revision.version === 2
-                ? this.#options.task.revision.budgets.runsPerAdmittedUser >
-                  taskBudgetCeilings.runsPerAdmittedUser
-                  ? taskMandateV3SchemaSaid
-                  : taskMandateV2SchemaSaid
-                : taskMandateSchemaSaid,
+            schemaSaid: selectTaskMandateSchemaSaid(
+              this.#options.task.revision.version,
+              this.#options.task.revision.budgets.runsPerAdmittedUser,
+            ),
             credentialSaid: this.#options.taskMandateSaid,
           },
           task: mandateTask(this.#options.task),

@@ -1,5 +1,4 @@
 import {
-  taskBudgetCeilings,
   verifyPromotionMandate,
   verifyExactPromotionMandate,
   verifyTaskMandate,
@@ -22,14 +21,9 @@ import {
   type StableMandateIssuance,
 } from '@devrandom/identity';
 import {
-  promotionMandateSchemaSaid,
-  promotionMandateV2SchemaSaid,
-  promotionMandateV3SchemaSaid,
-  promotionMandateV4SchemaSaid,
-  promotionMandateV5SchemaSaid,
-  taskMandateSchemaSaid,
-  taskMandateV2SchemaSaid,
-  taskMandateV3SchemaSaid,
+  selectInitialPromotionMandateSchemaSaid,
+  selectExactPromotionMandateSchemaSaid,
+  selectTaskMandateSchemaSaid,
   type MandatePresentationProblem,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -762,13 +756,10 @@ export class TaskMandateAuthorization {
             issuerAid: input.governance.userAid,
             issueeAid: input.governance.personalAgentAid,
             registryId: input.governance.mandateRegistryId,
-            schemaSaid:
-              input.task.revision.version === 2
-                ? input.task.revision.budgets.runsPerAdmittedUser >
-                  taskBudgetCeilings.runsPerAdmittedUser
-                  ? taskMandateV3SchemaSaid
-                  : taskMandateV2SchemaSaid
-                : taskMandateSchemaSaid,
+            schemaSaid: selectTaskMandateSchemaSaid(
+              input.task.revision.version,
+              input.task.revision.budgets.runsPerAdmittedUser,
+            ),
             credentialSaid: inspection.value.credential.credentialSaid,
           },
           task,
@@ -799,13 +790,10 @@ export class TaskMandateAuthorization {
           issuerAid: input.governance.userAid,
           issueeAid: input.governance.personalAgentAid,
           registryId: input.governance.mandateRegistryId,
-          schemaSaid:
-            input.task.revision.version === 2
-              ? input.task.revision.budgets.runsPerAdmittedUser >
-                taskBudgetCeilings.runsPerAdmittedUser
-                ? taskMandateV3SchemaSaid
-                : taskMandateV2SchemaSaid
-              : taskMandateSchemaSaid,
+          schemaSaid: selectTaskMandateSchemaSaid(
+            input.task.revision.version,
+            input.task.revision.budgets.runsPerAdmittedUser,
+          ),
           credentialSaid: taskMandateReference.credential.credentialSaid,
         },
         task,
@@ -823,16 +811,11 @@ export class TaskMandateAuthorization {
         registryId: input.governance.mandateRegistryId,
         schemaSaid:
           input.exactPromotionManifestSaid !== undefined
-            ? input.task.revision.budgets.runsPerAdmittedUser >
-              taskBudgetCeilings.runsPerAdmittedUser
-              ? promotionMandateV5SchemaSaid
-              : promotionMandateV3SchemaSaid
-            : input.task.revision.version === 2
-              ? input.task.revision.budgets.runsPerAdmittedUser >
-                taskBudgetCeilings.runsPerAdmittedUser
-                ? promotionMandateV4SchemaSaid
-                : promotionMandateV2SchemaSaid
-              : promotionMandateSchemaSaid,
+            ? selectExactPromotionMandateSchemaSaid(input.task.revision.budgets.runsPerAdmittedUser)
+            : selectInitialPromotionMandateSchemaSaid(
+                input.task.revision.version,
+                input.task.revision.budgets.runsPerAdmittedUser,
+              ),
         credentialSaid: inspection.value.credential.credentialSaid,
       },
       task,

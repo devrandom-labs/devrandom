@@ -6,6 +6,7 @@ import {
   prepareTaskCommandV2,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
   taskMandateSchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -145,7 +146,7 @@ describe('Signify current Task Mandate for the Tool Gateway', () => {
   });
 });
 
-it.each([6, 8])(
+it.each([6, 8, 9])(
   'uses exact Task schema for %s Runs and rejects the other schema',
   async (quota) => {
     const source = taskSourceFixture();
@@ -175,8 +176,18 @@ it.each([6, 8])(
       revisionSaid: prepared.command.revision.d,
     };
     const original = inspection(task);
-    const correct = quota > 6 ? taskMandateV3SchemaSaid : taskMandateV2SchemaSaid;
-    const substitute = quota > 6 ? taskMandateV2SchemaSaid : taskMandateV3SchemaSaid;
+    const correct =
+      quota > 8
+        ? taskMandateV4SchemaSaid
+        : quota > 6
+          ? taskMandateV3SchemaSaid
+          : taskMandateV2SchemaSaid;
+    const substitute =
+      quota > 8
+        ? taskMandateV3SchemaSaid
+        : quota > 6
+          ? taskMandateV2SchemaSaid
+          : taskMandateV3SchemaSaid;
     for (const schemaSaid of [correct, substitute]) {
       const observed = {
         ...original,

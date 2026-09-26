@@ -25,9 +25,12 @@ import {
   promotionMandateV3SchemaSaid,
   promotionMandateV4SchemaSaid,
   promotionMandateV5SchemaSaid,
+  promotionMandateV6SchemaSaid,
+  promotionMandateV7SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
 } from '@devrandom/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -105,9 +108,11 @@ function inspection(issuance: StableMandateIssuance, said: string): MandateInspe
             issuance,
             said,
             'experience' in issuance.claims
-              ? issuance.claims.budgets.runsPerAdmittedUser > 6
-                ? taskMandateV3SchemaSaid
-                : taskMandateV2SchemaSaid
+              ? issuance.claims.budgets.runsPerAdmittedUser > 8
+                ? taskMandateV4SchemaSaid
+                : issuance.claims.budgets.runsPerAdmittedUser > 6
+                  ? taskMandateV3SchemaSaid
+                  : taskMandateV2SchemaSaid
               : taskMandateSchemaSaid,
           ),
           ...issuance.claims,
@@ -121,13 +126,17 @@ function inspection(issuance: StableMandateIssuance, said: string): MandateInspe
             issuance,
             said,
             'evaluationManifestSaid' in issuance.claims
-              ? issuance.claims.budgetCeiling.runsPerAdmittedUser > 6
-                ? promotionMandateV5SchemaSaid
-                : promotionMandateV3SchemaSaid
+              ? issuance.claims.budgetCeiling.runsPerAdmittedUser > 8
+                ? promotionMandateV7SchemaSaid
+                : issuance.claims.budgetCeiling.runsPerAdmittedUser > 6
+                  ? promotionMandateV5SchemaSaid
+                  : promotionMandateV3SchemaSaid
               : 'experience' in issuance.claims
-                ? issuance.claims.budgetCeiling.runsPerAdmittedUser > 6
-                  ? promotionMandateV4SchemaSaid
-                  : promotionMandateV2SchemaSaid
+                ? issuance.claims.budgetCeiling.runsPerAdmittedUser > 8
+                  ? promotionMandateV6SchemaSaid
+                  : issuance.claims.budgetCeiling.runsPerAdmittedUser > 6
+                    ? promotionMandateV4SchemaSaid
+                    : promotionMandateV2SchemaSaid
                 : promotionMandateSchemaSaid,
           ),
           ...issuance.claims,
@@ -285,7 +294,7 @@ function presentationsFixture(): HostedMandatePresentations {
 }
 
 describe('Task mandate authorization', () => {
-  it.each([6, 8])(
+  it.each([6, 8, 9])(
     'issues and confirms separately versioned pre-M and exact-M authority for %s Runs',
     async (quota) => {
       const source = taskSourceFixture();

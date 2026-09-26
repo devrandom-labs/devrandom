@@ -1,15 +1,6 @@
-import {
-  taskBudgetCeilings,
-  verifyTaskMandate,
-  type AdmittedUser,
-  type MandateTask,
-} from '@devrandom/domain';
+import { verifyTaskMandate, type AdmittedUser, type MandateTask } from '@devrandom/domain';
 import { credentialSaid } from '@devrandom/identity';
-import {
-  taskMandateV3SchemaSaid,
-  taskMandateV2SchemaSaid,
-  type TaskProjection,
-} from '@devrandom/protocol';
+import { selectTaskMandateSchemaSaid, type TaskProjection } from '@devrandom/protocol';
 
 import type { CurrentExperienceMandate } from '../../harness/application/prepare-qualified-source-inventory.js';
 import type { CurrentLocalMandates } from '../../mandate/application/local-task-mandates.js';
@@ -94,10 +85,10 @@ export class SignifyCurrentExperienceMandate implements CurrentExperienceMandate
             issuerAid: task.ownerAid,
             issueeAid: record.binding.personalAgentAid,
             registryId: record.binding.mandateRegistryId,
-            schemaSaid:
-              task.revision.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
-                ? taskMandateV3SchemaSaid
-                : taskMandateV2SchemaSaid,
+            schemaSaid: selectTaskMandateSchemaSaid(
+              task.revision.version,
+              task.revision.budgets.runsPerAdmittedUser,
+            ),
             credentialSaid: taskMandateSaid,
           },
           task: mandateTask(task),
