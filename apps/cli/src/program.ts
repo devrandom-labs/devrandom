@@ -9,9 +9,17 @@ import type { UserIdentityOutcome } from './identity/application/user-identity.j
 import type { TaskCreation, TaskInspection, TaskListing } from './task/application/user-tasks.js';
 import type { TaskRunExecutionOutcome } from './task/application/task-run-execution.js';
 import type { WorkAccessAcquisition } from './work-access/application/work-access-acquisition.js';
+import type { LocalHarnessEvaluation } from './harness/composition/local-harness-evaluation.js';
 import type { HarnessEvaluationOutcome } from './harness/application/harness-evaluation.js';
 import type { CesrManifestLockOutcome } from './harness/application/lock-cesr-comparison-manifest.js';
 import type { QualifiedH0ProgressOutcome } from './evolution/application/progress-qualified-h0.js';
+import type {
+  publishLocalHarness,
+  fetchPublishedHarness,
+  forkPublishedHarness,
+} from './publication/composition/local-harness-publication.js';
+import type { SupervisedTaskResumption } from './run/composition/task-resumption.js';
+import type { TaskTerminalVerificationComposition } from './run/composition/task-terminal-verification.js';
 import type { LocalEvaluationPromotion } from './promotion/composition/local-evaluation-promotion.js';
 import type { QualifiedSourceInventoryPreparation } from './harness/application/prepare-qualified-source-inventory.js';
 import type {
@@ -39,6 +47,18 @@ export interface UserIdentityCommands {
 }
 
 export interface TaskCommands {
+  resume(
+    label: string,
+    runId: string,
+    pauseAfterCheckpoint: boolean,
+    signal: AbortSignal,
+  ): Promise<SupervisedTaskResumption | { readonly kind: 'Blocked'; readonly gate: string }>;
+  verify(
+    label: string,
+    runId: string,
+    signal: AbortSignal,
+  ): ReturnType<TaskTerminalVerificationComposition['verify']>;
+
   create(path: string): Promise<TaskCreation>;
   list(): Promise<TaskListing>;
   inspect(label: string): Promise<TaskInspection>;
@@ -50,6 +70,23 @@ export interface TaskCommands {
 export interface DevrandomCommands extends UserIdentityCommands {
   readonly tasks: TaskCommands;
   readonly harness: {
+    publish(
+      label: string,
+      evaluationId: string,
+      commandId: string,
+      signal: AbortSignal,
+    ): ReturnType<typeof publishLocalHarness>;
+    fetch(
+      packageSaid: string,
+      publisherOobi: string,
+      signal: AbortSignal,
+    ): ReturnType<typeof fetchPublishedHarness>;
+    fork(
+      packageSaid: string,
+      publisherOobi: string,
+      commandId: string,
+      signal: AbortSignal,
+    ): ReturnType<typeof forkPublishedHarness>;
     promote(
       label: string,
       evaluationId: string,
@@ -63,7 +100,7 @@ export interface DevrandomCommands extends UserIdentityCommands {
       fromRunId: string,
       policyPath: string,
       signal: AbortSignal,
-    ): Promise<HarnessEvaluationOutcome>;
+    ): Promise<HarnessEvaluationOutcome | LocalHarnessEvaluation>;
     resumeManifest(evaluationId: string): Promise<CesrManifestLockOutcome>;
     progressH0(
       label: string,
@@ -167,6 +204,99 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
       }
     });
   task
+    .command('resume')
+    .description('Continue the same Run from verified durable evidence under committed H2')
+    .argument('<label>')
+    .requiredOption('--run <id>', 'the original retained Run ID')
+    .option(
+      '--pause-after-checkpoint',
+      'seal the first changed checkpoint and await external termination',
+      false,
+    )
+    .action(async (label: string, options: { run: string; pauseAfterCheckpoint: boolean }) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.tasks.resume(
+          label,
+          options.run,
+          options.pauseAfterCheckpoint,
+          interruption.signal,
+        );
+        if (outcome.kind !== 'RunSupervised') {
+          cliProcess.writeError(
+            `Task resumption: ${outcome.kind}${outcome.kind === 'Blocked' ? ` (${outcome.gate})` : ''}.\n`,
+          );
+          cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
+          return;
+        }
+        const supervision = outcome.supervision;
+        if (supervision.kind === 'SupervisorIntegrityFailure') {
+          cliProcess.writeError('Run supervision: SupervisorIntegrityFailure.\n');
+          cliProcess.setExitCode(6);
+          return;
+        }
+        cliProcess.write(
+          [
+            `Run ID: ${supervision.run.binding.runId}`,
+            `Run state: ${domainRunState(supervision.run)}`,
+            domainRunCheckpoint(supervision.run),
+            ...runSettlementFailure(supervision),
+          ].join('\n') + '\n',
+        );
+        const paused =
+          supervision.kind === 'Stopped' &&
+          supervision.run.lifecycle.kind === 'Active' &&
+          supervision.run.lifecycle.phase.kind === 'Blocked' &&
+          supervision.run.lifecycle.phase.reason === 'CheckpointPause';
+        if (paused && options.pauseAfterCheckpoint) {
+          cliProcess.write(
+            'Checkpoint sealed. Awaiting external termination for same-Run recovery.\n',
+          );
+          await new Promise<void>((resolve) => {
+            if (interruption.signal.aborted) {
+              resolve();
+              return;
+            }
+            const keepAlive = setInterval(() => {}, 1000);
+            interruption.signal.addEventListener(
+              'abort',
+              () => {
+                clearInterval(keepAlive);
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        } else
+          cliProcess.setExitCode(
+            supervision.kind === 'Stopped' ? stoppedRunExitCode(supervision) : 5,
+          );
+      } finally {
+        interruption.release();
+      }
+    });
+  task
+    .command('verify')
+    .description('Verify the accepted immutable final source and original TerminalCase receipt')
+    .argument('<label>')
+    .requiredOption('--run <id>', 'the original completed Run ID')
+    .action(async (label: string, options: { run: string }) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.tasks.verify(label, options.run, interruption.signal);
+        if (outcome.kind === 'Verified')
+          cliProcess.write(
+            `Task verified: ${outcome.runId}\nSubmitted source: ${outcome.submittedSourceSaid}\nVerification source: ${outcome.verificationSourceSaid}\nTerminal receipt: ${outcome.receiptArtifactSaid}\n`,
+          );
+        else {
+          cliProcess.writeError(`Task verification: ${outcome.kind}.\n`);
+          cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
+        }
+      } finally {
+        interruption.release();
+      }
+    });
+  task
     .command('status')
     .description('Inspect one Task and its authoritative durable Run state')
     .argument('<label>')
@@ -187,6 +317,81 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
     });
 
   const harness = program.command('harness').description('Inspect and evaluate harness revisions');
+  harness
+    .command('publish')
+    .description('Publish sanitized behavior from the committed winning revision')
+    .argument('<label>')
+    .requiredOption('--evaluation <id>', 'the winning Evaluation ID')
+    .requiredOption('--command-id <id>', 'a stable publication command UUID')
+    .action(async (label: string, options: { evaluation: string; commandId: string }) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.harness.publish(
+          label,
+          options.evaluation,
+          options.commandId,
+          interruption.signal,
+        );
+        if (outcome.kind === 'Published' || outcome.kind === 'AlreadyPublished') {
+          cliProcess.write(`Harness package: ${outcome.packageSaid}\n`);
+        } else {
+          cliProcess.writeError(`Harness publication: ${outcome.kind}.\n`);
+          cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
+        }
+      } finally {
+        interruption.release();
+      }
+    });
+  harness
+    .command('fetch')
+    .description('Fetch and locally verify a signed sanitized harness package')
+    .argument('<package-said>')
+    .requiredOption('--publisher-oobi <url>', 'the publisher identity discovery URL')
+    .action(async (packageSaid: string, options: { publisherOobi: string }) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.harness.fetch(
+          packageSaid,
+          options.publisherOobi,
+          interruption.signal,
+        );
+        if (outcome.kind === 'Fetched')
+          cliProcess.write(`Verified harness package: ${outcome.packageSaid}\n`);
+        else {
+          cliProcess.writeError(`Harness fetch: ${outcome.kind}.\n`);
+          cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
+        }
+      } finally {
+        interruption.release();
+      }
+    });
+  harness
+    .command('fork')
+    .description('Verify a published package and create a private behavior lineage')
+    .argument('<package-said>')
+    .requiredOption('--publisher-oobi <url>', 'the publisher identity discovery URL')
+    .requiredOption('--command-id <id>', 'a stable private fork command UUID')
+    .action(async (packageSaid: string, options: { publisherOobi: string; commandId: string }) => {
+      const interruption = cliProcess.watchInterruption();
+      try {
+        const outcome = await commands.harness.fork(
+          packageSaid,
+          options.publisherOobi,
+          options.commandId,
+          interruption.signal,
+        );
+        if (outcome.kind === 'Forked')
+          cliProcess.write(
+            `Private harness lineage: ${outcome.fork.lineageId}\nSource package: ${outcome.fork.sourcePackageSaid}\n`,
+          );
+        else {
+          cliProcess.writeError(`Harness fork: ${outcome.kind}.\n`);
+          cliProcess.setExitCode(outcome.kind === 'Unavailable' ? 5 : 6);
+        }
+      } finally {
+        interruption.release();
+      }
+    });
   harness
     .command('promote')
     .description('Verify and sign an exact Evaluation closure for governed activation')
@@ -381,14 +586,31 @@ function renderManifestResume(outcome: CesrManifestLockOutcome): RenderedCommand
   return { destination: 'stderr', exitCode: 5, text: 'Evaluation manifest unavailable.' };
 }
 
-function renderHarnessEvaluation(outcome: HarnessEvaluationOutcome): RenderedCommand {
+function renderHarnessEvaluation(
+  outcome: HarnessEvaluationOutcome | LocalHarnessEvaluation,
+): RenderedCommand {
   switch (outcome.kind) {
+    case 'Closed':
+      return {
+        destination: 'stdout',
+        exitCode: 0,
+        text: `Evaluation closed: ${outcome.evaluationId}\nManifest: ${outcome.manifestSaid}\nClosure: ${outcome.closureSaid}\nGoverned activation requires exact manifest confirmation.`,
+      };
+    case 'RecoveryRequired':
+      return {
+        destination: 'stderr',
+        exitCode: 6,
+        text: `Evaluation ${outcome.evaluationId} requires recovery of its existing evidence prefix.`,
+      };
+
     case 'Blocked':
       return {
         destination: 'stderr',
         exitCode: 6,
         text:
-          outcome.gate === 'ProtectedCases'
+          outcome.gate === 'ProtectedCases' &&
+          'evaluationId' in outcome &&
+          outcome.evaluationId !== undefined
             ? `Evaluation ${outcome.evaluationId} admitted; protected cases and M are not locked. No trial started.`
             : `Evaluation blocked: ${outcome.gate}.`,
       };

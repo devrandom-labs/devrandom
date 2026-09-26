@@ -54,6 +54,8 @@ function commandFixture(): {
         return Promise.resolve(recovery);
       },
       tasks: {
+        resume: () => Promise.resolve({ kind: 'Blocked', gate: 'Custody' }),
+        verify: () => Promise.resolve({ kind: 'Rejected' }),
         create: (path) => {
           invocations.push(`task-create:${path}`);
           return Promise.resolve({ kind: 'TaskFileRejected', reason: 'FileUnavailable' });
@@ -114,6 +116,9 @@ function commandFixture(): {
         },
       },
       harness: {
+        publish: () => Promise.resolve({ kind: 'Rejected' }),
+        fetch: () => Promise.resolve({ kind: 'Rejected' }),
+        fork: () => Promise.resolve({ kind: 'Rejected' }),
         promote: () => Promise.resolve({ kind: 'Blocked', gate: 'Custody' }),
         evaluate: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
         resumeManifest: () => Promise.resolve({ kind: 'Blocked', gate: 'Manifest' }),
@@ -162,6 +167,141 @@ function processFixture(): {
 }
 
 describe('devrandom command', () => {
+  it('exposes publication and same-Run recovery at the real command boundary', () => {
+    const { commands } = commandFixture();
+    const program = createProgram(commands, processFixture().process);
+    const harnessCommands = program.commands
+      .find((command) => command.name() === 'harness')
+      ?.commands.map((command) => command.name());
+    expect(harnessCommands).toEqual(expect.arrayContaining(['publish', 'fetch', 'fork']));
+    const taskCommands = program.commands
+      .find((command) => command.name() === 'task')
+      ?.commands.map((command) => command.name());
+    expect(taskCommands).toEqual(expect.arrayContaining(['resume', 'verify']));
+  });
+
+  it('routes same-Run recovery and rejects an unproved terminal verification', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const resume = vi.fn(() => Promise.resolve({ kind: 'Blocked' as const, gate: 'Custody' }));
+    const verify = vi.fn(() => Promise.resolve({ kind: 'Rejected' as const }));
+    const routed = { ...commands, tasks: { ...commands.tasks, resume, verify } };
+    await createProgram(routed, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'task',
+      'resume',
+      'cesr-compat',
+      '--run',
+      'original-run',
+      '--pause-after-checkpoint',
+    ]);
+    expect(resume.mock.calls[0]?.slice(0, 3)).toEqual(['cesr-compat', 'original-run', true]);
+    await createProgram(routed, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'task',
+      'verify',
+      'cesr-compat',
+      '--run',
+      'original-run',
+    ]);
+    expect(verify.mock.calls[0]?.slice(0, 2)).toEqual(['cesr-compat', 'original-run']);
+    expect(runtime.errors).toEqual([
+      'Task resumption: Blocked (Custody).\n',
+      'Task verification: Rejected.\n',
+    ]);
+    expect(runtime.exitCodes).toEqual([6, 6]);
+  });
+
+  it('routes sanitized publication and verified private forks without claiming activation', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const publish = vi.fn(() => Promise.resolve({ kind: 'Rejected' as const }));
+    const fetch = vi.fn(() => Promise.resolve({ kind: 'Unavailable' as const }));
+    const fork = vi.fn(() => Promise.resolve({ kind: 'Rejected' as const }));
+    const routed = { ...commands, harness: { ...commands.harness, publish, fetch, fork } };
+    await createProgram(routed, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'publish',
+      'cesr-compat',
+      '--evaluation',
+      'evaluation-id',
+      '--command-id',
+      'publish-id',
+    ]);
+    await createProgram(routed, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'fetch',
+      'package-said',
+      '--publisher-oobi',
+      'https://publisher.example/oobi',
+    ]);
+    await createProgram(routed, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'fork',
+      'package-said',
+      '--publisher-oobi',
+      'https://publisher.example/oobi',
+      '--command-id',
+      'fork-id',
+    ]);
+    expect(publish.mock.calls[0]?.slice(0, 3)).toEqual([
+      'cesr-compat',
+      'evaluation-id',
+      'publish-id',
+    ]);
+    expect(fetch.mock.calls[0]?.slice(0, 2)).toEqual([
+      'package-said',
+      'https://publisher.example/oobi',
+    ]);
+    expect(fork.mock.calls[0]?.slice(0, 3)).toEqual([
+      'package-said',
+      'https://publisher.example/oobi',
+      'fork-id',
+    ]);
+    expect(runtime.output).toEqual([]);
+    expect(runtime.exitCodes).toEqual([6, 5, 6]);
+  });
+
+  it('reports evaluation completion only after the closed comparison outcome', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const evaluate = vi.fn(() =>
+      Promise.resolve({
+        kind: 'Closed' as const,
+        evaluationId: 'evaluation-id',
+        manifestSaid: 'manifest-said',
+        closureSaid: 'closure-said',
+      }),
+    );
+    await createProgram(
+      { ...commands, harness: { ...commands.harness, evaluate } },
+      runtime.process,
+    ).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'evaluate',
+      'cesr-compat',
+      '--from-run',
+      'original-run',
+      '--policy',
+      'policy.json',
+    ]);
+    expect(runtime.output.join('')).toContain('Closure: closure-said');
+    expect(runtime.output.join('')).toContain(
+      'Governed activation requires exact manifest confirmation.',
+    );
+    expect(runtime.exitCodes).toEqual([0]);
+  });
+
   it('routes exact manifest confirmation through the public promotion command', async () => {
     const { commands } = commandFixture();
     const runtime = processFixture();

@@ -14,7 +14,7 @@ import { GitHarnessInspection } from './harness/infrastructure/git-harness-inspe
 import { DockerCargoExecutionInventory } from './harness/infrastructure/docker-cargo-execution-inventory.js';
 import { HostHarnessExecutionInventory } from './harness/infrastructure/host-harness-execution-inventory.js';
 import { EnvironmentPiModelInspection } from './harness/infrastructure/model-profile-environment.js';
-import { HarnessEvaluation } from './harness/application/harness-evaluation.js';
+import { evaluateLocalHarness } from './harness/composition/local-harness-evaluation.js';
 import { reconcileStagedCesrManifest } from './harness/application/lock-cesr-comparison-manifest.js';
 import { EvaluationManifestCommandFile } from './harness/infrastructure/evaluation-manifest-command-file.js';
 import { SqliteCesrComparisonCases } from './harness/infrastructure/sqlite-cesr-comparison-cases.js';
@@ -22,6 +22,12 @@ import { VerifiedFailureCampaign } from './harness/application/verified-failure-
 import { EvaluationCommandFile } from './harness/infrastructure/evaluation-command-file.js';
 import { EvaluationPolicyFile } from './harness/infrastructure/evaluation-policy-file.js';
 import { progressQualifiedH0 } from './evolution/application/progress-qualified-h0.js';
+import {
+  publishLocalHarness,
+  fetchPublishedHarness,
+  forkPublishedHarness,
+} from './publication/composition/local-harness-publication.js';
+import { decodeDevrandomServerOrigin } from './infrastructure/devrandom-server-http.js';
 import { promoteLocalEvaluation } from './promotion/composition/local-evaluation-promotion.js';
 import type { QualifiedH0ProgressOutcome } from './evolution/application/progress-qualified-h0.js';
 import { FilePublicAnalogyReviews } from './evolution/infrastructure/file-public-analogy-reviews.js';
@@ -55,6 +61,8 @@ import { VerifiedCalibrationCampaignProgress } from './run/application/calibrati
 import { FileCalibrationCampaignRecords } from './run/infrastructure/file-calibration-campaign-records.js';
 import { BaselineRunSupervisorComposition } from './run/composition/baseline-run-supervisor.js';
 import { LinuxRunSupervisorComposition } from './run/composition/linux-run-supervisor.js';
+import { TaskTerminalVerificationComposition } from './run/composition/task-terminal-verification.js';
+import { resumeLocalTask } from './run/composition/local-task-resumption.js';
 import { TerminalCalibrationComposition } from './run/composition/terminal-calibration.js';
 import { GitLinuxH1PreLease } from './run/infrastructure/git-linux-h1-prelease.js';
 import {
@@ -473,35 +481,6 @@ function taskRunObservations(): TaskRunObservations {
   });
 }
 
-function harnessEvaluation(): HarnessEvaluation {
-  const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
-  return new HarnessEvaluation({
-    policy: new EvaluationPolicyFile(),
-    authority: {
-      acquire: async () => {
-        const authority = await currentTaskAuthority().acquireHostedWork();
-        return authority.kind === 'Authorized'
-          ? {
-              kind: 'Authorized',
-              ownerAid: authority.user.principal.aid,
-              tasks: authority.tasks,
-              runs: authority.runs,
-              evidence: authority.evidence,
-              evaluations: authority.evaluations,
-            }
-          : { kind: 'Unavailable' };
-      },
-    },
-    qualification: new VerifiedFailureCampaign(
-      new PreparedCompatibilityCampaignHistoryFile(configuration.stateDirectory),
-    ),
-    commands: new EvaluationCommandFile(
-      join(configuration.stateDirectory, 'evaluation-commands'),
-      randomUUID,
-    ),
-  });
-}
-
 const commands: DevrandomCommands = {
   status: async () => {
     const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
@@ -512,6 +491,45 @@ const commands: DevrandomCommands = {
   whoami: () => identityApplication('PrintBrowserUrl').whoami(),
   rotate: () => identityApplication('PrintBrowserUrl').rotate(),
   tasks: {
+    resume: async (label, runId, pauseAfterCheckpoint, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const bundlePath = process.env.DEVRANDOM_LINUX_H1_BUNDLE;
+      if (bundlePath === undefined) return { kind: 'Blocked', gate: 'ExecutionProfile' };
+      const linux = loadLinuxH1ProfileBundle(bundlePath);
+      const hosted = await currentTaskAuthority().acquireHostedWork();
+      if (hosted.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
+      const inspected = await hosted.tasks.inspect(label);
+      if (inspected.kind !== 'Inspected') return { kind: 'Blocked', gate: 'Task' };
+      return resumeLocalTask({
+        stateRoot: configuration.stateDirectory,
+        issuerAid: configuration.issuerAid,
+        hosted,
+        local: currentLocalMandates(),
+        task: inspected.task,
+        runId,
+        linux,
+        pauseAfterCheckpoint,
+        signal,
+      });
+    },
+    verify: async (label, runId, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const hosted = await currentTaskAuthority().acquireHostedWork();
+      if (hosted.kind !== 'Authorized') return { kind: 'Unavailable' };
+      const inspected = await hosted.tasks.inspect(label);
+      if (inspected.kind !== 'Inspected') return { kind: 'Rejected' };
+      return new TaskTerminalVerificationComposition(configuration.stateDirectory).verify(
+        {
+          ownerAid: hosted.user.principal.aid,
+          task: inspected.task,
+          runId,
+          runs: hosted.runs,
+          evidence: hosted.evidence,
+          protectedCredentials: hosted.protectedCredentials,
+        },
+        signal,
+      );
+    },
     create: (path) => userTasks().create(path),
     list: () => userTasks().list(),
     inspect: (label) => userTasks().inspect(label),
@@ -520,6 +538,52 @@ const commands: DevrandomCommands = {
     watch: (label, signal) => taskRunObservations().watch(label, signal),
   },
   harness: {
+    publish: async (label, evaluationId, commandId, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const hosted = await currentTaskAuthority().acquireHostedWork();
+      if (hosted.kind !== 'Authorized') return { kind: 'Unavailable' };
+      const inspected = await hosted.tasks.inspect(label);
+      if (inspected.kind !== 'Inspected') return { kind: 'Rejected' };
+      return publishLocalHarness({
+        stateRoot: configuration.stateDirectory,
+        identity: configuration,
+        custodyFiles: new IdentityFiles(configuration.stateDirectory),
+        hosted,
+        task: inspected.task,
+        evaluationId,
+        commandId,
+        signal,
+      });
+    },
+    fetch: async (packageSaid, publisherOobi, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const origin = decodeDevrandomServerOrigin(configuration.issuerUrl);
+      if (origin.kind !== 'Accepted') return { kind: 'Rejected' };
+      return fetchPublishedHarness({
+        stateRoot: configuration.stateDirectory,
+        identity: configuration,
+        custodyFiles: new IdentityFiles(configuration.stateDirectory),
+        serverOrigin: origin.origin,
+        packageSaid,
+        publisherOobi,
+        signal,
+      });
+    },
+    fork: async (packageSaid, publisherOobi, commandId, signal) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const origin = decodeDevrandomServerOrigin(configuration.issuerUrl);
+      if (origin.kind !== 'Accepted') return { kind: 'Rejected' };
+      return forkPublishedHarness({
+        stateRoot: configuration.stateDirectory,
+        identity: configuration,
+        custodyFiles: new IdentityFiles(configuration.stateDirectory),
+        serverOrigin: origin.origin,
+        packageSaid,
+        publisherOobi,
+        commandId,
+        signal,
+      });
+    },
     promote: async (label, evaluationId, closureSaid, commandId, manifestSaid, signal) => {
       const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
       const hosted = await currentTaskAuthority().acquireHostedWork();
@@ -539,8 +603,29 @@ const commands: DevrandomCommands = {
         signal,
       });
     },
-    evaluate: (label, runId, policyPath, signal) =>
-      harnessEvaluation().evaluate(label, runId, policyPath, signal),
+    evaluate: async (label, originRunId, policyPath, signal) => {
+      const identity = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const bundlePath = process.env.DEVRANDOM_LINUX_H1_BUNDLE;
+      if (bundlePath === undefined) return { kind: 'Blocked', gate: 'ExecutionProfile' };
+      const linux = loadLinuxH1ProfileBundle(bundlePath);
+      const hosted = await currentTaskAuthority().acquireHostedWork();
+      if (hosted.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
+      const inspected = await hosted.tasks.inspect(label);
+      if (inspected.kind !== 'Inspected') return { kind: 'Blocked', gate: 'Task' };
+      return evaluateLocalHarness({
+        stateRoot: identity.stateDirectory,
+        hosted,
+        local: currentLocalMandates(),
+        task: inspected.task,
+        policyPath,
+        originRunId,
+        repositoryDirectory: process.cwd(),
+        linux,
+        identity,
+        signal,
+        modelCredentialEnvironment: { CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY },
+      });
+    },
     progressH0: progressH0Command,
     recordSourceInventory: recordSourceInventoryCommand,
     resumeManifest: async (evaluationId) => {
