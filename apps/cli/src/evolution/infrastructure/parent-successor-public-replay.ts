@@ -154,14 +154,13 @@ export class ParentSuccessorPublicReplay implements SuccessorPublicReplay {
         request.sourceInventorySaid,
         request.successorRevisionSaid,
         request.configurationArtifactSaid,
+        request.reviewedImplementationSaid,
         request.receiptArtifactSaid,
         context.capturedSourceSaid,
         context.reviewedRecipeSaid,
         context.toolchainSaid,
         context.containerProfileSaid,
       ].every((value) => said.test(value)) ||
-      (request.reviewedImplementationSaid !== undefined &&
-        !said.test(request.reviewedImplementationSaid)) ||
       !sha1.test(context.h1Commit) ||
       !sha1.test(context.h1Tree)
     )

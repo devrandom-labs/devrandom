@@ -129,46 +129,6 @@ function fixture() {
 }
 
 describe('parent public replay verification', () => {
-  it('accepts an exact C1 instruction receipt with no implementation artifact', async () => {
-    const ready = fixture();
-    const document = JSON.parse(ready.receiptBytes.toString('utf8')) as Record<string, unknown>;
-    document.arm = 'C1';
-    document.behavior = {
-      kind: 'C1Instruction',
-      hypothesisSaid: said('h'),
-      augmentedPromptDigest: `sha256:${'a'.repeat(64)}`,
-    };
-    delete document.reviewedImplementationSaid;
-    const bytes = Buffer.from(JSON.stringify(document));
-    const prepared = prepareEvidenceArtifact(bytes, 'application/json');
-    if (prepared.kind !== 'Prepared') throw new Error('C1 receipt');
-    const verifier = new ParentSuccessorPublicReplay({
-      custody: {
-        read: (artifactSaid: string) =>
-          artifactSaid === prepared.artifact.d
-            ? Promise.resolve({ kind: 'Read' as const, artifact: prepared.artifact, bytes })
-            : ready.custody.read(artifactSaid),
-      },
-      executables: { open: () => Promise.resolve('/tmp/frozen-native') },
-      conditions: [condition],
-      h1Commit: '1'.repeat(40),
-      h1Tree: '2'.repeat(40),
-      capturedSourceSaid: said('s'),
-      reviewedRecipeSaid: said('r'),
-      toolchainSaid: said('t'),
-      containerProfileSaid: said('v'),
-    });
-    expect(
-      await verifier.verify({
-        ...ready.request,
-        arm: 'C1',
-        reviewedImplementationSaid: undefined,
-        receiptArtifactSaid: prepared.artifact.d,
-        receiptBytes: bytes,
-      }),
-    ).toMatchObject({ kind: 'Confirmed', arm: 'C1' });
-  });
-
   it('accepts only an exact retained native-observation receipt bound to the public catalogue and H1 source', async () => {
     const ready = fixture();
     const verifier = new ParentSuccessorPublicReplay({
