@@ -24,10 +24,16 @@ import {
   promotionMandateV2SchemaSaid,
   promotionMandateV3Schema,
   promotionMandateV3SchemaSaid,
+  promotionMandateV4Schema,
+  promotionMandateV4SchemaSaid,
+  promotionMandateV5Schema,
+  promotionMandateV5SchemaSaid,
   taskMandateSchema,
   taskMandateSchemaSaid,
   taskMandateV2Schema,
   taskMandateV2SchemaSaid,
+  taskMandateV3Schema,
+  taskMandateV3SchemaSaid,
 } from '@devrandom/protocol';
 import { Serder, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
@@ -652,7 +658,12 @@ function issuanceArguments(input: StableMandateIssuance) {
       return {
         i: input.userAid,
         ri: input.registryId,
-        s: input.claims.experience === undefined ? taskMandateSchemaSaid : taskMandateV2SchemaSaid,
+        s:
+          input.claims.budgets.runsPerAdmittedUser > 6
+            ? taskMandateV3SchemaSaid
+            : input.claims.experience === undefined
+              ? taskMandateSchemaSaid
+              : taskMandateV2SchemaSaid,
         a: {
           i: input.holderAid,
           dt: mandateProtocolDatetime(input.issuedAt),
@@ -675,10 +686,14 @@ function issuanceArguments(input: StableMandateIssuance) {
         i: input.userAid,
         ri: input.registryId,
         s: exact
-          ? promotionMandateV3SchemaSaid
-          : input.claims.experience === undefined
-            ? promotionMandateSchemaSaid
-            : promotionMandateV2SchemaSaid,
+          ? input.claims.budgetCeiling.runsPerAdmittedUser > 6
+            ? promotionMandateV5SchemaSaid
+            : promotionMandateV3SchemaSaid
+          : input.claims.budgetCeiling.runsPerAdmittedUser > 6
+            ? promotionMandateV4SchemaSaid
+            : input.claims.experience === undefined
+              ? promotionMandateSchemaSaid
+              : promotionMandateV2SchemaSaid,
         a: {
           i: input.holderAid,
           dt: mandateProtocolDatetime(input.issuedAt),
@@ -962,16 +977,7 @@ function issuanceInspectionMatches(
   const credential = inspection.value.credential;
   const exactPromotion =
     expected.kind === 'PromotionMandate' && exactPromotionClaims(expected.claims);
-  const expectedSchema =
-    expected.kind === 'TaskMandate'
-      ? expected.claims.experience === undefined
-        ? taskMandateSchemaSaid
-        : taskMandateV2SchemaSaid
-      : exactPromotion
-        ? promotionMandateV3SchemaSaid
-        : expected.claims.experience === undefined
-          ? promotionMandateSchemaSaid
-          : promotionMandateV2SchemaSaid;
+  const expectedSchema = issuanceArguments(expected).s;
   if (
     inspection.kind !== expected.kind ||
     credential.issuerAid !== expected.userAid ||
@@ -1515,8 +1521,14 @@ function verifyHolderInspection(
   const evidence = inspection.value.credential;
   const expectedSchemas =
     expected.mandateKind === 'TaskMandate'
-      ? [taskMandateSchemaSaid, taskMandateV2SchemaSaid]
-      : [promotionMandateSchemaSaid, promotionMandateV2SchemaSaid, promotionMandateV3SchemaSaid];
+      ? [taskMandateSchemaSaid, taskMandateV2SchemaSaid, taskMandateV3SchemaSaid]
+      : [
+          promotionMandateSchemaSaid,
+          promotionMandateV2SchemaSaid,
+          promotionMandateV3SchemaSaid,
+          promotionMandateV4SchemaSaid,
+          promotionMandateV5SchemaSaid,
+        ];
   if (
     inspection.kind !== expected.mandateKind ||
     evidence.credentialSaid !== expected.credentialSaid ||
@@ -1563,11 +1575,6 @@ export async function connectLocalMandateCustody(
     promotionMandateV2Schema,
     input.operationTimeoutMs,
   );
-  const promotionV3SchemaAvailability = signifyCredentialSchemaAvailability(
-    client,
-    promotionMandateV3Schema,
-    input.operationTimeoutMs,
-  );
   const prepareSchemas = async (): Promise<void> => {
     await taskSchemaAvailability.resolve(input.taskMandateSchemaOobi.url);
     const taskV2Oobi = new URL(input.taskMandateSchemaOobi.url);
@@ -1593,12 +1600,24 @@ export async function connectLocalMandateCustody(
       ),
     reconcileIssuance: (request) => reconcileIssuance(client, request),
     async submitIssuance(request) {
-      const exact = request.kind === 'PromotionMandate' && exactPromotionClaims(request.claims);
+      const schemaSaid = issuanceArguments(request).s;
       await prepareSchemas();
-      if (exact) {
-        const promotionV3Oobi = new URL(input.promotionMandateSchemaOobi.url);
-        promotionV3Oobi.pathname = `/oobi/${promotionMandateV3SchemaSaid}`;
-        await promotionV3SchemaAvailability.resolve(promotionV3Oobi.href);
+      const schema = [
+        taskMandateV3Schema,
+        promotionMandateV3Schema,
+        promotionMandateV4Schema,
+        promotionMandateV5Schema,
+      ].find((schema) => schema.$id === schemaSaid);
+      if (schema !== undefined) {
+        const oobi = new URL(
+          request.kind === 'TaskMandate'
+            ? input.taskMandateSchemaOobi.url
+            : input.promotionMandateSchemaOobi.url,
+        );
+        oobi.pathname = `/oobi/${schema.$id}`;
+        await signifyCredentialSchemaAvailability(client, schema, input.operationTimeoutMs).resolve(
+          oobi.href,
+        );
       }
       return submitIssuance(client, request);
     },
@@ -1698,9 +1717,12 @@ async function inspectAdmission(
     if (
       inspection.value.credential.schemaSaid !== taskMandateSchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV2SchemaSaid &&
+      inspection.value.credential.schemaSaid !== taskMandateV3SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateSchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV2SchemaSaid &&
-      inspection.value.credential.schemaSaid !== promotionMandateV3SchemaSaid
+      inspection.value.credential.schemaSaid !== promotionMandateV3SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV4SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV5SchemaSaid
     ) {
       return { kind: 'Rejected', reason: 'CredentialSchemaMismatch' };
     }

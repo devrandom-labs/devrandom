@@ -5,14 +5,18 @@ import {
   promotionRiskLimit,
   taskBudgetCeilings,
   taskEvaluationBudgetCeilings,
+  type TaskBudgets,
 } from '@devrandom/domain';
 import {
   promotionMandateSchema,
-  promotionMandateSchemaSaid,
   promotionMandateV3Schema,
-  promotionMandateV3SchemaSaid,
+  promotionMandateV2Schema,
+  promotionMandateV4Schema,
+  promotionMandateV5Schema,
   taskMandateSchema,
   taskMandateSchemaSaid,
+  taskMandateV2Schema,
+  taskMandateV3Schema,
 } from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -55,7 +59,14 @@ function saidify<Value extends object & { readonly d: string }>(value: Value): V
   return { ...value, d: untrusted.d };
 }
 
-function taskEvidence(credentialState?: unknown) {
+function taskEvidence(
+  credentialState?: unknown,
+  schema:
+    | typeof taskMandateSchema
+    | typeof taskMandateV2Schema
+    | typeof taskMandateV3Schema = taskMandateSchema,
+  budgets: TaskBudgets = { ...taskBudgetCeilings, runsPerAdmittedUser: 6 },
+) {
   const attributes = saidify({
     d: '',
     i: holderAid,
@@ -70,8 +81,17 @@ function taskEvidence(credentialState?: unknown) {
       tree: '2'.repeat(40),
     },
     allowedCapabilities: ['ReadRepository', 'RunTests', 'SubmitResult'],
-    budgets: taskBudgetCeilings,
+    budgets,
     allowedEvolutionClasses: ['C1', 'C2'],
+    ...(schema === taskMandateSchema
+      ? {}
+      : {
+          experience: {
+            corpusSaid: `E${'q'.repeat(43)}`,
+            repositoryResourceSaid: `E${'s'.repeat(43)}`,
+            disclosure: 'AuthorizedAnalogy',
+          },
+        }),
     notBefore: '2026-09-24T14:00:00.000Z',
     expiresAt: '2026-09-24T18:00:00.000Z',
   });
@@ -80,7 +100,7 @@ function taskEvidence(credentialState?: unknown) {
     d: '',
     i: ownerAid,
     ri: registryId,
-    s: taskMandateSchemaSaid,
+    s: schema.$id,
     a: attributes,
   });
   const issuance = saidify({
@@ -106,11 +126,58 @@ function taskEvidence(credentialState?: unknown) {
     credential: { sad: credential, iss: issuance, anc: anchor },
     credentialState: credentialState ?? { i: credential.d, ri: registryId, s: '0', et: 'iss' },
     issuerKeyEvents: [{ ked: anchor }],
-    resolvedSchema: taskMandateSchema,
+    resolvedSchema: schema,
   };
 }
 
 describe('Task Mandate cryptographic inspection', () => {
+  it.each([
+    [taskMandateSchema, 6],
+    [taskMandateV2Schema, 6],
+    [taskMandateV3Schema, 8],
+  ] as const)('accepts immutable schema with $1 runs (case %#)', (schema, runs) => {
+    const budgets = { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: runs };
+    // V1 predates evaluation budgets as well as experience claims.
+    const acceptedBudgets =
+      schema === taskMandateSchema ? { ...taskBudgetCeilings, runsPerAdmittedUser: runs } : budgets;
+    const evidence = taskEvidence(undefined, schema, acceptedBudgets);
+    expect(inspectMandateCredentialEvidence(evidence)).toMatchObject({
+      kind: 'TaskMandate',
+      value: { budgets: acceptedBudgets, credential: { schemaSaid: schema.$id } },
+    });
+    expect(() =>
+      inspectTaskMandateCredentialEvidence({
+        ...evidence,
+        resolvedSchema: promotionMandateV5Schema,
+      }),
+    ).toThrow('resolved mandate schema differs');
+  });
+
+  it.each([
+    [taskMandateV2Schema, { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 8 }],
+    [taskMandateV3Schema, { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 9 }],
+    [
+      taskMandateV3Schema,
+      {
+        ...taskEvaluationBudgetCeilings,
+        runsPerAdmittedUser: 8,
+        providerSpendMicroUsd: taskEvaluationBudgetCeilings.providerSpendMicroUsd + 1,
+      },
+    ],
+    [
+      taskMandateV3Schema,
+      {
+        ...taskEvaluationBudgetCeilings,
+        runsPerAdmittedUser: 8,
+        providerInputTokens: taskEvaluationBudgetCeilings.providerInputTokens + 1,
+      },
+    ],
+  ] as const)('rejects claims exceeding the exact schema budget', (schema, budgets) => {
+    expect(() =>
+      inspectTaskMandateCredentialEvidence(taskEvidence(undefined, schema, budgets)),
+    ).toThrow('Task Mandate decoding failed');
+  });
+
   it('returns exact decoded claims and independently verified credential facts', () => {
     const evidence = taskEvidence();
 
@@ -139,7 +206,7 @@ describe('Task Mandate cryptographic inspection', () => {
         tree: '2'.repeat(40),
       },
       allowedCapabilities: ['ReadRepository', 'RunTests', 'SubmitResult'],
-      budgets: taskBudgetCeilings,
+      budgets: { ...taskBudgetCeilings, runsPerAdmittedUser: 6 },
       allowedEvolutionClasses: ['C1', 'C2'],
       notBefore: '2026-09-24T14:00:00.000Z',
       expiresAt: '2026-09-24T18:00:00.000Z',
@@ -210,162 +277,189 @@ describe('Task Mandate cryptographic inspection', () => {
 });
 
 describe('Promotion Mandate cryptographic inspection', () => {
-  it('reads v3 exact-M claims only from a SAID-bound ACDC with issued TEL and anchored issuer KEL', () => {
-    const attributes = saidify({
-      d: '',
-      i: holderAid,
-      dt: '2026-09-24T14:05:00.000000+00:00',
-      authority: 'ActivateEvaluatedSuccessor',
-      taskId,
-      taskRevisionSaid,
-      harnessLineageId,
-      capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
-      budgetCeiling: taskEvaluationBudgetCeilings,
-      evolutionClassCeiling: ['C1', 'C2'],
-      requiredEvidenceClasses: [...promotionEvidenceClasses],
-      experience: {
-        corpusSaid: `E${'q'.repeat(43)}`,
-        repositoryResourceSaid: `E${'s'.repeat(43)}`,
-        disclosure: 'AuthorizedAnalogy',
-      },
-      evaluationManifestSaid: `E${'m'.repeat(43)}`,
-      requiredMetrics: [...promotionRequiredMetrics],
-      requiredChecks: [...promotionRequiredChecks],
-      riskLimit: { ...promotionRiskLimit },
-      notBefore: '2026-09-24T14:00:00.000Z',
-      expiresAt: '2026-09-24T18:00:00.000Z',
-    });
-    const credential = saidify({
-      v: 'ACDC10JSON000000_',
-      d: '',
-      i: ownerAid,
-      ri: registryId,
-      s: promotionMandateV3SchemaSaid,
-      a: attributes,
-    });
-    const issuance = saidify({
-      v: 'KERI10JSON000000_',
-      t: 'iss',
-      d: '',
-      i: credential.d,
-      ri: registryId,
-      s: '0',
-      dt: attributes.dt,
-    });
-    const anchor = saidify({
-      v: 'KERI10JSON000000_',
-      t: 'ixn',
-      d: '',
-      i: ownerAid,
-      s: '2',
-      p: ownerAid,
-      a: [{ i: credential.d, s: issuance.s, d: issuance.d }],
-    });
-    const sources = {
-      expectedCredentialSaid: credential.d,
-      credential: { sad: credential, iss: issuance, anc: anchor },
-      credentialState: { i: credential.d, ri: registryId, s: '0', et: 'iss' },
-      issuerKeyEvents: [{ ked: anchor }],
-      resolvedSchema: promotionMandateV3Schema,
-    };
-    expect(inspectExactPromotionMandateCredentialEvidence(sources)).toMatchObject({
-      evaluationManifestSaid: attributes.evaluationManifestSaid,
-      requiredMetrics: promotionRequiredMetrics,
-      requiredChecks: promotionRequiredChecks,
-      riskLimit: promotionRiskLimit,
-      credential: {
-        schemaSaid: promotionMandateV3SchemaSaid,
-        telState: { kind: 'Issued' },
-        issuerAnchor: { kind: 'Anchored' },
-      },
-    });
-    expect(inspectMandateCredentialEvidence(sources).kind).toBe('PromotionMandate');
-    expect(() =>
-      inspectExactPromotionMandateCredentialEvidence({
-        ...sources,
-        credential: {
-          ...sources.credential,
-          sad: {
-            ...credential,
-            a: { ...attributes, evaluationManifestSaid: `E${'x'.repeat(43)}` },
-          },
+  it.each([
+    [promotionMandateV3Schema, 6],
+    [promotionMandateV5Schema, 8],
+  ] as const)(
+    'reads exact-M claims from immutable schema with $1 runs (case %#)',
+    (schema, runs) => {
+      const attributes = saidify({
+        d: '',
+        i: holderAid,
+        dt: '2026-09-24T14:05:00.000000+00:00',
+        authority: 'ActivateEvaluatedSuccessor',
+        taskId,
+        taskRevisionSaid,
+        harnessLineageId,
+        capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
+        budgetCeiling: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: runs },
+        evolutionClassCeiling: ['C1', 'C2'],
+        requiredEvidenceClasses: [...promotionEvidenceClasses],
+        experience: {
+          corpusSaid: `E${'q'.repeat(43)}`,
+          repositoryResourceSaid: `E${'s'.repeat(43)}`,
+          disclosure: 'AuthorizedAnalogy',
         },
-      }),
-    ).toThrow('exact Promotion Mandate v3 decoding failed');
-    expect(() =>
-      inspectExactPromotionMandateCredentialEvidence({
-        ...sources,
-        resolvedSchema: { ...promotionMandateV3Schema, title: 'Substituted' },
-      }),
-    ).toThrow('resolved mandate schema');
-  });
-  it('decodes the exact authority ceiling from independently verified evidence', () => {
-    const attributes = saidify({
-      d: '',
-      i: holderAid,
-      dt: '2026-09-24T14:05:00.000000+00:00',
-      authority: 'ActivateEvaluatedSuccessor',
-      taskId,
-      taskRevisionSaid,
-      harnessLineageId,
-      capabilityCeiling: ['ReadRepository', 'RunTests', 'SubmitResult'],
-      budgetCeiling: taskBudgetCeilings,
-      evolutionClassCeiling: ['C1', 'C2'],
-      requiredEvidenceClasses: [...promotionEvidenceClasses],
-      notBefore: '2026-09-24T14:00:00.000Z',
-      expiresAt: '2026-09-24T18:00:00.000Z',
-    });
-    const credential = saidify({
-      v: 'ACDC10JSON000000_',
-      d: '',
-      i: ownerAid,
-      ri: registryId,
-      s: promotionMandateSchemaSaid,
-      a: attributes,
-    });
-    const issuance = saidify({
-      v: 'KERI10JSON000000_',
-      t: 'iss',
-      d: '',
-      i: credential.d,
-      ri: registryId,
-      s: '0',
-      dt: attributes.dt,
-    });
-    const anchor = saidify({
-      v: 'KERI10JSON000000_',
-      t: 'ixn',
-      d: '',
-      i: ownerAid,
-      s: '2',
-      p: ownerAid,
-      a: [{ i: credential.d, s: issuance.s, d: issuance.d }],
-    });
+        evaluationManifestSaid: `E${'m'.repeat(43)}`,
+        requiredMetrics: [...promotionRequiredMetrics],
+        requiredChecks: [...promotionRequiredChecks],
+        riskLimit: { ...promotionRiskLimit },
+        notBefore: '2026-09-24T14:00:00.000Z',
+        expiresAt: '2026-09-24T18:00:00.000Z',
+      });
+      const credential = saidify({
+        v: 'ACDC10JSON000000_',
+        d: '',
+        i: ownerAid,
+        ri: registryId,
+        s: schema.$id,
+        a: attributes,
+      });
+      const issuance = saidify({
+        v: 'KERI10JSON000000_',
+        t: 'iss',
+        d: '',
+        i: credential.d,
+        ri: registryId,
+        s: '0',
+        dt: attributes.dt,
+      });
+      const anchor = saidify({
+        v: 'KERI10JSON000000_',
+        t: 'ixn',
+        d: '',
+        i: ownerAid,
+        s: '2',
+        p: ownerAid,
+        a: [{ i: credential.d, s: issuance.s, d: issuance.d }],
+      });
+      const sources = {
+        expectedCredentialSaid: credential.d,
+        credential: { sad: credential, iss: issuance, anc: anchor },
+        credentialState: { i: credential.d, ri: registryId, s: '0', et: 'iss' },
+        issuerKeyEvents: [{ ked: anchor }],
+        resolvedSchema: schema,
+      };
+      expect(inspectExactPromotionMandateCredentialEvidence(sources)).toMatchObject({
+        evaluationManifestSaid: attributes.evaluationManifestSaid,
+        requiredMetrics: promotionRequiredMetrics,
+        requiredChecks: promotionRequiredChecks,
+        riskLimit: promotionRiskLimit,
+        credential: {
+          schemaSaid: schema.$id,
+          telState: { kind: 'Issued' },
+          issuerAnchor: { kind: 'Anchored' },
+        },
+      });
+      expect(inspectMandateCredentialEvidence(sources).kind).toBe('PromotionMandate');
+      expect(() =>
+        inspectExactPromotionMandateCredentialEvidence({
+          ...sources,
+          credential: {
+            ...sources.credential,
+            sad: {
+              ...credential,
+              a: { ...attributes, evaluationManifestSaid: `E${'x'.repeat(43)}` },
+            },
+          },
+        }),
+      ).toThrow('exact Promotion Mandate v3 decoding failed');
+      expect(() =>
+        inspectExactPromotionMandateCredentialEvidence({
+          ...sources,
+          resolvedSchema: { ...schema, title: 'Substituted' },
+        }),
+      ).toThrow('resolved mandate schema');
+    },
+  );
+  it.each([
+    [promotionMandateSchema, 6],
+    [promotionMandateV2Schema, 6],
+    [promotionMandateV4Schema, 8],
+  ] as const)(
+    'decodes the pre-M authority ceiling for immutable schema with $1 runs (case %#)',
+    (schema, runs) => {
+      const attributes = saidify({
+        d: '',
+        i: holderAid,
+        dt: '2026-09-24T14:05:00.000000+00:00',
+        authority: 'ActivateEvaluatedSuccessor',
+        taskId,
+        taskRevisionSaid,
+        harnessLineageId,
+        capabilityCeiling: ['ReadRepository', 'RunTests', 'SubmitResult'],
+        budgetCeiling: {
+          ...(schema === promotionMandateSchema
+            ? taskBudgetCeilings
+            : taskEvaluationBudgetCeilings),
+          runsPerAdmittedUser: runs,
+        },
+        evolutionClassCeiling: ['C1', 'C2'],
+        requiredEvidenceClasses: [...promotionEvidenceClasses],
+        ...(schema === promotionMandateSchema
+          ? {}
+          : {
+              experience: {
+                corpusSaid: `E${'q'.repeat(43)}`,
+                repositoryResourceSaid: `E${'s'.repeat(43)}`,
+                disclosure: 'AuthorizedAnalogy',
+              },
+            }),
+        notBefore: '2026-09-24T14:00:00.000Z',
+        expiresAt: '2026-09-24T18:00:00.000Z',
+      });
+      const credential = saidify({
+        v: 'ACDC10JSON000000_',
+        d: '',
+        i: ownerAid,
+        ri: registryId,
+        s: schema.$id,
+        a: attributes,
+      });
+      const issuance = saidify({
+        v: 'KERI10JSON000000_',
+        t: 'iss',
+        d: '',
+        i: credential.d,
+        ri: registryId,
+        s: '0',
+        dt: attributes.dt,
+      });
+      const anchor = saidify({
+        v: 'KERI10JSON000000_',
+        t: 'ixn',
+        d: '',
+        i: ownerAid,
+        s: '2',
+        p: ownerAid,
+        a: [{ i: credential.d, s: issuance.s, d: issuance.d }],
+      });
 
-    const inspection = inspectPromotionMandateCredentialEvidence({
-      expectedCredentialSaid: credential.d,
-      credential: { sad: credential, iss: issuance, anc: anchor },
-      credentialState: { i: credential.d, ri: registryId, s: '0', et: 'iss' },
-      issuerKeyEvents: [{ ked: anchor }],
-      resolvedSchema: promotionMandateSchema,
-    });
+      const inspection = inspectPromotionMandateCredentialEvidence({
+        expectedCredentialSaid: credential.d,
+        credential: { sad: credential, iss: issuance, anc: anchor },
+        credentialState: { i: credential.d, ri: registryId, s: '0', et: 'iss' },
+        issuerKeyEvents: [{ ked: anchor }],
+        resolvedSchema: schema,
+      });
 
-    expect(inspection).toMatchObject({
-      authority: 'ActivateEvaluatedSuccessor',
-      taskId,
-      taskRevisionSaid,
-      harnessLineageId,
-      capabilityCeiling: ['ReadRepository', 'RunTests', 'SubmitResult'],
-      budgetCeiling: taskBudgetCeilings,
-      evolutionClassCeiling: ['C1', 'C2'],
-      requiredEvidenceClasses: promotionEvidenceClasses,
-      credential: {
-        issuerAid: ownerAid,
-        issueeAid: holderAid,
-        schemaSaid: promotionMandateSchemaSaid,
-        telState: { kind: 'Issued' },
-        issuerAnchor: { kind: 'Anchored', eventSaid: anchor.d },
-      },
-    });
-  });
+      expect(inspection).toMatchObject({
+        authority: 'ActivateEvaluatedSuccessor',
+        taskId,
+        taskRevisionSaid,
+        harnessLineageId,
+        capabilityCeiling: ['ReadRepository', 'RunTests', 'SubmitResult'],
+        budgetCeiling: attributes.budgetCeiling,
+        evolutionClassCeiling: ['C1', 'C2'],
+        requiredEvidenceClasses: promotionEvidenceClasses,
+        credential: {
+          issuerAid: ownerAid,
+          issueeAid: holderAid,
+          schemaSaid: schema.$id,
+          telState: { kind: 'Issued' },
+          issuerAnchor: { kind: 'Anchored', eventSaid: anchor.d },
+        },
+      });
+    },
+  );
 });

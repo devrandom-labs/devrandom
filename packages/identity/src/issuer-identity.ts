@@ -6,8 +6,11 @@ import {
   promotionMandateSchema,
   promotionMandateV2Schema,
   promotionMandateV3Schema,
+  promotionMandateV4Schema,
+  promotionMandateV5Schema,
   taskMandateSchema,
   taskMandateV2Schema,
+  taskMandateV3Schema,
 } from '@devrandom/protocol';
 import { type EventResult, type OOBIOperation, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
@@ -135,9 +138,12 @@ export interface VerifiedIssuerInfrastructure {
   readonly credentialSchema: CredentialSchemaAvailability;
   readonly taskMandateSchemaAvailability: CredentialSchemaAvailability;
   readonly taskMandateV2SchemaAvailability: CredentialSchemaAvailability;
+  readonly taskMandateV3SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateSchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateV2SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateV3SchemaAvailability: CredentialSchemaAvailability;
+  readonly promotionMandateV4SchemaAvailability: CredentialSchemaAvailability;
+  readonly promotionMandateV5SchemaAvailability: CredentialSchemaAvailability;
   readonly mandateAdmission: MandateAdmission;
   readonly runAdmissionExchange: IssuerRunAdmissionExchange;
   readonly evidenceSealExchange: IssuerEvidenceSealExchange;
@@ -610,6 +616,11 @@ export async function connectVerifiedIssuerInfrastructure(
       taskMandateV2Schema,
       input.operationTimeoutMs,
     ),
+    taskMandateV3SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      taskMandateV3Schema,
+      input.operationTimeoutMs,
+    ),
     promotionMandateSchemaAvailability: signifyCredentialSchemaAvailability(
       verified.client,
       promotionMandateSchema,
@@ -623,6 +634,16 @@ export async function connectVerifiedIssuerInfrastructure(
     promotionMandateV3SchemaAvailability: signifyCredentialSchemaAvailability(
       verified.client,
       promotionMandateV3Schema,
+      input.operationTimeoutMs,
+    ),
+    promotionMandateV4SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      promotionMandateV4Schema,
+      input.operationTimeoutMs,
+    ),
+    promotionMandateV5SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      promotionMandateV5Schema,
       input.operationTimeoutMs,
     ),
     mandateAdmission: signifyMandateAdmission(

@@ -9,12 +9,26 @@ import {
 import {
   promotionMandateSchemaSaid,
   promotionMandateV3SchemaSaid,
+  promotionMandateV5SchemaSaid,
+  taskMandateV3SchemaSaid,
+  taskMandateSchema,
+  taskMandateV2Schema,
+  taskMandateV3Schema,
+  promotionMandateSchema,
+  promotionMandateV2Schema,
+  promotionMandateV3Schema,
+  promotionMandateV4Schema,
+  promotionMandateV5Schema,
   taskMandateSchemaSaid,
 } from '@devrandom/protocol';
-import { Saider } from 'signify-ts';
-import { describe, expect, it } from 'vitest';
+import { Saider, SignifyClient, Tier, ready } from 'signify-ts';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import * as signifyController from './signify-controller.js';
 
 import {
+  connectLocalMandateCustody,
+  type StableMandateIssuance,
   convergeHolderAdmissionEvidence,
   decodeMandateOperation,
   mandateProtocolDatetime,
@@ -26,7 +40,17 @@ import {
   reconcileMandateOperationEvidence,
   taskMandateSchemaOobi,
 } from './mandate-exchange.js';
-import { credentialRegistryId, governorAid, personalAgentAid, userAid } from './keri-identifier.js';
+import {
+  agentAid,
+  controllerAid,
+  credentialRegistryId,
+  governorAid,
+  personalAgentAid,
+  userAid,
+} from './keri-identifier.js';
+
+beforeAll(ready);
+afterEach(() => vi.restoreAllMocks());
 
 describe('mandate operation evidence', () => {
   it('decodes the exact operation name and exchange identity', () => {
@@ -223,7 +247,7 @@ describe('mandate issuance reconciliation', () => {
         tree: '2'.repeat(40),
       },
       allowedCapabilities: ['ReadRepository', 'RunTests', 'SubmitResult'] as const,
-      budgets: taskBudgetCeilings,
+      budgets: { ...taskBudgetCeilings, runsPerAdmittedUser: 6 },
       allowedEvolutionClasses: ['C1', 'C2'] as const,
       notBefore: '2026-09-24T14:00:00.000Z',
       expiresAt: '2026-09-24T18:00:00.000Z',
@@ -326,7 +350,10 @@ describe('mandate issuance reconciliation', () => {
     });
   }
 
-  it('reconciles only the exact v3 M and rejects a substituted manifest or partial scope', () => {
+  it.each([
+    [promotionMandateV3SchemaSaid, 6],
+    [promotionMandateV5SchemaSaid, 8],
+  ] as const)('reconciles only exact M under schema %s with %i runs', (schemaSaid, runs) => {
     const governor = governorAid(holder);
     const exact = {
       kind: 'PromotionMandate' as const,
@@ -346,7 +373,7 @@ describe('mandate issuance reconciliation', () => {
           'RunTests',
           'SubmitResult',
         ] as const,
-        budgetCeiling: taskEvaluationBudgetCeilings,
+        budgetCeiling: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: runs },
         evolutionClassCeiling: ['C1', 'C2'] as const,
         requiredEvidenceClasses: promotionEvidenceClasses,
         experience: {
@@ -387,7 +414,7 @@ describe('mandate issuance reconciliation', () => {
       d: '',
       i: owner,
       ri: registry,
-      s: promotionMandateV3SchemaSaid,
+      s: schemaSaid,
       a: attributes,
     });
     const record = { sad: mandate, iss: { d: 'issuance' }, anc: { d: 'anchor' }, ancatc: [] };
@@ -407,6 +434,227 @@ describe('mandate issuance reconciliation', () => {
       'exact Promotion Mandate claims',
     );
   });
+
+  it('reconciles a fresh eight-run Task credential only against its exact new schema and claims', () => {
+    const fresh = {
+      ...input,
+      claims: {
+        ...input.claims,
+        budgets: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 8 },
+        experience: {
+          corpusSaid: `E${'q'.repeat(43)}`,
+          repositoryResourceSaid: `E${'s'.repeat(43)}`,
+          disclosure: 'AuthorizedAnalogy' as const,
+        },
+      },
+    };
+    const { notBefore, expiresAt, ...claims } = fresh.claims;
+    const attributes = saidify({
+      d: '',
+      i: holder,
+      dt: mandateProtocolDatetime(input.issuedAt),
+      ...claims,
+      notBefore,
+      expiresAt,
+    });
+    const mandate = saidify({ ...credential(), d: '', s: taskMandateV3SchemaSaid, a: attributes });
+    const record = { sad: mandate, iss: { d: 'issuance' }, anc: { d: 'anchor' }, ancatc: [] };
+    expect(reconcileMandateIssuanceEvidence([record], [], fresh)).toEqual({
+      kind: 'Materialized',
+      credentialSaid: mandate.d,
+    });
+    expect(reconcileMandateIssuanceEvidence([record], [], input)).toEqual({ kind: 'NotFound' });
+    expect(
+      reconcileMandateIssuanceEvidence([record], [], {
+        ...fresh,
+        claims: {
+          ...fresh.claims,
+          budgets: { ...fresh.claims.budgets, runsPerAdmittedUser: 6 },
+        },
+      }),
+    ).toEqual({ kind: 'NotFound' });
+    expect(
+      reconcileMandateIssuanceEvidence(
+        [{ ...record, sad: saidify({ ...mandate, d: '', s: taskMandateSchemaSaid }) }],
+        [],
+        fresh,
+      ),
+    ).toEqual({ kind: 'NotFound' });
+  });
+
+  it.each([
+    ['TaskMandate', 6, false, false, taskMandateSchema],
+    ['TaskMandate', 6, true, false, taskMandateV2Schema],
+    ['TaskMandate', 8, true, false, taskMandateV3Schema],
+    ['PromotionMandate', 6, false, false, promotionMandateSchema],
+    ['PromotionMandate', 6, true, false, promotionMandateV2Schema],
+    ['PromotionMandate', 8, true, false, promotionMandateV4Schema],
+    ['PromotionMandate', 6, true, true, promotionMandateV3Schema],
+    ['PromotionMandate', 8, true, true, promotionMandateV5Schema],
+  ] as const)(
+    'resolves and submits %s with %i runs (experience %s, exact M %s)',
+    async (kind, runs, experience, exact, expectedSchema) => {
+      const client = new SignifyClient('http://keria.invalid', '0123456789abcdefghijk', Tier.low);
+      const controller = controllerAid(owner);
+      const agent = agentAid(holder);
+      vi.spyOn(signifyController, 'connectSignifyController').mockResolvedValue({
+        client,
+        controllerAid: controller,
+        agentAid: agent,
+        connection: 'existing-controller-connected',
+      });
+      const available = new Set<string>();
+      const documents = [
+        taskMandateSchema,
+        taskMandateV2Schema,
+        taskMandateV3Schema,
+        promotionMandateSchema,
+        promotionMandateV2Schema,
+        promotionMandateV3Schema,
+        promotionMandateV4Schema,
+        promotionMandateV5Schema,
+      ];
+      const schemas = client.schemas();
+      vi.spyOn(client, 'schemas').mockReturnValue(schemas);
+      vi.spyOn(client, 'fetch').mockImplementation((path) => {
+        const said = path.slice('/schema/'.length);
+        const schema = documents.find((document) => document.$id === said);
+        if (!available.has(said) || schema === undefined)
+          return Promise.reject(new Error(`HTTP GET /schema/${said} - 404 missing`));
+        return Promise.resolve(Response.json(schema));
+      });
+      const oobis = client.oobis();
+      vi.spyOn(client, 'oobis').mockReturnValue(oobis);
+      const resolve = vi.spyOn(oobis, 'resolve').mockImplementation((url) => {
+        available.add(new URL(url).pathname.slice('/oobi/'.length));
+        return Promise.resolve({
+          name: 'oobi.fixture',
+          done: false as const,
+          metadata: { oobi: url },
+        });
+      });
+      const operations = client.operations();
+      vi.spyOn(client, 'operations').mockReturnValue(operations);
+      vi.spyOn(operations, 'get').mockResolvedValue({
+        name: 'oobi.fixture',
+        done: true,
+        response: {},
+      });
+      vi.spyOn(operations, 'wait').mockResolvedValue({
+        name: 'oobi.fixture',
+        done: true,
+        response: {},
+      });
+      vi.spyOn(operations, 'delete').mockResolvedValue(undefined);
+      const credentials = client.credentials();
+      vi.spyOn(client, 'credentials').mockReturnValue(credentials);
+      const issue = vi
+        .spyOn(credentials, 'issue')
+        .mockRejectedValue(new Error('fixture stops before issuance'));
+      const custody = await connectLocalMandateCustody({
+        adminUrl: 'http://keria.invalid',
+        bootUrl: 'http://keria.invalid',
+        bran: '0123456789abcdefghijk',
+        securityTier: 'low',
+        expectedControllerAid: controller,
+        expectedAgentAid: agent,
+        taskMandateSchemaOobi: taskMandateSchemaOobi(
+          `http://issuer.test/oobi/${taskMandateSchemaSaid}`,
+        ),
+        promotionMandateSchemaOobi: promotionMandateSchemaOobi(
+          `http://issuer.test/oobi/${promotionMandateSchemaSaid}`,
+        ),
+        operationTimeoutMs: 100,
+      });
+      const budgets = {
+        ...(experience ? taskEvaluationBudgetCeilings : taskBudgetCeilings),
+        runsPerAdmittedUser: runs,
+      };
+      const scope = {
+        corpusSaid: `E${'q'.repeat(43)}`,
+        repositoryResourceSaid: `E${'s'.repeat(43)}`,
+        disclosure: 'AuthorizedAnalogy' as const,
+      };
+      const promotionClaims = {
+        authority: 'ActivateEvaluatedSuccessor' as const,
+        taskId: input.claims.taskId,
+        taskRevisionSaid: input.claims.taskRevisionSaid,
+        harnessLineageId: input.claims.harnessLineageId,
+        capabilityCeiling: input.claims.allowedCapabilities,
+        budgetCeiling: budgets,
+        evolutionClassCeiling: input.claims.allowedEvolutionClasses,
+        requiredEvidenceClasses: promotionEvidenceClasses,
+        ...(experience ? { experience: scope } : {}),
+        notBefore: input.claims.notBefore,
+        expiresAt: input.claims.expiresAt,
+      };
+      const request: StableMandateIssuance =
+        kind === 'TaskMandate'
+          ? {
+              ...input,
+              claims: { ...input.claims, budgets, ...(experience ? { experience: scope } : {}) },
+            }
+          : {
+              ...input,
+              kind,
+              holderAid: governorAid(holder),
+              claims: exact
+                ? {
+                    ...promotionClaims,
+                    experience: scope,
+                    evaluationManifestSaid: `E${'m'.repeat(43)}`,
+                    requiredMetrics: promotionRequiredMetrics,
+                    requiredChecks: promotionRequiredChecks,
+                    riskLimit: promotionRiskLimit,
+                  }
+                : promotionClaims,
+            };
+      await expect(custody.submitIssuance(request)).rejects.toThrow(
+        'fixture stops before issuance',
+      );
+      expect(issue).toHaveBeenCalledTimes(1);
+      const issuance = issue.mock.calls[0]?.[1];
+      expect(issuance).toMatchObject({
+        s: expectedSchema.$id,
+        a: kind === 'TaskMandate' ? { budgets } : { budgetCeiling: budgets },
+      });
+      if (issuance === undefined) throw new Error('Missing fixture issuance arguments');
+      const mandate = saidify({
+        v: 'ACDC10JSON000000_',
+        d: '',
+        i: issuance.i,
+        ri: issuance.ri,
+        s: issuance.s,
+        a: saidify({ d: '', ...issuance.a }),
+      });
+      expect(
+        reconcileMandateIssuanceEvidence(
+          [{ sad: mandate, iss: { d: 'issuance' }, anc: { d: 'anchor' }, ancatc: [] }],
+          [],
+          request,
+        ),
+      ).toEqual({ kind: 'Materialized', credentialSaid: mandate.d });
+      expect(
+        reconcileMandateIssuanceEvidence(
+          [],
+          [{ name: 'credential.fixture', metadata: { ced: mandate } }],
+          request,
+        ),
+      ).toEqual({
+        kind: 'Submitted',
+        credentialSaid: mandate.d,
+        operationName: 'credential.fixture',
+      });
+      expect(resolve).toHaveBeenCalledWith(
+        `http://issuer.test/oobi/${expectedSchema.$id}`,
+        'devrandom-credential-schema',
+      );
+      const newSchemas = [taskMandateV3Schema, promotionMandateV4Schema, promotionMandateV5Schema];
+      for (const schema of newSchemas.filter((schema) => schema !== expectedSchema)) {
+        expect(available.has(schema.$id)).toBe(false);
+      }
+    },
+  );
 
   it('prefers exact materialized credential evidence over a still-listed operation', () => {
     const mandate = credential();

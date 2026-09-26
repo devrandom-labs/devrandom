@@ -15,8 +15,11 @@ import {
   promotionMandateSchemaSaid,
   promotionMandateV2SchemaSaid,
   promotionMandateV3SchemaSaid,
+  promotionMandateV4SchemaSaid,
+  promotionMandateV5SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
 } from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
@@ -210,7 +213,11 @@ export function inspectTaskMandateCredentialEvidence(
     return invalidMandateEvidence(`Task Mandate decoding failed: ${decoding.reason}`);
   }
   const { credential } = decoding;
-  if (credential.s !== taskMandateSchemaSaid && credential.s !== taskMandateV2SchemaSaid) {
+  if (
+    credential.s !== taskMandateSchemaSaid &&
+    credential.s !== taskMandateV2SchemaSaid &&
+    credential.s !== taskMandateV3SchemaSaid
+  ) {
     return invalidMandateEvidence('Task Mandate schema differs from the pinned schema');
   }
   return {
@@ -251,7 +258,9 @@ export function inspectPromotionMandateCredentialEvidence(
   if (
     credential.s !== promotionMandateSchemaSaid &&
     credential.s !== promotionMandateV2SchemaSaid &&
-    credential.s !== promotionMandateV3SchemaSaid
+    credential.s !== promotionMandateV3SchemaSaid &&
+    credential.s !== promotionMandateV4SchemaSaid &&
+    credential.s !== promotionMandateV5SchemaSaid
   ) {
     return invalidMandateEvidence('Promotion Mandate schema differs from the pinned schema');
   }
@@ -288,7 +297,8 @@ export function inspectExactPromotionMandateCredentialEvidence(
     return invalidMandateEvidence('exact Promotion Mandate v3 decoding failed');
   const inspection = inspectPromotionMandateCredentialEvidence(sources);
   if (
-    inspection.credential.schemaSaid !== promotionMandateV3SchemaSaid ||
+    (inspection.credential.schemaSaid !== promotionMandateV3SchemaSaid &&
+      inspection.credential.schemaSaid !== promotionMandateV5SchemaSaid) ||
     !('evaluationManifestSaid' in inspection) ||
     !('requiredMetrics' in inspection) ||
     !('requiredChecks' in inspection) ||
