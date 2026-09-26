@@ -1,14 +1,21 @@
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { taskBudgetCeilings } from '@devrandom/domain';
 import {
+  identifyHarnessCompletionCommand,
+  identifyHarnessInstruction,
+  prepareBaselineHarnessRevision,
   prepareEvaluationExecutionProfile,
   prepareEvaluationManifest,
   prepareEvidenceArtifact,
+  prepareSuccessorHarnessRevision,
   type EvaluationEvidenceEvent,
 } from '@devrandom/protocol';
 import { describe, expect, it } from 'vitest';
@@ -20,9 +27,15 @@ import {
   measureEvaluationSourceChanges,
 } from './contained-trial-execution.js';
 import { digestEvaluationRuntimeMounts } from './runtime-mount-digest.js';
+import { digestRunRuntimePrompt } from '../../run/run-execution-profile-custody.js';
+import { GitCandidateTreatmentCustody } from './git-candidate-treatment-custody.js';
 import { SourceCustody } from './source-custody.js';
 
 const said = (character: string): string => `E${character.repeat(43)}`;
+const exec = promisify(execFile);
+async function git(directory: string, ...arguments_: string[]): Promise<string> {
+  return (await exec('git', ['-C', directory, ...arguments_], { encoding: 'utf8' })).stdout.trim();
+}
 
 it('measures added, removed, and rewritten stopped source bytes before budget debit', () => {
   const bytes = (value: string): Uint8Array => Buffer.from(value);
@@ -67,12 +80,133 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
       'CommandTool',
       'CommandCompleted',
       'CommandUnknown',
+      'C1Verified',
+      'C2Blocked',
+      'C3Blocked',
     ] as const)(
       'mediates a provider-origin edit with %s parent usage and custody-backed E3 debits',
       async (usage) => {
         const image = process.env.DEVRANDOM_EVAL_IMAGE ?? '';
         const root = await mkdtemp(join(tmpdir(), 'devrandom-trial-integration-'));
         try {
+          const c1 = usage === 'C1Verified';
+          const baseSystemPrompt = 'Use the mediated tools.';
+          const taskPrompt = 'Change src/lib.rs to after.';
+          const taskId = randomUUID();
+          let h1:
+            | Extract<
+                ReturnType<typeof prepareBaselineHarnessRevision>,
+                { kind: 'Prepared' }
+              >['revision']
+            | undefined;
+          let candidateCommit = '';
+          let candidateTree = '';
+          let treatmentBytes = new Uint8Array();
+          const candidateRepository = join(root, 'candidate-repository');
+          if (c1) {
+            await git(root, 'init', candidateRepository);
+            await writeFile(join(candidateRepository, 'README.md'), 'H1 source\n');
+            await git(candidateRepository, 'add', 'README.md');
+            await git(
+              candidateRepository,
+              '-c',
+              'user.name=Fixture',
+              '-c',
+              'user.email=fixture@example.test',
+              'commit',
+              '-m',
+              'H1',
+            );
+            const parentCommit = await git(candidateRepository, 'rev-parse', 'HEAD');
+            const parentTree = await git(candidateRepository, 'rev-parse', 'HEAD^{tree}');
+            const instruction = identifyHarnessInstruction({
+              path: 'AGENTS.md',
+              content: '# H1\n',
+            });
+            const completion = identifyHarnessCompletionCommand(
+              {
+                id: 'public-test',
+                argv: ['just', 'test-public'],
+                timeoutSeconds: 120,
+                expected: { kind: 'exitCode', code: 0 },
+              },
+              '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-just/bin/just',
+            );
+            if (instruction.kind !== 'Identified' || completion.kind !== 'Identified')
+              throw new Error('H1 fixture');
+            const prepared = prepareBaselineHarnessRevision({
+              task: {
+                taskId,
+                revisionSaid: said('a'),
+                harnessLineageId: randomUUID(),
+                requestedCapabilities: ['ReadRepository'],
+              },
+              authority: {
+                personalAgentAid: said('c'),
+                taskMandateSaid: said('d'),
+                allowedCapabilities: ['ReadRepository'],
+              },
+              repository: {
+                objectFormat: 'sha1',
+                commit: parentCommit,
+                tree: parentTree,
+                instructionResources: [instruction.resource],
+              },
+              completionCommands: [completion.command],
+              toolCommands: [],
+              modelCompatibility: {
+                provider: 'concentrate',
+                model: 'deepinfra/gemma-4-e4b',
+                contextWindowTokens: 100000,
+                maximumOutputTokens: 128,
+                thinkingLevel: 'off',
+                credentialSource: 'TEST_API_KEY',
+                toolCalls: 'Supported',
+                usageAccounting: 'Required',
+              },
+              environmentCompatibility: {
+                operatingSystem: 'linux',
+                architecture: 'arm64',
+                nodeVersion: '24.20.0',
+                gitVersion: '2.51.0',
+                piSdkVersion: '0.87.1',
+                xstateVersion: '5.33.2',
+              },
+              capabilities: { available: ['ReadRepository'], unavailable: [] },
+              budgetCeilings: {
+                task: taskBudgetCeilings,
+                server: taskBudgetCeilings,
+                mandate: taskBudgetCeilings,
+              },
+            });
+            if (prepared.kind !== 'Prepared') throw new Error('H1 fixture rejected');
+            h1 = prepared.revision;
+            await mkdir(join(candidateRepository, '.devrandom/evolution'), { recursive: true });
+            treatmentBytes = Buffer.from(
+              JSON.stringify({
+                version: 1,
+                arm: 'C1',
+                instructionText: 'Use the reviewed C1 instruction.',
+              }),
+            );
+            await writeFile(
+              join(candidateRepository, '.devrandom/evolution/treatment.json'),
+              treatmentBytes,
+            );
+            await git(candidateRepository, 'add', '.devrandom/evolution/treatment.json');
+            await git(
+              candidateRepository,
+              '-c',
+              'user.name=Fixture',
+              '-c',
+              'user.email=fixture@example.test',
+              'commit',
+              '-m',
+              'C1',
+            );
+            candidateCommit = await git(candidateRepository, 'rev-parse', 'HEAD');
+            candidateTree = await git(candidateRepository, 'rev-parse', 'HEAD^{tree}');
+          }
           const workerMounts = [
             {
               hostPath: resolve('packages/runtime/dist'),
@@ -113,10 +247,12 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             imageDigest: image.slice(image.lastIndexOf('@') + 1),
             runtimeDigest,
             toolchainDigest: `sha256:${'2'.repeat(64)}`,
-            sourceGitCommit: '3'.repeat(40),
-            sourceGitTree: '4'.repeat(40),
+            sourceGitCommit: h1?.repository.commit ?? '3'.repeat(40),
+            sourceGitTree: h1?.repository.tree ?? '4'.repeat(40),
             h1InstructionSaid: said('i'),
-            h1RuntimePromptDigest: `sha256:${'5'.repeat(64)}`,
+            h1RuntimePromptDigest: c1
+              ? digestRunRuntimePrompt(baseSystemPrompt, taskPrompt)
+              : `sha256:${'5'.repeat(64)}`,
             effectiveLimitsReceiptSaid: said('l'),
             parentDeathCleanupReceiptSaid: said('p'),
             modelProvider: 'concentrate',
@@ -142,6 +278,24 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           });
           expect(profile.kind).toBe('Prepared');
           if (profile.kind !== 'Prepared') return;
+          const c1Artifact = c1
+            ? prepareEvidenceArtifact(treatmentBytes, 'application/json')
+            : undefined;
+          if (c1 && c1Artifact?.kind !== 'Prepared') throw new Error('C1 artifact fixture');
+          const c1Successor =
+            c1 && h1 !== undefined && c1Artifact?.kind === 'Prepared'
+              ? prepareSuccessorHarnessRevision({
+                  parentRevisionSaid: h1.d,
+                  arm: 'C1',
+                  h0Said: said('H'),
+                  taskRevisionSaid: h1.task.revisionSaid,
+                  sourceInventorySaid: said('m'),
+                  executionProfileSaid: profile.profile.d,
+                  configurationArtifactSaid: c1Artifact.artifact.d,
+                  treatment: { kind: 'Instruction' },
+                })
+              : undefined;
+          if (c1 && c1Successor?.kind !== 'Prepared') throw new Error('C1 successor fixture');
           const allowance = {
             providerRequests: 3,
             providerInputTokens: 3000,
@@ -156,7 +310,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           };
           const manifest = prepareEvaluationManifest({
             evaluationId: randomUUID(),
-            taskId: randomUUID(),
+            taskId,
             taskRevisionSaid: said('a'),
             originRunId: randomUUID(),
             ownerAid: said('b'),
@@ -165,7 +319,12 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             retainedCheckpointSaid: said('e'),
             retainedSealSaid: said('f'),
             policySaid: said('g'),
-            revisions: { H1: said('h'), C1: said('j'), C2: said('k'), C3: said('n') },
+            revisions: {
+              H1: h1?.d ?? said('h'),
+              C1: c1Successor?.kind === 'Prepared' ? c1Successor.revision.d : said('j'),
+              C2: said('k'),
+              C3: said('n'),
+            },
             executionProfileSaid: profile.profile.d,
             sourceInventorySaid: said('m'),
             hypothesisSaid: said('H'),
@@ -178,7 +337,17 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           });
           expect(manifest.kind).toBe('Prepared');
           if (manifest.kind !== 'Prepared') return;
-          const slot = { arm: 'H1' as const, repetition: 1 as const, attempt: 1 as const };
+          const slot = {
+            arm: c1
+              ? ('C1' as const)
+              : usage === 'C2Blocked'
+                ? ('C2' as const)
+                : usage === 'C3Blocked'
+                  ? ('C3' as const)
+                  : ('H1' as const),
+            repetition: 1 as const,
+            attempt: 1 as const,
+          };
           const binding = {
             kind: 'Evaluation' as const,
             taskId: manifest.manifest.taskId,
@@ -186,7 +355,10 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             originRunId: manifest.manifest.originRunId,
             personalAgentAid: manifest.manifest.personalAgentAid,
             taskMandateSaid: manifest.manifest.taskMandateSaid,
-            harnessRevisionSaid: manifest.manifest.revisions.H1,
+            harnessRevisionSaid:
+              slot.arm === 'H1'
+                ? manifest.manifest.revisions.H1
+                : manifest.manifest.revisions[slot.arm],
             evaluationId: manifest.manifest.evaluationId,
             evaluationLeaseId: randomUUID(),
             evidenceStreamId: randomUUID(),
@@ -210,8 +382,36 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             image,
             model,
             modelProfileSaid: said('q'),
-            systemPrompt: 'Use the mediated tools.',
-            prompt: 'Change src/lib.rs to after.',
+            systemPrompt: baseSystemPrompt,
+            prompt: taskPrompt,
+            ...(c1 &&
+            h1 !== undefined &&
+            c1Successor?.kind === 'Prepared' &&
+            c1Artifact?.kind === 'Prepared'
+              ? {
+                  c1Treatment: {
+                    reviewed: {
+                      h1,
+                      successorRevisionSaid: c1Successor.revision.d,
+                      binding: {
+                        parentRevisionSaid: h1.d,
+                        arm: 'C1' as const,
+                        h0Said: said('H'),
+                        taskRevisionSaid: h1.task.revisionSaid,
+                        sourceInventorySaid: said('m'),
+                        executionProfileSaid: profile.profile.d,
+                      },
+                      treatment: c1Successor.revision.treatment,
+                      configuration: c1Artifact.artifact,
+                    },
+                    successorBytes: Buffer.from(JSON.stringify(c1Successor.revision)),
+                    repositoryDirectory: candidateRepository,
+                    candidateCommit,
+                    candidateTree,
+                    custody: new GitCandidateTreatmentCustody(),
+                  },
+                }
+              : {}),
             enabledTools: ['write_file', 'run_tests'],
             maximumPrompts: 1,
             workerMounts,
@@ -370,12 +570,20 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             manifest: manifest.manifest,
             slot,
             cleanSourceSaid: clean.sourceSaid,
-            reviewedBehaviorSaid: manifest.manifest.revisions.H1,
+            reviewedBehaviorSaid:
+              slot.arm === 'H1'
+                ? manifest.manifest.revisions.H1
+                : manifest.manifest.revisions[slot.arm],
             modelProfileSaid: said('q'),
             containerProfileSaid: profile.profile.d,
             signal: new AbortController().signal,
           });
-          if (usage === 'UnverifiedCursor' || usage === 'LegacyCursor') {
+          if (
+            usage === 'UnverifiedCursor' ||
+            usage === 'LegacyCursor' ||
+            usage === 'C2Blocked' ||
+            usage === 'C3Blocked'
+          ) {
             expect(result).toMatchObject({ kind: 'Invalid', reason: 'ProfileDrift' });
             expect(events).toHaveLength(0);
             return;
@@ -485,6 +693,23 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               kind: 'EvaluationWallElapsed',
             }),
           );
+          if (c1 && c1Artifact?.kind === 'Prepared') {
+            expect(elapsed).toContainEqual(
+              expect.objectContaining({
+                kind: 'C1TrialBehaviorBound',
+                treatmentArtifactSaid: c1Artifact.artifact.d,
+                successorRevisionSaid: manifest.manifest.revisions.C1,
+              }),
+            );
+            expect(elapsed).toContainEqual(
+              expect.objectContaining({
+                kind: 'C1TrialWorkerStart',
+                treatmentArtifactSaid: c1Artifact.artifact.d,
+                successorRevisionSaid: manifest.manifest.revisions.C1,
+              }),
+            );
+            expect(await custody.open(clean.sourceSaid)).toBeDefined();
+          }
           expect(events.at(-1)?.detail).toEqual({ kind: 'TrialStopped', reason: 'Completed' });
           expect(rawSaids).toContain(result.cleanupReceiptSaid);
           expect(rawSaids).toContain(result.capturedSourceSaid);

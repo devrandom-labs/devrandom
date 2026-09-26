@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   decodeEvaluationExecutionProfile,
   identifyHarnessInstruction,
@@ -7,6 +5,9 @@ import {
   type EvaluationExecutionProfile,
   type EvidenceArtifactMediaType,
 } from '@devrandom/protocol';
+
+import { digestRunRuntimePrompt } from './runtime-prompt-digest.js';
+export { digestRunRuntimePrompt } from './runtime-prompt-digest.js';
 
 type HarnessInstructionResource = Extract<
   ReturnType<typeof identifyHarnessInstruction>,
@@ -71,17 +72,6 @@ export function runInstructionPrompt(instructions: readonly MaterializedInstruct
   return instructions
     .map(({ path, content }) => `<instruction path="${path}">\n${content}\n</instruction>`)
     .join('\n');
-}
-
-/** Length framing binds the exact UTF-8 system and task prompt bytes without ambiguity. */
-export function digestRunRuntimePrompt(systemPrompt: string, taskPrompt: string): string {
-  const hash = createHash('sha256');
-  for (const value of [systemPrompt, taskPrompt]) {
-    const bytes = Buffer.from(value, 'utf8');
-    hash.update(`${String(bytes.length)}:`);
-    hash.update(bytes);
-  }
-  return `sha256:${hash.digest('hex')}`;
 }
 
 export function identifyRunH1InstructionInventory(

@@ -28,6 +28,10 @@ import { DockerEvaluationCompartment, type EvaluationMount } from './docker-comp
 import { FramedRelay } from './framed-relay.js';
 import { digestEvaluationRuntimeMounts } from './runtime-mount-digest.js';
 import type { SourceCustody } from './source-custody.js';
+import { bindC1TrialBehavior } from '../application/bind-c1-trial-behavior.js';
+import type { CandidateTreatmentCustody } from '../application/candidate-treatment-custody.js';
+import type { ExecutableSuccessorDescriptor } from '../../harness/application/materialize-successor.js';
+import { digestRunRuntimePrompt } from '../../run/run-execution-profile-custody.js';
 
 interface EvidenceCursor {
   readonly nextSequence: number;
@@ -53,6 +57,15 @@ interface ContainedTrialConfiguration {
   readonly modelProfileSaid: string;
   readonly systemPrompt: string;
   readonly prompt: string;
+  /** Present only for a parent-reviewed C1 trial; Task source remains separate. */
+  readonly c1Treatment?: {
+    readonly reviewed: ExecutableSuccessorDescriptor;
+    readonly successorBytes: Uint8Array;
+    readonly repositoryDirectory: string;
+    readonly candidateCommit: string;
+    readonly candidateTree: string;
+    readonly custody: CandidateTreatmentCustody;
+  };
   readonly enabledTools: readonly ToolName[];
   readonly maximumPrompts: number;
   readonly workerMounts: readonly EvaluationMount[];
@@ -289,6 +302,9 @@ export class DockerContainedTrialExecution implements TrialExecution {
       config.model.provider !== config.profile.modelProvider ||
       config.model.id !== config.profile.modelId ||
       config.workerMounts.some((mount) => mount.writable) ||
+      (input.slot.arm === 'C1') !== (config.c1Treatment !== undefined) ||
+      input.slot.arm === 'C2' ||
+      input.slot.arm === 'C3' ||
       !config.workerMounts.some((mount) =>
         config.workerProgram.startsWith(`${mount.containerPath}/`),
       ) ||
@@ -299,6 +315,39 @@ export class DockerContainedTrialExecution implements TrialExecution {
     const trialStarted = performance.now();
     const clean = await config.source.open(input.cleanSourceSaid);
     if (clean === undefined) return { kind: 'Invalid', reason: 'CaptureFailed' };
+    let c1Binding: Extract<ReturnType<typeof bindC1TrialBehavior>, { kind: 'Bound' }> | undefined;
+    let c1Bytes: Uint8Array | undefined;
+    if (input.slot.arm === 'C1') {
+      const treatment = config.c1Treatment;
+      if (treatment === undefined) return { kind: 'Invalid', reason: 'ProfileDrift' };
+      const opened = await treatment.custody.read({
+        repositoryDirectory: treatment.repositoryDirectory,
+        candidateCommit: treatment.candidateCommit,
+        candidateTree: treatment.candidateTree,
+        parentCommit: treatment.reviewed.h1.repository.commit,
+        parentTree: treatment.reviewed.h1.repository.tree,
+        arm: 'C1',
+        signal: input.signal,
+      });
+      if (opened.kind !== 'Read') return { kind: 'Invalid', reason: 'ProfileDrift' };
+      c1Bytes = opened.bytes;
+      const binding = bindC1TrialBehavior({
+        reviewed: treatment.reviewed,
+        treatmentBytes: opened.bytes,
+        successorBytes: treatment.successorBytes,
+        manifest: input.manifest,
+        profile: config.profile,
+        baseSystemPrompt: config.systemPrompt,
+        taskPrompt: config.prompt,
+        candidateCommit: treatment.candidateCommit,
+        candidateTree: treatment.candidateTree,
+      });
+      if (binding.kind !== 'Bound') return { kind: 'Invalid', reason: 'ProfileDrift' };
+      c1Binding = binding;
+    }
+    const effectiveSystemPrompt = c1Binding?.systemPrompt ?? config.systemPrompt;
+    const expectedPromptDigest =
+      c1Binding?.promptDigest ?? digestRunRuntimePrompt(effectiveSystemPrompt, config.prompt);
     const staging = await mkdtemp(join(tmpdir(), 'devrandom-trial-'));
     const sourcePath = join(staging, 'source');
     let compartment: DockerEvaluationCompartment | undefined;
@@ -395,6 +444,18 @@ export class DockerContainedTrialExecution implements TrialExecution {
           sourceSaid: input.cleanSourceSaid,
           rawArtifactSaid: cleanManifestSaid,
         });
+        if (c1Binding !== undefined && c1Bytes !== undefined) {
+          const treatmentSaid = await storeRawBytes(c1Bytes);
+          if (treatmentSaid !== c1Binding.treatmentArtifactSaid)
+            throw new Error('C1 treatment custody identity changed.');
+          await append({
+            kind: 'ArtifactCaptured',
+            artifactSaid: treatmentSaid,
+            custody: 'Public',
+          });
+          const bindingSaid = await storeRawBytes(c1Binding.receiptBytes);
+          await append({ kind: 'ArtifactCaptured', artifactSaid: bindingSaid, custody: 'Public' });
+        }
         await mkdir(sourcePath, { mode: 0o700 });
         for (const file of clean.files) {
           const path = resolve(sourcePath, file.path);
@@ -474,7 +535,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
           modelProfileSaid: config.modelProfileSaid,
           model: { ...config.model, maxTokens: config.profile.maximumOutputTokens },
           thinkingLevel: config.profile.thinkingLevel,
-          systemPrompt: config.systemPrompt,
+          systemPrompt: effectiveSystemPrompt,
           prompt: config.prompt,
           maximumPrompts: config.maximumPrompts,
           enabledTools: config.enabledTools,
@@ -483,9 +544,21 @@ export class DockerContainedTrialExecution implements TrialExecution {
         if (
           ready.kind !== 'Ready' ||
           !isRecord(ready.payload) ||
-          ready.payload.piSessionId !== sessionId
+          ready.payload.piSessionId !== sessionId ||
+          ready.payload.promptDigest !== expectedPromptDigest
         )
           throw new Error('Evaluation worker readiness invalid.');
+        if (c1Binding !== undefined) {
+          const startSaid = await raw({
+            version: 1,
+            kind: 'C1TrialWorkerStart',
+            successorRevisionSaid: input.reviewedBehaviorSaid,
+            treatmentArtifactSaid: c1Binding.treatmentArtifactSaid,
+            expectedPromptDigest,
+            workerPromptDigest: ready.payload.promptDigest,
+          });
+          await append({ kind: 'ArtifactCaptured', artifactSaid: startSaid, custody: 'Public' });
+        }
         for (;;) {
           if (interrupted(input.signal)) throw new Error('Evaluation trial interrupted.');
           const frame = await relay.receive();

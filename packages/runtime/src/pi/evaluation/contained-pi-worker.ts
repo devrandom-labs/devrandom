@@ -28,6 +28,7 @@ import type {
   ToolGatewayProposal,
 } from '../../tool-gateway/tool-gateway.js';
 import { FramedRelay } from '../../evaluation/infrastructure/framed-relay.js';
+import { digestRunRuntimePrompt } from '../../run/runtime-prompt-digest.js';
 
 interface WorkerStart {
   readonly piSessionId: string;
@@ -382,7 +383,10 @@ export async function runContainedPiWorker(relay: FramedRelay): Promise<void> {
       proposalIndex = 0;
     }
   });
-  await relay.send('Ready', { piSessionId: start.piSessionId });
+  await relay.send('Ready', {
+    piSessionId: start.piSessionId,
+    promptDigest: digestRunRuntimePrompt(start.systemPrompt, start.prompt),
+  });
   try {
     for (
       let promptIndex = 0;
