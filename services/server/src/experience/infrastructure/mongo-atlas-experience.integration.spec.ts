@@ -269,6 +269,11 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
               scopes: { inspect: () => Promise.resolve({ kind: 'Authorized' as const, scope }) },
               experience,
             }),
+          readReceipt: (request) =>
+            readExperienceQueryReceipt(request, {
+              scopes: { inspect: () => Promise.resolve({ kind: 'Authorized' as const, scope }) },
+              receipts: queryReceipts,
+            }),
         },
         now: () => new Date().toISOString(),
         newCorrelationId: randomUUID,
@@ -335,6 +340,17 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
       });
       if (receiptRead.kind !== 'Read') throw new Error('Exact receipt read denied');
       expect(receiptRead.bytes).toEqual(Uint8Array.from(receipt.bytes.buffer));
+      const receiptUrl = `${address}/api/experience/query-receipts/${body.queryReceiptSaid}?taskId=${taskId}&sourceInventorySaid=${inventorySaid}&offset=0&maximumBytes=32768`;
+      const fetchReceipt = () =>
+        fetch(receiptUrl, { headers: { authorization: `Bearer ${'a'.repeat(43)}` } });
+      const exactHttp = await fetchReceipt();
+      expect(exactHttp.status).toBe(200);
+      expect(await exactHttp.json()).toMatchObject({
+        version: 1,
+        kind: 'Read',
+        artifact: receipt.artifact,
+        bytesBase64Url: Buffer.from(receipt.bytes.buffer).toString('base64url'),
+      });
       await expect(
         reading.read({
           ownerAid,
@@ -355,6 +371,9 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
       const afterDeletion = await fetchQuery();
       expect(afterDeletion.status).toBe(403);
       expect(await afterDeletion.json()).toMatchObject({ code: 'ExperienceDenied' });
+      const deniedReceipt = await fetchReceipt();
+      expect(deniedReceipt.status).toBe(403);
+      expect(await deniedReceipt.json()).toMatchObject({ code: 'ExperienceDenied' });
       await expect(
         readExperienceQueryReceipt(receiptQuery, {
           scopes: { inspect: () => Promise.resolve({ kind: 'Authorized' as const, scope }) },

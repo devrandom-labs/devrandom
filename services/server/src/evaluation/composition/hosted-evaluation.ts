@@ -11,6 +11,10 @@ import {
   retrieveExperience,
   type AnalogousExperience,
 } from '../../experience/application/retrieve-experience.js';
+import {
+  readExperienceQueryReceipt,
+  type ExperienceQueryReceiptReading,
+} from '../../experience/application/read-query-receipt.js';
 import type { ExperienceRoutesConfiguration } from '../../experience/route/experience-routes.js';
 import type {
   CurrentTaskMandateAuthorization,
@@ -51,6 +55,7 @@ export function composeHostedEvaluation(input: {
     authorize(input: CurrentTaskMandateInput): Promise<CurrentTaskMandateAuthorization>;
   };
   readonly experience?: AnalogousExperience;
+  readonly experienceReceipts?: ExperienceQueryReceiptReading;
 }): HostedEvaluationComposition {
   const access = workAccessHostedEvaluationAuthorizer(input.attempts);
   const sources = new CurrentEvaluationSourceScopes({
@@ -176,6 +181,13 @@ export function composeHostedEvaluation(input: {
             : retrieveExperience(request, {
                 scopes: { inspect: (query) => sources.inspectInventory(query) },
                 experience: input.experience,
+              }),
+        readReceipt: (request) =>
+          input.experienceReceipts === undefined
+            ? Promise.resolve({ kind: 'Unavailable' as const })
+            : readExperienceQueryReceipt(request, {
+                scopes: { inspect: (query) => sources.inspectInventory(query) },
+                receipts: input.experienceReceipts,
               }),
       },
       now,

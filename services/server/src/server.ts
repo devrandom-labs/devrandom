@@ -198,7 +198,10 @@ function unavailableEvidenceReadRoutes(): EvidenceReadRoutesConfiguration {
 function unavailableExperienceRoutes(): ExperienceRoutesConfiguration {
   return {
     access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
-    conversation: { retrieve: () => Promise.resolve({ kind: 'Unavailable' }) },
+    conversation: {
+      retrieve: () => Promise.resolve({ kind: 'Unavailable' }),
+      readReceipt: () => Promise.resolve({ kind: 'Unavailable' }),
+    },
     now: () => new Date().toISOString(),
     newCorrelationId: randomUUID,
   };

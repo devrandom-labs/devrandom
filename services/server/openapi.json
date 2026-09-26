@@ -40520,6 +40520,244 @@
         }
       }
     },
+    "/api/experience/query-receipts/{receiptSaid}": {
+      "get": {
+        "operationId": "readExactExperienceQueryReceipt",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "in": "query",
+            "name": "taskId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "in": "query",
+            "name": "sourceInventorySaid",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,5})$"
+            },
+            "in": "query",
+            "name": "offset",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,4}$"
+            },
+            "in": "query",
+            "name": "maximumBytes",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "in": "path",
+            "name": "receiptSaid",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer [A-Za-z0-9_-]{43}$"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "version",
+                    "kind",
+                    "artifact",
+                    "totalBytes",
+                    "offset",
+                    "bytesBase64Url"
+                  ],
+                  "properties": {
+                    "version": {
+                      "type": "number",
+                      "const": 1
+                    },
+                    "kind": {
+                      "type": "string",
+                      "const": "Read"
+                    },
+                    "artifact": {
+                      "type": "object",
+                      "required": ["version", "d", "mediaType", "byteLength", "contentDigest"],
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "d": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "mediaType": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "application/octet-stream"
+                            },
+                            {
+                              "type": "string",
+                              "const": "application/json"
+                            },
+                            {
+                              "type": "string",
+                              "const": "text/plain; charset=utf-8"
+                            },
+                            {
+                              "type": "string",
+                              "const": "text/x-diff; charset=utf-8"
+                            }
+                          ]
+                        },
+                        "byteLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 524288
+                        },
+                        "contentDigest": {
+                          "type": "string",
+                          "pattern": "^sha256:[a-f0-9]{64}$"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "totalBytes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 32768
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 32768
+                    },
+                    "bytesBase64Url": {
+                      "type": "string",
+                      "maxLength": 43691,
+                      "pattern": "^[A-Za-z0-9_-]*$"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/registrations": {
       "post": {
         "operationId": "createRegistration",

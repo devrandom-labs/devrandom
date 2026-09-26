@@ -1,6 +1,13 @@
+import { Buffer } from 'node:buffer';
+
 import { taskBudgetCeilings } from '@devrandom/domain';
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import {
+  decodeExperienceQueryReceiptReadQuery,
+  decodeExperienceQueryReceiptReadResponse,
+  experienceQueryReceiptReadParametersSchema,
+  experienceQueryReceiptReadQuerySchema,
+  experienceQueryReceiptReadResponseSchema,
   experienceQueryReceiptSchema,
   experienceQuerySchema,
   workAccessAuthorizationHeadersSchema,
@@ -12,6 +19,7 @@ import type {
   ExperienceQuery,
   ExperienceRetrievalOutcome,
 } from '../application/retrieve-experience.js';
+import type { ExperienceQueryReceiptReadOutcome } from '../application/read-query-receipt.js';
 
 const problem = Type.Object(
   {
@@ -40,6 +48,14 @@ export interface ExperienceRoutesConfiguration {
       readonly ownerAid: string;
       readonly query: ExperienceQuery;
     }): Promise<ExperienceRetrievalOutcome>;
+    readReceipt(input: {
+      readonly ownerAid: string;
+      readonly taskId: string;
+      readonly sourceInventorySaid: string;
+      readonly receiptSaid: string;
+      readonly offset: number;
+      readonly maximumBytes: number;
+    }): Promise<ExperienceQueryReceiptReadOutcome>;
   };
   now(): string;
   newCorrelationId(): string;
@@ -127,6 +143,73 @@ export function experienceRoutes(
               ? 422
               : 403;
         const code = `Experience${outcome.kind}`;
+        return reply
+          .code(status)
+          .type('application/problem+json')
+          .header('cache-control', 'no-store')
+          .send({
+            type: `https://devrandom.example/problems/${code.toLowerCase()}`,
+            title: code,
+            status,
+            code,
+            correlationId: configuration.newCorrelationId(),
+          });
+      },
+    );
+    server.get(
+      '/api/experience/query-receipts/:receiptSaid',
+      {
+        schema: {
+          operationId: 'readExactExperienceQueryReceipt',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: experienceQueryReceiptReadParametersSchema,
+          querystring: experienceQueryReceiptReadQuerySchema,
+          response: {
+            200: experienceQueryReceiptReadResponseSchema,
+            400: problem,
+            403: problem,
+            503: problem,
+          },
+        },
+      },
+      async (request, reply) => {
+        const decoded = decodeExperienceQueryReceiptReadQuery(request.query);
+        if (decoded.kind !== 'Accepted') {
+          return reply.code(400).type('application/problem+json').send({
+            type: 'https://devrandom.example/problems/experiencerequestinvalid',
+            title: 'ExperienceRequestInvalid',
+            status: 400,
+            code: 'ExperienceRequestInvalid',
+            correlationId: configuration.newCorrelationId(),
+          });
+        }
+        const access = await configuration.access.authorize({
+          bearerSecret: request.headers.authorization.slice('Bearer '.length),
+          scope: 'experience:retrieve',
+          observedAt: configuration.now(),
+        });
+        const outcome =
+          access.kind === 'Authorized'
+            ? await configuration.conversation.readReceipt({
+                ownerAid: access.ownerAid,
+                receiptSaid: request.params.receiptSaid,
+                ...decoded.query,
+              })
+            : ({ kind: access.kind } as const);
+        if (outcome.kind === 'Read') {
+          const envelope = {
+            version: 1 as const,
+            kind: 'Read' as const,
+            artifact: outcome.artifact,
+            totalBytes: outcome.totalBytes,
+            offset: outcome.offset,
+            bytesBase64Url: Buffer.from(outcome.bytes).toString('base64url'),
+          };
+          if (decodeExperienceQueryReceiptReadResponse(envelope).kind === 'Accepted')
+            return reply.code(200).header('cache-control', 'no-store').send(envelope);
+        }
+        const status = outcome.kind === 'Unavailable' || outcome.kind === 'Read' ? 503 : 403;
+        const code = status === 503 ? 'ExperienceUnavailable' : 'ExperienceDenied';
         return reply
           .code(status)
           .type('application/problem+json')

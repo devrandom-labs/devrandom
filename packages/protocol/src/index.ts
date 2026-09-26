@@ -9,6 +9,7 @@ export * from './evaluation/protected-artifact.js';
 export * from './evaluation/http.js';
 export * from './evaluation/execution-profile.js';
 export * from './evaluation/execution-binding.js';
+export * from './experience/query-receipt-http.js';
 export * from './harness/evaluation-binding.js';
 export * from './credential.js';
 export * from './evidence/evidence-artifact.js';
