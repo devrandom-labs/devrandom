@@ -119,7 +119,20 @@ describe('server-owned Atlas ENN boundary', () => {
                     type: 'vectorSearch',
                     status: 'READY',
                     queryable: true,
+                    latestDefinitionVersion: { version: 1 },
                     latestDefinition: experienceIndexDefinition(profile.dimensions),
+                    statusDetail: [
+                      {
+                        status: 'READY',
+                        queryable: true,
+                        mainIndex: {
+                          status: 'READY',
+                          queryable: true,
+                          definitionVersion: { version: 1 },
+                          definition: experienceIndexDefinition(profile.dimensions),
+                        },
+                      },
+                    ],
                   },
                 ]),
             }),

@@ -55,7 +55,7 @@ interface ExperienceEpisodeDocument {
   readonly ownerAid: string;
   readonly repositoryResourceSaid: string;
   readonly corpusSaid: string;
-  readonly disclosure: 'AuthorizedAnalogy';
+  readonly disclosure: string;
   readonly episodeSaid: string;
   readonly rawEvidenceSaid: string;
   readonly sourceInventorySaid: string;
@@ -71,6 +71,18 @@ interface SearchIndexStatus {
   readonly status?: unknown;
   readonly queryable?: unknown;
   readonly latestDefinition?: unknown;
+  readonly latestDefinitionVersion?: { readonly version?: unknown };
+  readonly statusDetail?: readonly {
+    readonly status?: unknown;
+    readonly queryable?: unknown;
+    readonly mainIndex?: {
+      readonly status?: unknown;
+      readonly queryable?: unknown;
+      readonly definitionVersion?: { readonly version?: unknown };
+      readonly definition?: unknown;
+    };
+    readonly stagedIndex?: unknown;
+  }[];
 }
 
 interface VectorMatch {
@@ -196,12 +208,32 @@ export class MongoAtlasExperience implements AnalogousExperience {
   }
 
   #indexReady(index: SearchIndexStatus): boolean {
+    const definition = experienceIndexDefinition(this.#profile.dimensions);
+    const version = index.latestDefinitionVersion?.version;
+    const hostDetails = Array.isArray(index.statusDetail)
+      ? (index.statusDetail as NonNullable<SearchIndexStatus['statusDetail']>)
+      : undefined;
     return (
       index.name === this.#profile.indexName &&
       index.type === 'vectorSearch' &&
       index.status === 'READY' &&
       index.queryable === true &&
-      isDeepStrictEqual(index.latestDefinition, experienceIndexDefinition(this.#profile.dimensions))
+      isDeepStrictEqual(index.latestDefinition, definition) &&
+      Number.isSafeInteger(version) &&
+      typeof version === 'number' &&
+      version >= 0 &&
+      hostDetails !== undefined &&
+      hostDetails.length > 0 &&
+      hostDetails.every(
+        (host) =>
+          host.status === 'READY' &&
+          host.queryable === true &&
+          host.stagedIndex === undefined &&
+          host.mainIndex?.status === 'READY' &&
+          host.mainIndex.queryable === true &&
+          host.mainIndex.definitionVersion?.version === version &&
+          isDeepStrictEqual(host.mainIndex.definition, definition),
+      )
     );
   }
 
@@ -254,7 +286,12 @@ export class MongoAtlasExperience implements AnalogousExperience {
         maximumBytes: 32 * 1024,
       },
     });
-    if (raw.kind !== 'Read' || raw.totalBytes !== raw.bytes.byteLength) return 'Denied';
+    if (
+      raw.kind !== 'Read' ||
+      raw.sourceSaid !== source.episodeSaid ||
+      raw.totalBytes !== raw.bytes.byteLength
+    )
+      return 'Denied';
     let text: string;
     try {
       text = new TextDecoder('utf-8', { fatal: true }).decode(raw.bytes).normalize('NFC');
@@ -294,12 +331,15 @@ export class MongoAtlasExperience implements AnalogousExperience {
       const previous = await this.#episodes.findOne({ _id: document._id });
       if (previous !== null)
         return previous.ownerAid === ownerAid &&
+          previous.episodeSaid === source.episodeSaid &&
           previous.rawEvidenceSaid === source.rawEvidenceSaid &&
           previous.repositoryResourceSaid === source.repositoryResourceSaid &&
           previous.corpusSaid === source.corpusSaid &&
+          previous.disclosure === 'AuthorizedAnalogy' &&
           previous.sourceInventorySaid === inventory.d &&
           previous.embeddingModelId === this.#profile.modelId &&
-          previous.embeddingModelVersion === this.#profile.modelVersion
+          previous.embeddingModelVersion === this.#profile.modelVersion &&
+          vectorValid(previous.embedding, this.#profile.dimensions)
           ? 'AlreadyAdmitted'
           : 'Denied';
       await this.#episodes.insertOne(document);
