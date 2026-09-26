@@ -84,12 +84,19 @@ describe('Signify local mandate authority', () => {
     const connectMandates = vi.fn();
     const connectRunAdmission = vi.fn();
     const connectEvidenceSeal = vi.fn();
+    const connectPromotion = vi.fn();
     const authority = new SignifyLocalMandateAuthority(
       identityConfiguration,
       mandateConfiguration,
       { readCustody: () => Promise.resolve(undefined) },
       { read: () => Promise.resolve(undefined), commit: vi.fn() },
-      { connectPrincipals, connectMandates, connectRunAdmission, connectEvidenceSeal },
+      {
+        connectPrincipals,
+        connectMandates,
+        connectRunAdmission,
+        connectEvidenceSeal,
+        connectPromotion,
+      },
     );
 
     await expect(authority.establish(admittedUser())).resolves.toEqual({
@@ -99,5 +106,6 @@ describe('Signify local mandate authority', () => {
     expect(connectMandates).not.toHaveBeenCalled();
     expect(connectRunAdmission).not.toHaveBeenCalled();
     expect(connectEvidenceSeal).not.toHaveBeenCalled();
+    expect(connectPromotion).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import type {
   IssuerAid,
   LocalEvidenceSealExchange,
   LocalMandateCustody,
+  LocalPromotionExchanges,
   LocalRunAdmissionExchange,
 } from '@devrandom/identity';
 
@@ -33,6 +34,7 @@ export type CurrentLocalMandateAuthority =
       readonly custody: LocalMandateCustody;
       readonly runAdmissionExchange: LocalRunAdmissionExchange;
       readonly evidenceSealExchange: LocalEvidenceSealExchange;
+      readonly promotionExchanges: LocalPromotionExchanges;
     }
   | { readonly kind: 'CustodyUnavailable' }
   | {

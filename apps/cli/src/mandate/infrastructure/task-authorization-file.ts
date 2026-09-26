@@ -16,10 +16,12 @@ import Value from 'typebox/value';
 
 import {
   advanceTaskAuthorization,
+  beginExactPromotionAuthorization,
   beginTaskAuthorization,
   type TaskAuthorization,
   type TaskAuthorizationAdvancement,
   type TaskAuthorizationBinding,
+  type ReadyTaskAuthorization,
 } from '../domain/task-authorization.js';
 
 const uuidV4Schema = Type.String({
@@ -261,6 +263,7 @@ const taskAuthorizationSchema = Type.Object(
     version: Type.Literal(1),
     revision: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
     binding: bindingSchema,
+    exactPromotionManifestSaid: Type.Optional(saidSchema),
     stage: stageSchema,
   },
   { additionalProperties: false },
@@ -286,9 +289,11 @@ export class TaskAuthorizationFileFailure extends Error {
 
 export class TaskAuthorizationFile {
   readonly #directory: string;
+  readonly #initialReadyAuthorization: ReadyTaskAuthorization | undefined;
 
-  constructor(directory: string) {
+  constructor(directory: string, initialReadyAuthorization?: ReadyTaskAuthorization) {
     this.#directory = directory;
+    this.#initialReadyAuthorization = initialReadyAuthorization;
   }
 
   async read(taskId: string): Promise<TaskAuthorization | undefined> {
@@ -362,7 +367,7 @@ export class TaskAuthorizationFile {
         throw new TaskAuthorizationFileFailure({ kind: 'TaskAuthorizationConflict' });
       }
       if (current === undefined) {
-        if (!isInitialAuthorization(authorization)) {
+        if (!isInitialAuthorization(authorization, this.#initialReadyAuthorization)) {
           throw new TaskAuthorizationFileFailure({ kind: 'TaskAuthorizationTransitionConflict' });
         }
       } else {
@@ -440,6 +445,9 @@ function decodeTaskAuthorization(input: unknown): TaskAuthorization | undefined 
     version: 1,
     revision: input.revision,
     binding: decodeBinding(input.binding),
+    ...(input.exactPromotionManifestSaid === undefined
+      ? {}
+      : { exactPromotionManifestSaid: input.exactPromotionManifestSaid }),
     stage: input.stage,
   };
 }
@@ -555,9 +563,27 @@ function distinctPrincipals(binding: Type.Static<typeof bindingSchema>): boolean
   return new Set([binding.ownerAid, binding.personalAgentAid, binding.governorAid]).size === 3;
 }
 
-function isInitialAuthorization(authorization: TaskAuthorization): boolean {
+function isInitialAuthorization(
+  authorization: TaskAuthorization,
+  initialReadyAuthorization?: ReadyTaskAuthorization,
+): boolean {
+  if (
+    initialReadyAuthorization !== undefined &&
+    authorization.revision === 0 &&
+    authorization.exactPromotionManifestSaid !== undefined &&
+    authorization.stage.kind === 'PromotionMandate' &&
+    authorization.stage.progress.kind === 'IssuancePrepared'
+  ) {
+    const begun = beginExactPromotionAuthorization(
+      initialReadyAuthorization,
+      authorization.exactPromotionManifestSaid,
+      authorization.stage.progress.issuedAt,
+    );
+    return begun.kind === 'Begun' && isDeepStrictEqual(begun.authorization, authorization);
+  }
   if (
     authorization.revision !== 0 ||
+    authorization.exactPromotionManifestSaid !== undefined ||
     authorization.stage.kind !== 'TaskMandate' ||
     authorization.stage.progress.kind !== 'IssuancePrepared'
   ) {

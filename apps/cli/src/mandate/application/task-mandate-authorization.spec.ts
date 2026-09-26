@@ -354,7 +354,7 @@ describe('Task mandate authorization', () => {
         ...exactInput,
         exactPromotionManifestSaid: 'EDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
       }),
-    ).resolves.toMatchObject({ kind: 'MandateInvalid' });
+    ).resolves.toMatchObject({ kind: 'BindingRejected' });
   });
   it('checkpoints every stable protocol identity and resumes without duplicate authority', async () => {
     const records = new MemoryTaskAuthorizationRecords();

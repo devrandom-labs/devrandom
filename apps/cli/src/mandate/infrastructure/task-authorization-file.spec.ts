@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   advanceTaskAuthorization,
+  beginExactPromotionAuthorization,
   beginTaskAuthorization,
   type TaskAuthorization,
   type TaskAuthorizationAdvancement,
@@ -192,6 +193,27 @@ describe('task authorization file', () => {
     await expect(new TaskAuthorizationFile(directory).read(binding.taskId)).resolves.toEqual(
       authorization,
     );
+    const manifestSaid = 'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const exactDirectory = join(directory, 'exact-promotion', manifestSaid);
+    const ready = { ...authorization, stage: authorization.stage };
+    const exactBeginning = beginExactPromotionAuthorization(
+      ready,
+      manifestSaid,
+      Date.parse('2026-09-24T12:06:00.000Z'),
+    );
+    if (exactBeginning.kind !== 'Begun') throw new Error(exactBeginning.reason);
+    const exactFile = new TaskAuthorizationFile(exactDirectory, ready);
+    await exactFile.commit(undefined, exactBeginning.authorization);
+    await expect(new TaskAuthorizationFile(exactDirectory).read(binding.taskId)).resolves.toEqual(
+      exactBeginning.authorization,
+    );
+    expect((await lstat(exactDirectory)).mode & 0o777).toBe(0o700);
+    await expect(
+      new TaskAuthorizationFile(join(directory, 'unbound-exact')).commit(
+        undefined,
+        exactBeginning.authorization,
+      ),
+    ).rejects.toMatchObject({ detail: { kind: 'TaskAuthorizationTransitionConflict' } });
   });
 });
 

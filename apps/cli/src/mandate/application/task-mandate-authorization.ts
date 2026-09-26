@@ -180,6 +180,7 @@ export class TaskMandateAuthorization {
               sameBinding(input.initialReadyAuthorization.binding, binding(input))
             ? beginExactPromotionAuthorization(
                 input.initialReadyAuthorization,
+                input.exactPromotionManifestSaid,
                 this.#dependencies.now(),
               )
             : { kind: 'Rejected' as const, reason: 'BindingInvalid' as const };
@@ -191,6 +192,8 @@ export class TaskMandateAuthorization {
     } else if (!sameBinding(authorization.binding, binding(input))) {
       return { kind: 'BindingRejected' };
     }
+    if (authorization.exactPromotionManifestSaid !== input.exactPromotionManifestSaid)
+      return { kind: 'BindingRejected' };
     if (
       input.exactPromotionManifestSaid !== undefined &&
       authorization.stage.kind === 'TaskMandate'

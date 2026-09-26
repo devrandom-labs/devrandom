@@ -216,6 +216,7 @@ export interface TaskAuthorization {
   readonly version: 1;
   readonly revision: number;
   readonly binding: TaskAuthorizationBinding;
+  readonly exactPromotionManifestSaid?: string;
   readonly stage: TaskAuthorizationStage;
 }
 
@@ -308,9 +309,11 @@ export function beginTaskAuthorization(
 /** Begin the post-M exact promotion phase from an already admitted Task Mandate. */
 export function beginExactPromotionAuthorization(
   initial: ReadyTaskAuthorization,
+  evaluationManifestSaid: string,
   issuedAt: number,
 ): TaskAuthorizationBeginning {
-  if (!validBinding(initial.binding)) return { kind: 'Rejected', reason: 'BindingInvalid' };
+  if (!validBinding(initial.binding) || !validSaid(evaluationManifestSaid))
+    return { kind: 'Rejected', reason: 'BindingInvalid' };
   if (!validEpochMilliseconds(issuedAt) || issuedAt < initial.stage.taskMandate.credential.issuedAt)
     return { kind: 'Rejected', reason: 'TimestampInvalid' };
   return {
@@ -319,6 +322,7 @@ export function beginExactPromotionAuthorization(
       version: 1,
       revision: 0,
       binding: initial.binding,
+      exactPromotionManifestSaid: evaluationManifestSaid,
       stage: {
         kind: 'PromotionMandate',
         taskMandate: initial.stage.taskMandate,
@@ -707,6 +711,9 @@ function advanced(
       version: 1,
       revision: current.revision + 1,
       binding: current.binding,
+      ...(current.exactPromotionManifestSaid === undefined
+        ? {}
+        : { exactPromotionManifestSaid: current.exactPromotionManifestSaid }),
       stage,
     },
   };

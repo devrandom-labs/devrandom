@@ -5,6 +5,7 @@ import {
   connectLocalRunAdmissionExchange,
   connectLocalMandateCustody,
   connectLocalPrincipalCustody,
+  connectLocalPromotionExchanges,
   controllerAid,
   establishLocalPrincipals,
   userAid,
@@ -30,6 +31,7 @@ export interface SignifyLocalMandateAuthorityDependencies {
   readonly connectMandates: typeof connectLocalMandateCustody;
   readonly connectRunAdmission: typeof connectLocalRunAdmissionExchange;
   readonly connectEvidenceSeal: typeof connectLocalEvidenceSealExchange;
+  readonly connectPromotion: typeof connectLocalPromotionExchanges;
 }
 
 const signifyLocalMandateAuthorityDefaults: SignifyLocalMandateAuthorityDependencies = {
@@ -37,6 +39,7 @@ const signifyLocalMandateAuthorityDefaults: SignifyLocalMandateAuthorityDependen
   connectMandates: connectLocalMandateCustody,
   connectRunAdmission: connectLocalRunAdmissionExchange,
   connectEvidenceSeal: connectLocalEvidenceSealExchange,
+  connectPromotion: connectLocalPromotionExchanges,
 };
 
 export class SignifyLocalMandateAuthority implements CurrentLocalMandates {
@@ -125,6 +128,11 @@ export class SignifyLocalMandateAuthority implements CurrentLocalMandates {
       expectedControllerAid,
       expectedAgentAid,
     });
+    const promotionExchanges = await this.#dependencies.connectPromotion({
+      ...connection,
+      expectedControllerAid,
+      expectedAgentAid,
+    });
     return {
       kind: 'Ready',
       governance: governance.profile,
@@ -132,6 +140,7 @@ export class SignifyLocalMandateAuthority implements CurrentLocalMandates {
       custody: mandateCustody,
       runAdmissionExchange,
       evidenceSealExchange,
+      promotionExchanges,
     };
   }
 }
