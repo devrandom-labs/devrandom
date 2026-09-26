@@ -151,4 +151,14 @@ export { ToolProposalBudgetLedger } from './tool-gateway/tool-proposal-budget.js
 export type * from './evaluation/application/evaluation-conversations.js';
 export { AesGcmProtectedCaseCustody } from './evaluation/infrastructure/aes-gcm-protected-case-custody.js';
 export type * from './context/application/experience-conversations.js';
+export {
+  reviewAnalogyInfluence,
+  type AnalogyInfluenceInput,
+  type AnalogyInfluenceReview,
+  type AuthorizedAnalogy,
+  type FixedPublicChoiceInput,
+  type RecalculatedChoice,
+  type ReviewedAnalogyProjection,
+  type ReviewedChoiceRecalculation,
+} from './context/application/verified-context.js';
 export * from './evaluation/application/run-protected-trial.js';
