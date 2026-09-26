@@ -72,6 +72,19 @@ const lease = Type.Object(
 );
 
 const validators: Record<string, { $jsonSchema: MongoSchemaObject }> = {
+  [evaluationCollectionNames.taskReservationFences]: {
+    $jsonSchema: {
+      bsonType: 'object',
+      additionalProperties: false,
+      required: ['_id', 'ownerAid', 'taskRevisionSaid', 'version'],
+      properties: {
+        _id: object(uuid),
+        ownerAid: object(said),
+        taskRevisionSaid: object(said),
+        version: object(safe),
+      },
+    },
+  },
   [evaluationCollectionNames.renewals]: {
     $jsonSchema: {
       bsonType: 'object',

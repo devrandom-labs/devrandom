@@ -141,6 +141,7 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
                   mandate: {
                     credential: { credentialSaid: said('m') },
                     allowedCapabilities: ['ReadTaskMemory'],
+                    budgets: budget,
                     experience: {
                       corpusSaid,
                       repositoryResourceSaid: said('r'),

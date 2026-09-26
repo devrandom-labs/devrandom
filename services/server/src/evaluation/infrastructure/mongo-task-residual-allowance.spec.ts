@@ -44,6 +44,7 @@ import { tasksCollectionName } from '../../task/infrastructure/mongo-tasks.js';
 import { taskCommandFixture, taskOwnerAid } from '../../task/test/task-command-fixture.js';
 import {
   evaluationCollectionNames,
+  MongoEvaluationReservations,
   type EvaluationDocument,
 } from './mongo-evaluation-reservations.js';
 import { MongoTaskResidualAllowance } from './mongo-task-residual-allowance.js';
@@ -641,5 +642,89 @@ withMongo('Mongo current Task residual allowance', () => {
       kind: 'Blocked',
       reason: 'RunProofInvalid',
     });
+  });
+
+  it('rechecks the verified residual inside admission before reserving D + 15B + F', async () => {
+    const proof = sealedRunProof();
+    await database.dropDatabase();
+    await database.collection<TaskDocument>(tasksCollectionName).insertOne(taskDocument());
+    await database.collection<RunDocument>(runsCollectionName).insertOne(proof.run);
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .insertOne(proof.stream);
+    await database
+      .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+      .insertOne(proof.checkpoint);
+    await database
+      .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+      .insertMany(proof.events);
+    await database
+      .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
+      .insertMany(proof.artifacts);
+    const admission = {
+      ...reservation().command,
+      allocation: { diagnosis: amount(1), perEntry: amount(2), finalization: amount(1) },
+      originRunId: proof.run._id,
+      retainedCheckpointSaid: proof.checkpoint._id,
+      retainedSealSaid:
+        proof.stream.seal.kind === 'Sealed' ? proof.stream.seal.exchangeSaid : `E${'s'.repeat(43)}`,
+      personalAgentAid: proof.run.personalAgentAid,
+      taskMandateSaid: proof.run.taskMandateSaid,
+      expectedActiveRevisionSaid: proof.run.harnessRevisionSaid,
+    };
+    await database
+      .collection<{
+        _id: string;
+        ownerAid: string;
+        command: { taskId: string; taskRevisionSaid: string };
+        sourceInventory: { d: string };
+        executionProfile: { d: string; sourceGitCommit: string; sourceGitTree: string };
+      }>(evaluationCollectionNames.preparations)
+      .insertOne({
+        _id: randomUUID(),
+        ownerAid: taskOwnerAid,
+        command: { taskId, taskRevisionSaid },
+        sourceInventory: { d: admission.sourceInventorySaid },
+        executionProfile: {
+          d: admission.executionProfileSaid,
+          sourceGitCommit: proof.run.repository.commit,
+          sourceGitTree: proof.run.repository.tree,
+        },
+      });
+    const reservations = new MongoEvaluationReservations(client, database);
+    await expect(
+      reservations.reserve({
+        ownerAid: taskOwnerAid,
+        command: admission,
+        reserved: amount(32),
+        verifiedMandateCeiling: amount(35),
+      }),
+    ).resolves.toEqual({ kind: 'Blocked', gate: 'Budget' });
+    expect(
+      await database.collection(evaluationCollectionNames.evaluations).countDocuments({}),
+    ).toBe(0);
+    const admitted = await reservations.reserve({
+      ownerAid: taskOwnerAid,
+      command: admission,
+      reserved: amount(32),
+      verifiedMandateCeiling: amount(40),
+    });
+    expect(admitted.kind).toBe('Admitted');
+    expect(
+      await database
+        .collection<{ _id: string }>(evaluationCollectionNames.taskReservationFences)
+        .findOne({ _id: taskId }),
+    ).toMatchObject({ ownerAid: taskOwnerAid, taskRevisionSaid, version: 1 });
+    expect(
+      await reservations.reserve({
+        ownerAid: taskOwnerAid,
+        command: { ...admission, commandId: randomUUID() },
+        reserved: amount(32),
+        verifiedMandateCeiling: amount(40),
+      }),
+    ).toEqual({ kind: 'Blocked', gate: 'Budget' });
+    expect(
+      await database.collection(evaluationCollectionNames.evaluations).countDocuments({}),
+    ).toBe(1);
   });
 });

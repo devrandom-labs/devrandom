@@ -114,6 +114,8 @@ test-mongodb-integration: _require-nix
       services/server/src/evidence/infrastructure/mongo-evidence-reading.integration.spec.ts \
       services/server/src/evidence/infrastructure/mongo-run-artifact-reading.integration.spec.ts \
       services/server/src/evaluation/infrastructure/mongo-evaluation-evidence.integration.spec.ts \
+      services/server/src/evaluation/infrastructure/mongo-failure-qualification.integration.spec.ts \
+      services/server/src/evaluation/infrastructure/mongo-task-residual-allowance.spec.ts \
       services/server/src/evaluation/composition/hosted-evaluation.integration.spec.ts
 
 test-identity-integration: _require-nix

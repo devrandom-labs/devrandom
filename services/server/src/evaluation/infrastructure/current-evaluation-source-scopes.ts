@@ -1,6 +1,10 @@
 import type { Collection, Db } from 'mongodb';
 
-import type { EvolutionSourceScope } from '@devrandom/domain';
+import {
+  evaluationConsumables,
+  type EvaluationAllowance,
+  type EvolutionSourceScope,
+} from '@devrandom/domain';
 import { decodeEvaluationSourceInventory } from '@devrandom/protocol';
 
 import type {
@@ -15,7 +19,12 @@ import {
 } from './mongo-evaluation-reservations.js';
 
 type ScopeInspection =
-  | { readonly kind: 'Authorized'; readonly scope: EvolutionSourceScope }
+  | {
+      readonly kind: 'Authorized';
+      readonly scope: EvolutionSourceScope;
+      readonly personalAgentAid: string;
+      readonly verifiedMandateCeiling: EvaluationAllowance;
+    }
   | { readonly kind: 'Denied' | 'Unavailable' };
 
 /** Maps current v2 Task and admitted, live TEL mandate evidence to source rights. */
@@ -96,6 +105,10 @@ export class CurrentEvaluationSourceScopes {
         return { kind: 'Denied' };
       return {
         kind: 'Authorized',
+        personalAgentAid,
+        verifiedMandateCeiling: Object.fromEntries(
+          evaluationConsumables.map((name) => [name, current.mandate.budgets[name]]),
+        ) as EvaluationAllowance,
         scope: {
           ownerAid: input.ownerAid,
           taskId: task.taskId,

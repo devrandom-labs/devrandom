@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { admitEvaluation } from './admit-evaluation.js';
 
@@ -36,6 +36,37 @@ const command = {
 };
 
 describe('hosted evaluation admission', () => {
+  it('carries the verified current mandate ceiling into the durable reservation', async () => {
+    const remaining = Object.fromEntries(
+      Object.entries(budget).map(([name, amount]) => [name, amount * 20]),
+    ) as typeof budget;
+    const verifiedMandateCeiling = { ...remaining, providerRequests: 38 };
+    const reserve = vi.fn(() =>
+      Promise.resolve({ kind: 'Blocked' as const, gate: 'Budget' as const }),
+    );
+    await admitEvaluation(
+      { ownerAid: said('o'), command },
+      {
+        eligibility: {
+          inspect: () =>
+            Promise.resolve({ kind: 'Eligible' as const, remaining, verifiedMandateCeiling }),
+        },
+        reservations: {
+          reconcile: () => Promise.resolve({ kind: 'NotFound' as const }),
+          reserve,
+        },
+      },
+    );
+    expect(reserve).toHaveBeenCalledWith({
+      ownerAid: said('o'),
+      command,
+      reserved: Object.fromEntries(
+        Object.entries(budget).map(([name, amount]) => [name, amount * 17]),
+      ),
+      verifiedMandateCeiling,
+    });
+  });
+
   it('does not reserve an Evaluation when qualification or current authority is absent', async () => {
     let commits = 0;
     const dependencies = {
@@ -62,7 +93,12 @@ describe('hosted evaluation admission', () => {
     let commits = 0;
     const dependencies = {
       eligibility: {
-        inspect: () => Promise.resolve({ kind: 'Eligible' as const, remaining: budget }),
+        inspect: () =>
+          Promise.resolve({
+            kind: 'Eligible' as const,
+            remaining: budget,
+            verifiedMandateCeiling: budget,
+          }),
       },
       reservations: {
         reconcile: () => Promise.resolve({ kind: 'NotFound' as const }),

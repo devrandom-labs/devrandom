@@ -23,7 +23,11 @@ export interface EvaluationEligibility {
     readonly ownerAid: string;
     readonly command: EvaluationAdmissionCommand;
   }): Promise<
-    | { readonly kind: 'Eligible'; readonly remaining: EvaluationAllowance }
+    | {
+        readonly kind: 'Eligible';
+        readonly remaining: EvaluationAllowance;
+        readonly verifiedMandateCeiling: EvaluationAllowance;
+      }
     | {
         readonly kind: 'Blocked';
         readonly gate: 'Profile' | 'Source' | 'Authority' | 'Budget' | 'Qualification' | 'Evidence';
@@ -45,6 +49,7 @@ export interface EvaluationReservations {
     readonly ownerAid: string;
     readonly command: EvaluationAdmissionCommand;
     readonly reserved: EvaluationAllowance;
+    readonly verifiedMandateCeiling: EvaluationAllowance;
   }): Promise<EvaluationAdmissionReceipt>;
 }
 
@@ -66,5 +71,9 @@ export async function admitEvaluation(
   }
   const allocation = assessComparisonAllocation(input.command.allocation, eligibility.remaining);
   if (allocation.kind !== 'Fits') return { kind: 'Blocked', gate: 'Budget' };
-  return dependencies.reservations.reserve({ ...input, reserved: allocation.total });
+  return dependencies.reservations.reserve({
+    ...input,
+    reserved: allocation.total,
+    verifiedMandateCeiling: eligibility.verifiedMandateCeiling,
+  });
 }

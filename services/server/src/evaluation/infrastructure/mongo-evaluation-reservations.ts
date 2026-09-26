@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { MongoServerError, type Collection, type Db, type MongoClient } from 'mongodb';
 
 import {
+  assessComparisonAllocation,
   evaluationLeasePolicy,
   renewEvaluationLease,
   type EvaluationAllowance,
@@ -48,6 +49,7 @@ import type {
   EvaluationLeaseRenewalReceipt,
   EvaluationLeases,
 } from '../application/renew-evaluation-lease.js';
+import { MongoTaskResidualAllowance } from './mongo-task-residual-allowance.js';
 
 export const evaluationCollectionNames = Object.freeze({
   preparations: 'evaluationPreparations',
@@ -56,7 +58,15 @@ export const evaluationCollectionNames = Object.freeze({
   batches: 'evaluationEvidenceBatches',
   events: 'evaluationEvidenceEvents',
   artifacts: 'evaluationEvidenceArtifacts',
+  taskReservationFences: 'evaluationTaskReservationFences',
 });
+
+interface TaskReservationFenceDocument {
+  readonly _id: string;
+  readonly ownerAid: string;
+  readonly taskRevisionSaid: string;
+  readonly version: number;
+}
 
 export interface EvaluationPreparationDocument {
   readonly _id: string;
@@ -194,6 +204,8 @@ export class MongoEvaluationReservations implements EvaluationReservations, Eval
   readonly #streams: Collection<EvidenceStreamDocument>;
   readonly #checkpoints: Collection<EvidenceCheckpointDocument>;
   readonly #events: Collection<EvidenceEventDocument>;
+  readonly #residual: MongoTaskResidualAllowance;
+  readonly #taskReservationFences: Collection<TaskReservationFenceDocument>;
 
   constructor(client: MongoClient, database: Db) {
     this.#client = client;
@@ -204,6 +216,10 @@ export class MongoEvaluationReservations implements EvaluationReservations, Eval
     this.#streams = database.collection(evidenceCollectionNames.streams);
     this.#checkpoints = database.collection(evidenceCollectionNames.checkpoints);
     this.#events = database.collection(evidenceCollectionNames.events);
+    this.#residual = new MongoTaskResidualAllowance(database);
+    this.#taskReservationFences = database.collection(
+      evaluationCollectionNames.taskReservationFences,
+    );
   }
 
   async reconcile(input: {
@@ -240,6 +256,7 @@ export class MongoEvaluationReservations implements EvaluationReservations, Eval
     readonly ownerAid: string;
     readonly command: EvaluationAdmissionCommand;
     readonly reserved: EvaluationAllowance;
+    readonly verifiedMandateCeiling: EvaluationAllowance;
   }): Promise<EvaluationAdmissionReceipt> {
     const { command, ownerAid } = input;
     try {
@@ -333,6 +350,21 @@ export class MongoEvaluationReservations implements EvaluationReservations, Eval
           );
           if (checkpointHead === null)
             return { kind: 'Blocked' as const, gate: 'Evidence' as const };
+          const residual = await this.#residual.inspect(
+            {
+              ownerAid,
+              taskId: command.taskId,
+              taskRevisionSaid: command.taskRevisionSaid,
+              verifiedMandateCeiling: input.verifiedMandateCeiling,
+            },
+            session,
+          );
+          if (residual.kind === 'Unavailable') return { kind: 'Unavailable' as const };
+          if (residual.kind === 'Blocked')
+            return { kind: 'Blocked' as const, gate: 'Budget' as const };
+          const allocation = assessComparisonAllocation(command.allocation, residual.remaining);
+          if (allocation.kind !== 'Fits' || !isDeepStrictEqual(allocation.total, input.reserved))
+            return { kind: 'Blocked' as const, gate: 'Budget' as const };
           const now = new Date();
           const evaluationId = randomUUID();
           const lease = {
@@ -373,6 +405,19 @@ export class MongoEvaluationReservations implements EvaluationReservations, Eval
             activeOwnerSlot: ownerAid,
             acceptedAt: now,
           };
+          // A version-only Task fence serializes this read with other reservations and settlement.
+          // The Run/Evaluation evidence above remains the sole budget truth.
+          await this.#taskReservationFences.updateOne(
+            { _id: command.taskId, ownerAid, taskRevisionSaid: command.taskRevisionSaid },
+            {
+              $inc: { version: 1 },
+              $setOnInsert: {
+                ownerAid,
+                taskRevisionSaid: command.taskRevisionSaid,
+              },
+            },
+            { upsert: true, session },
+          );
           await this.#evaluations.insertOne(document, { session });
           return {
             kind: 'Admitted' as const,

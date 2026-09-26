@@ -10,21 +10,27 @@ import {
   MongoFailureQualification,
   type FailureQualificationReading,
 } from './mongo-failure-qualification.js';
+import { MongoTaskResidualAllowance } from './mongo-task-residual-allowance.js';
 
 /** Current source rights, exact six-Run qualification, then a separate residual allowance gate. */
 export class CurrentEvaluationEligibility implements EvaluationEligibility {
   readonly #sources: CurrentEvaluationSourceScopes;
   readonly #preparations: Collection<EvaluationPreparationDocument>;
   readonly #qualification: FailureQualificationReading;
+  readonly #residual: Pick<MongoTaskResidualAllowance, 'inspect'>;
 
   constructor(
     database: Db,
     sources: CurrentEvaluationSourceScopes,
     qualification: FailureQualificationReading = new MongoFailureQualification(database),
+    residual: Pick<MongoTaskResidualAllowance, 'inspect'> = new MongoTaskResidualAllowance(
+      database,
+    ),
   ) {
     this.#sources = sources;
     this.#preparations = database.collection(evaluationCollectionNames.preparations);
     this.#qualification = qualification;
+    this.#residual = residual;
   }
 
   async inspect(
@@ -41,6 +47,7 @@ export class CurrentEvaluationEligibility implements EvaluationEligibility {
       if (
         source.kind !== 'Authorized' ||
         source.scope.taskRevisionSaid !== command.taskRevisionSaid ||
+        source.personalAgentAid !== command.personalAgentAid ||
         source.scope.mandate.kind !== 'AuthorizedExperience' ||
         source.scope.mandate.mandateSaid !== command.taskMandateSaid
       )
@@ -71,8 +78,19 @@ export class CurrentEvaluationEligibility implements EvaluationEligibility {
       });
       if (qualification.kind === 'Unavailable') return { kind: 'Unavailable' };
       if (qualification.kind === 'Blocked') return qualification;
-      // Qualification does not prove the transaction-safe residual Task allowance.
-      return { kind: 'Blocked', gate: 'Budget' };
+      const residual = await this.#residual.inspect({
+        ownerAid,
+        taskId: command.taskId,
+        taskRevisionSaid: command.taskRevisionSaid,
+        verifiedMandateCeiling: source.verifiedMandateCeiling,
+      });
+      if (residual.kind === 'Unavailable') return { kind: 'Unavailable' };
+      if (residual.kind === 'Blocked') return { kind: 'Blocked', gate: 'Budget' };
+      return {
+        kind: 'Eligible',
+        remaining: residual.remaining,
+        verifiedMandateCeiling: source.verifiedMandateCeiling,
+      };
     } catch {
       return { kind: 'Unavailable' };
     }
