@@ -31,16 +31,21 @@ type UsageReceipt =
       readonly cacheRead: number;
       readonly cacheWrite: number;
       readonly spendMicroUsd: number;
+      readonly terminalType: 'response.completed' | 'response.incomplete' | 'response.failed';
+      readonly providerReportBytes: Uint8Array;
     };
 
 /** Observes only bounded SSE frames and retains one request's reported usage. */
 export class ConcentrateUsage {
   #current: { receipt: UsageReceipt } = { receipt: { kind: 'Missing' } };
 
-  consume(
-    message: AssistantMessage,
-  ):
-    | { readonly kind: 'Verified'; readonly spendMicroUsd: number }
+  #take(message: AssistantMessage):
+    | {
+        readonly kind: 'Verified';
+        readonly spendMicroUsd: number;
+        readonly terminalType: 'response.completed' | 'response.incomplete' | 'response.failed';
+        readonly providerReportBytes: Uint8Array;
+      }
     | { readonly kind: 'Unavailable' } {
     const receipt = this.#current.receipt;
     this.#current.receipt = { kind: 'Unavailable' };
@@ -52,7 +57,40 @@ export class ConcentrateUsage {
       message.usage.cacheRead === receipt.cacheRead &&
       message.usage.cacheWrite === receipt.cacheWrite &&
       message.usage.totalTokens === receipt.totalTokens
-      ? { kind: 'Verified', spendMicroUsd: receipt.spendMicroUsd }
+      ? {
+          kind: 'Verified',
+          spendMicroUsd: receipt.spendMicroUsd,
+          terminalType: receipt.terminalType,
+          providerReportBytes: Uint8Array.from(receipt.providerReportBytes),
+        }
+      : { kind: 'Unavailable' };
+  }
+
+  consume(
+    message: AssistantMessage,
+  ):
+    | { readonly kind: 'Verified'; readonly spendMicroUsd: number }
+    | { readonly kind: 'Unavailable' } {
+    const taken = this.#take(message);
+    return taken.kind === 'Verified'
+      ? { kind: 'Verified', spendMicroUsd: taken.spendMicroUsd }
+      : taken;
+  }
+
+  consumeProviderReport(message: AssistantMessage):
+    | {
+        readonly kind: 'Verified';
+        readonly spendMicroUsd: number;
+        readonly providerReportBytes: Uint8Array;
+      }
+    | { readonly kind: 'Unavailable' } {
+    const taken = this.#take(message);
+    return taken.kind === 'Verified' && taken.terminalType === 'response.completed'
+      ? {
+          kind: 'Verified',
+          spendMicroUsd: taken.spendMicroUsd,
+          providerReportBytes: taken.providerReportBytes,
+        }
       : { kind: 'Unavailable' };
   }
 
@@ -115,6 +153,9 @@ export class ConcentrateUsage {
               cacheRead: usage.input_tokens_details?.cached_tokens ?? 0,
               cacheWrite: usage.input_tokens_details?.cache_write_tokens ?? 0,
               spendMicroUsd,
+              terminalType: event.type as
+                'response.completed' | 'response.incomplete' | 'response.failed',
+              providerReportBytes: new TextEncoder().encode(data.slice(0, -1)),
             }
           : { kind: 'Unavailable' };
     };

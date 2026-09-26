@@ -66,6 +66,13 @@ export type PiModelOpening =
       ):
         | { readonly kind: 'Verified'; readonly spendMicroUsd: number }
         | { readonly kind: 'Unavailable' };
+      consumeProviderReport?(message: AssistantMessage):
+        | {
+            readonly kind: 'Verified';
+            readonly spendMicroUsd: number;
+            readonly providerReportBytes: Uint8Array;
+          }
+        | { readonly kind: 'Unavailable' };
     }
   | { readonly kind: 'ConfigurationRequired' }
   | { readonly kind: 'CredentialUnavailable' }
@@ -116,6 +123,7 @@ export class PinnedPiModelAccess implements PiModelAccess {
         runtime,
         model: { ...model, maxTokens: compatibility.maximumOutputTokens },
         consumeUsage: (message) => usage.consume(message),
+        consumeProviderReport: (message) => usage.consumeProviderReport(message),
       };
     } catch {
       return { kind: 'Unavailable' };

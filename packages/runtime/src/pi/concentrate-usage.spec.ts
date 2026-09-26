@@ -297,7 +297,15 @@ describe('Concentrate raw usage accountability', () => {
         },
       );
       expect(message.stopReason).toBe('stop');
-      expect(opened.consumeUsage(message)).toEqual({ kind: 'Verified', spendMicroUsd: 0 });
+      if (opened.consumeProviderReport === undefined) throw new Error('raw report unavailable');
+      expect(opened.consumeProviderReport(message)).toEqual({
+        kind: 'Verified',
+        spendMicroUsd: 0,
+        providerReportBytes: new TextEncoder().encode(
+          JSON.stringify({ type: 'response.completed', response }),
+        ),
+      });
+      expect(opened.consumeUsage(message)).toEqual({ kind: 'Unavailable' });
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
