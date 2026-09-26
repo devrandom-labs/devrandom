@@ -110,6 +110,12 @@ describe.skipIf(process.env.DEVRANDOM_RUN_OCI_TEST !== '1')('real Run OCI profil
         'process.stdout.write(String(process.getuid()));\n',
       );
       await writeFile(join(worktree, 'source.txt'), 'public source\n');
+      await writeFile(
+        join(worktree, 'Cargo.toml'),
+        '[package]\nname = "run-scratch-check"\nversion = "0.1.0"\nedition = "2021"\n',
+      );
+      await mkdir(join(worktree, 'src'));
+      await writeFile(join(worktree, 'src', 'lib.rs'), 'pub fn value() -> u8 { 1 }\n');
       const runtimeMounts = [{ hostPath: runtimeDirectory, containerPath: '/app/runtime' }];
       const runtimeDigest = await digestEvaluationRuntimeMounts(
         runtimeMounts.map((mount) => ({
@@ -247,6 +253,20 @@ describe.skipIf(process.env.DEVRANDOM_RUN_OCI_TEST !== '1')('real Run OCI profil
           expect(result.code).toBe(0);
           expect(result.text).toContain('cargo 1.98.1');
           expect(await native.close()).toBe(true);
+        }
+        const metadata = await opened.environment.runNative(
+          cargoPath,
+          ['metadata', '--no-deps', '--format-version', '1'],
+          new AbortController().signal,
+        );
+        expect(metadata.kind).toBe('Running');
+        if (metadata.kind === 'Running') {
+          const result = await output(metadata.child);
+          expect(result.code).toBe(0);
+          expect(JSON.parse(result.text)).toMatchObject({
+            target_directory: '/work/cargo-target',
+          });
+          expect(await metadata.close()).toBe(true);
         }
       } finally {
         expect(await opened.environment.close()).toBe(true);

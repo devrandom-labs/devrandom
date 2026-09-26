@@ -572,7 +572,9 @@ export class DockerRunEnvironment {
     }
     this.#activeNative = native;
     try {
-      const child = native.executeAt('/work/source', [executableRealpath, ...arguments_]);
+      const child = native.executeAt('/work/source', [executableRealpath, ...arguments_], {
+        cargoTargetScratch: executableRealpath.endsWith('/cargo'),
+      });
       return {
         kind: 'Running',
         child,
