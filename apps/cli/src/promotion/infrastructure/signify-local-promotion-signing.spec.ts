@@ -7,6 +7,7 @@ import {
   governorAid,
   issuerAid,
   personalAgentAid,
+  userAid,
   type LocalPromotionExchanges,
   type PreparedPromotionExchange,
   type StablePromotionExchange,
@@ -32,6 +33,7 @@ const lineageId = '5ebf49b9-df26-4a49-9194-da868f97cf9d';
 const agent = personalAgentAid('EERMVxqeHfFo_eIvyzBXaKdT1EyobZdSs1QXuFyYLjmz');
 const governor = governorAid('EBcIURLpxmVwahksgrsGW6_dUw0zBhyEHYFk17eWrZfk');
 const issuer = issuerAid('EHcQUn2xY9KN1yv6FP0c6-pxej14Z8JDD3IYLddg0wOh');
+const owner = userAid('EMstL6Th90iB6MpQkPjKN2ii7a5XcvA_PCHWHrAAD-l4');
 const audit = {
   measurementValidity: 'Pass',
   representationalFidelity: 'Pass',
@@ -60,7 +62,7 @@ function fixture() {
     taskId,
     taskRevisionSaid: said('t'),
     originRunId: '91d7f67f-d2f9-4fae-87cc-ac827de6f0d1',
-    ownerAid: issuer,
+    ownerAid: owner,
     personalAgentAid: agent,
     taskMandateSaid: said('d'),
     retainedCheckpointSaid: said('b'),
@@ -170,7 +172,7 @@ function fixture() {
     taskRevisionSaid: manifest.manifest.taskRevisionSaid,
     harnessLineageId: lineageId,
     evaluationManifestSaid: manifest.manifest.d,
-    credential: { credentialSaid: said('A'), issuerAid: issuer, issueeAid: governor },
+    credential: { credentialSaid: said('A'), issuerAid: owner, issueeAid: governor },
   } as unknown as CurrentExactPromotionMandate;
   const proposal: PromotionProposalPayload = {
     version: 1,
@@ -226,6 +228,7 @@ describe('Signify local promotion signing', () => {
       agentAid: agent,
       governorAid: governor,
       issuerAid: issuer,
+      ownerAid: owner,
       authority: { verify },
       confirm,
       now: () => 123,
@@ -249,6 +252,8 @@ describe('Signify local promotion signing', () => {
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(deliver).toHaveBeenCalledTimes(2);
     expect(verify).toHaveBeenCalledTimes(1);
+    expect(verify).toHaveBeenCalledWith(expect.objectContaining({ ownerAid: owner }));
+    expect(prepare.mock.calls.every(([input]) => input.recipientAid === issuer)).toBe(true);
   });
 
   it('denies a changed decision, missing user confirmation, or stale exact-M authority before Governor signature', async () => {
@@ -271,6 +276,7 @@ describe('Signify local promotion signing', () => {
       agentAid: agent,
       governorAid: governor,
       issuerAid: issuer,
+      ownerAid: owner,
       authority: { verify },
       confirm,
       now: () => 123,
@@ -310,6 +316,7 @@ describe('Signify local promotion signing', () => {
       agentAid: agent,
       governorAid: governor,
       issuerAid: issuer,
+      ownerAid: owner,
       authority: { verify: () => Promise.resolve({ kind: 'Current', mandate }) },
       confirm: () => Promise.resolve('Confirmed'),
       now: () => 123,

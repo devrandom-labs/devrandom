@@ -6,6 +6,7 @@ import {
   PERSONAL_AGENT_ALIAS,
   type GovernorAid,
   type IssuerAid,
+  type UserAid,
   type LocalPromotionExchanges,
   type PersonalAgentAid,
   type StablePromotionExchange,
@@ -35,6 +36,7 @@ export interface SignifyLocalPromotionSigningInput {
   readonly agentAid: PersonalAgentAid;
   readonly governorAid: GovernorAid;
   readonly issuerAid: IssuerAid;
+  readonly ownerAid: UserAid;
   readonly authority: ExactPromotionAuthority;
   readonly confirm: LocalGovernorPromotionConfirmation['confirm'];
   now(): number;
@@ -154,13 +156,14 @@ export function signifyLocalPromotionSigning(input: SignifyLocalPromotionSigning
           String(input.agentAid) === String(input.issuerAid) ||
           String(input.governorAid) === String(input.issuerAid) ||
           !deliveredProposals.has(decision.agentProposalExchangeSaid) ||
-          mandate.credential.issuerAid !== input.issuerAid ||
+          mandate.credential.issuerAid !== input.ownerAid ||
           mandate.credential.issueeAid !== input.governorAid ||
           mandate.credential.credentialSaid !== decision.exactPromotionMandateSaid ||
           mandate.evaluationManifestSaid !== decision.evaluationManifestSaid ||
           mandate.taskId !== decision.taskId ||
           mandate.taskRevisionSaid !== decision.taskRevisionSaid ||
           mandate.harnessLineageId !== decision.harnessLineageId ||
+          evidence.manifest.ownerAid !== input.ownerAid ||
           !matchesDecision(decision, evidence)
         )
           return { kind: 'Rejected' };
@@ -169,7 +172,7 @@ export function signifyLocalPromotionSigning(input: SignifyLocalPromotionSigning
             taskId: decision.taskId,
             taskRevisionSaid: decision.taskRevisionSaid,
             harnessLineageId: decision.harnessLineageId,
-            ownerAid: input.issuerAid,
+            ownerAid: input.ownerAid,
             governorAid: input.governorAid,
             evaluationManifestSaid: decision.evaluationManifestSaid,
             evaluationClosureSaid: decision.evaluationClosureSaid,

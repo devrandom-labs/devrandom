@@ -1,3 +1,4 @@
+import { ServerActivationPointer } from '../../promotion/infrastructure/server-activation-pointer.js';
 import { createHash } from 'node:crypto';
 
 import { ProtectedCredentials } from '@devrandom/domain';
@@ -240,6 +241,10 @@ export class ServerWorkAccessHttp {
     );
   }
 
+  activationPointer(): ServerActivationPointer {
+    return new ServerActivationPointer(this.#serverOrigin, this.#bearer, this.#fetch);
+  }
+
   activation(
     receipts: Pick<IssuerActivationReceiptExchange, 'inspect'>,
     issuerAid: IssuerAid,
@@ -409,6 +414,15 @@ export class GrantedServerWorkHttp {
   context(inventory: EvaluationSourceInventory): ReturnType<ServerWorkAccessHttp['context']> {
     if (!this.contextReady()) throw new WorkAccessHttpFailure({ kind: 'request-invalid' });
     return this.#access.context(inventory);
+  }
+
+  activationPointer(): ServerActivationPointer {
+    if (
+      this.grant.disposition.kind !== 'Active' ||
+      !this.grant.scopes.includes('activation:commit')
+    )
+      throw new WorkAccessHttpFailure({ kind: 'request-invalid' });
+    return this.#access.activationPointer();
   }
 
   activation(

@@ -132,6 +132,8 @@ describe('Devrandom Server Work Access HTTP', () => {
     expect(() => access.authorizedWork(granted).activation(receipts, source, recipient)).toThrow();
     const scoped = access.authorizedWork({ ...granted, scopes: ['activation:commit'] });
     expect(scoped.activation(receipts, source, recipient)).toBeDefined();
+    expect(scoped.activationPointer()).toBeDefined();
+    expect(() => access.authorizedWork(granted).activationPointer()).toThrow();
     expect(() =>
       access
         .authorizedWork({

@@ -109,6 +109,8 @@ export type HostedWorkAuthorityAcquisition =
       readonly runs: ReturnType<GrantedWorkAccess['server']['runs']>;
       readonly evidence: ReturnType<GrantedWorkAccess['server']['evidence']>;
       readonly evaluations: ReturnType<GrantedWorkAccess['server']['evaluations']>;
+      readonly activation: GrantedWorkAccess['server']['activation'];
+      readonly activationPointer: GrantedWorkAccess['server']['activationPointer'];
       contextReady(): boolean;
       context(
         inventory: Parameters<GrantedWorkAccess['server']['context']>[0],
@@ -184,6 +186,9 @@ export class CurrentTaskAuthority implements TaskAuthority {
       runs: access.server.runs(),
       evidence: access.server.evidence(),
       evaluations: access.server.evaluations(),
+      activation: (receipts, issuerAid, personalAgentAid) =>
+        access.server.activation(receipts, issuerAid, personalAgentAid),
+      activationPointer: () => access.server.activationPointer(),
       contextReady: () => access.server.contextReady(),
       context: (inventory) => access.server.context(inventory),
       protectedCredentials: access.server.protectedCredentials,
