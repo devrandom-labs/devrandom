@@ -110,6 +110,14 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
     });
     expect(await storage.inspect({ ownerAid, command })).toEqual({ kind: 'Pending' });
     expect(
+      await storage.finalize({ ...input, recipientAid: said('X'), receiptSaid: said('R') }),
+    ).toEqual({ kind: 'Conflict' });
+    expect(
+      await database.collection(activationCollectionNames.transitions).countDocuments({
+        taskId: command.taskId,
+      }),
+    ).toBe(0);
+    expect(
       await storage.reserve({
         ...input,
         command: { ...command, commandId: randomUUID(), fingerprint: command.fingerprint },
@@ -149,6 +157,17 @@ describeMongo('atomic activation pointer over replica Mongo', () => {
         .countDocuments({ taskId: command.taskId }),
     ).toBe(1);
     expect(await storage.inspect({ ownerAid, command })).toMatchObject({ kind: 'Committed' });
+    const stale = prepareActivationCommitCommand(
+      Object.fromEntries(
+        Object.entries({ ...command, commandId: randomUUID() }).filter(
+          ([key]) => key !== 'fingerprint',
+        ),
+      ),
+    );
+    if (stale.kind !== 'Prepared') throw new Error(stale.reason);
+    expect(await storage.reserve({ ...input, command: stale.command })).toEqual({
+      kind: 'Conflict',
+    });
   });
 
   it('serves signed-only commit and exact retry through Fastify with the real pointer transaction', async () => {
