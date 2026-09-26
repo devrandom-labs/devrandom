@@ -193,14 +193,19 @@ export class RunAdmissionFile implements BaselineRunAdmissionRecords, AcceptedRu
     this.#directory = directory;
   }
 
-  async locateAcceptedRun(taskId: string): Promise<AcceptedRunAdmissionLocation> {
+  async inspectTaskAdmissions(
+    taskId: string,
+  ): Promise<
+    | { readonly kind: 'Found'; readonly admissions: readonly StableBaselineRunAdmission[] }
+    | { readonly kind: 'Unavailable' }
+  > {
     try {
       if (!Value.Check(uuidV4Schema, taskId)) return { kind: 'Unavailable' };
       let directory: Stats;
       try {
         directory = await lstat(this.#directory);
       } catch (cause) {
-        if (isAbsent(cause)) return { kind: 'NotFound' };
+        if (isAbsent(cause)) return { kind: 'Found', admissions: [] };
         throw cause;
       }
       if (
@@ -227,26 +232,30 @@ export class RunAdmissionFile implements BaselineRunAdmissionRecords, AcceptedRu
         admissions.push(admission);
       }
       if (campaigns.size > 1) return { kind: 'Unavailable' };
-      const accepted = admissions
-        .filter(
-          (
-            admission,
-          ): admission is Extract<StableBaselineRunAdmission, { kind: 'LeaseAccepted' }> =>
-            admission.kind === 'LeaseAccepted',
-        )
-        .sort((left, right) => {
-          const leftOrdinal =
-            left.binding.purpose.kind === 'Retained' ? 6 : left.binding.purpose.ordinal;
-          const rightOrdinal =
-            right.binding.purpose.kind === 'Retained' ? 6 : right.binding.purpose.ordinal;
-          return rightOrdinal - leftOrdinal;
-        });
-      const latest = accepted[0];
-      if (latest !== undefined) return { kind: 'Located', admission: latest };
-      return { kind: admissions.length === 0 ? 'NotFound' : 'NotAccepted' };
+      return { kind: 'Found', admissions };
     } catch {
       return { kind: 'Unavailable' };
     }
+  }
+
+  async locateAcceptedRun(taskId: string): Promise<AcceptedRunAdmissionLocation> {
+    const inspection = await this.inspectTaskAdmissions(taskId);
+    if (inspection.kind !== 'Found') return inspection;
+    const accepted = inspection.admissions
+      .filter(
+        (admission): admission is Extract<StableBaselineRunAdmission, { kind: 'LeaseAccepted' }> =>
+          admission.kind === 'LeaseAccepted',
+      )
+      .sort((left, right) => {
+        const leftOrdinal =
+          left.binding.purpose.kind === 'Retained' ? 6 : left.binding.purpose.ordinal;
+        const rightOrdinal =
+          right.binding.purpose.kind === 'Retained' ? 6 : right.binding.purpose.ordinal;
+        return rightOrdinal - leftOrdinal;
+      });
+    const latest = accepted[0];
+    if (latest !== undefined) return { kind: 'Located', admission: latest };
+    return { kind: inspection.admissions.length === 0 ? 'NotFound' : 'NotAccepted' };
   }
 
   async acquire(

@@ -185,6 +185,146 @@ function calibratedSupervision(preparation: AdmittedTaskRunPreparation): RunSupe
 }
 
 describe('Task Run execution', () => {
+  it.each([
+    [
+      {
+        kind: 'Rejected',
+        runId: '11111111-1111-4111-8111-111111111111',
+        ordinal: 1,
+        reason: 'H1Passed',
+      },
+      'CalibrationCampaignClosed',
+    ],
+    [
+      { kind: 'RetainedRunExists', runId: '11111111-1111-4111-8111-111111111111' },
+      'RetainedRunAlreadyAdmitted',
+    ],
+    [{ kind: 'Unavailable' }, 'CalibrationCampaignUnavailable'],
+  ] as const)('never prepares another Run after $1', async (progress, expected) => {
+    const prepare = vi.fn();
+    const provision = vi.fn();
+    const execution = new TaskRunExecution({
+      campaigns: {
+        acquire: () => Promise.resolve({ kind: 'Acquired', campaignId: crypto.randomUUID() }),
+      },
+      history: { inspect: () => Promise.resolve(progress) },
+      preparation: { prepare },
+      supervision: { provision },
+    });
+    expect(await execution.run('receipt', new AbortController().signal)).toMatchObject({
+      kind: expected,
+    });
+    expect(prepare).not.toHaveBeenCalled();
+    expect(provision).not.toHaveBeenCalled();
+  });
+
+  it('prepares only the retained slot after five sealed attempts', async () => {
+    const prepare = vi.fn((_label: string, purpose: RunPurpose) =>
+      Promise.resolve(admittedPreparation(purpose)),
+    );
+    const execution = new TaskRunExecution({
+      campaigns: {
+        acquire: () => Promise.resolve({ kind: 'Acquired', campaignId: crypto.randomUUID() }),
+      },
+      history: {
+        inspect: () =>
+          Promise.resolve({ kind: 'Ready', nextOrdinal: 6, confirmed: 4, excluded: 1 }),
+      },
+      preparation: { prepare },
+      supervision: {
+        provision: () => ({
+          supervise: () => Promise.resolve({ kind: 'SupervisorIntegrityFailure' }),
+        }),
+      },
+    });
+    expect(await execution.run('receipt', new AbortController().signal)).toMatchObject({
+      kind: 'RunSupervised',
+      calibrations: { confirmed: 4, excluded: 1 },
+    });
+    expect(prepare).toHaveBeenCalledExactlyOnceWith('receipt', { kind: 'Retained' });
+  });
+
+  it('preserves an insufficient completed campaign without another attempt', async () => {
+    const prepare = vi.fn();
+    const execution = new TaskRunExecution({
+      campaigns: {
+        acquire: () => Promise.resolve({ kind: 'Acquired', campaignId: crypto.randomUUID() }),
+      },
+      history: {
+        inspect: () =>
+          Promise.resolve({ kind: 'Ready', nextOrdinal: 6, confirmed: 3, excluded: 2 }),
+      },
+      preparation: { prepare },
+      supervision: { provision: vi.fn() },
+    });
+    expect(await execution.run('receipt', new AbortController().signal)).toEqual({
+      kind: 'CalibrationInsufficient',
+      confirmed: 3,
+      excluded: 2,
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('resumes at ordinal two after a verified sealed first calibration without replaying its lease', async () => {
+    const prepare = vi.fn((_label: string, purpose: RunPurpose) =>
+      Promise.resolve(admittedPreparation(purpose)),
+    );
+    const supervise = vi.fn<AdmittedRunSupervision['supervise']>((run, lease) =>
+      Promise.resolve({
+        kind: 'Stopped',
+        run,
+        cause: { kind: 'UserInterrupted' },
+        latestHostedRunVersion: lease.runVersion,
+      }),
+    );
+    const execution = new TaskRunExecution({
+      campaigns: {
+        acquire: () =>
+          Promise.resolve({ kind: 'Acquired', campaignId: '2ae44718-f146-47fc-8507-14b75fd7fa98' }),
+      },
+      history: {
+        inspect: () =>
+          Promise.resolve({ kind: 'Ready', nextOrdinal: 2, confirmed: 1, excluded: 0 }),
+      },
+      preparation: { prepare },
+      supervision: { provision: () => ({ supervise }) },
+    });
+    await expect(execution.run('receipt', new AbortController().signal)).resolves.toMatchObject({
+      kind: 'CalibrationRunUnsettled',
+      ordinal: 2,
+    });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls[0]?.[1]).toMatchObject({
+      kind: 'PreparedCompatibilityCalibration',
+      ordinal: 2,
+    });
+  });
+
+  it('returns the original unresolved Run ID without requesting another ordinal or lease', async () => {
+    const prepare = vi.fn();
+    const execution = new TaskRunExecution({
+      campaigns: {
+        acquire: () =>
+          Promise.resolve({ kind: 'Acquired', campaignId: '2ae44718-f146-47fc-8507-14b75fd7fa98' }),
+      },
+      history: {
+        inspect: () =>
+          Promise.resolve({
+            kind: 'RecoveryRequired',
+            runId: '81d7f67f-d2f9-4fae-87cc-ac827de6f0d1',
+            ordinal: 1,
+          }),
+      },
+      preparation: { prepare },
+      supervision: { provision: vi.fn() },
+    });
+    await expect(execution.run('receipt', new AbortController().signal)).resolves.toEqual({
+      kind: 'CalibrationRecoveryRequired',
+      runId: '81d7f67f-d2f9-4fae-87cc-ac827de6f0d1',
+      ordinal: 1,
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  });
   it('reconstructs a reconciled first lease with its remaining interval and preserves request timing', async () => {
     const supervise = vi.fn<AdmittedRunSupervision['supervise']>((run) =>
       Promise.resolve({
@@ -195,6 +335,10 @@ describe('Task Run execution', () => {
       }),
     );
     const execution = new TaskRunExecution({
+      history: {
+        inspect: () =>
+          Promise.resolve({ kind: 'Ready', nextOrdinal: 1, confirmed: 0, excluded: 0 }),
+      },
       campaigns: {
         acquire: () =>
           Promise.resolve({ kind: 'Acquired', campaignId: '2ae44718-f146-47fc-8507-14b75fd7fa98' }),
@@ -248,6 +392,10 @@ describe('Task Run execution', () => {
       .fn<AdmittedRunSupervisionProvision['provision']>()
       .mockReturnValue({ supervise });
     const execution = new TaskRunExecution({
+      history: {
+        inspect: () =>
+          Promise.resolve({ kind: 'Ready', nextOrdinal: 1, confirmed: 0, excluded: 0 }),
+      },
       campaigns: {
         acquire: () =>
           Promise.resolve({ kind: 'Acquired', campaignId: '2ae44718-f146-47fc-8507-14b75fd7fa98' }),
@@ -304,6 +452,10 @@ describe('Task Run execution', () => {
         }),
       );
       const execution = new TaskRunExecution({
+        history: {
+          inspect: () =>
+            Promise.resolve({ kind: 'Ready', nextOrdinal: 1, confirmed: 0, excluded: 0 }),
+        },
         campaigns: {
           acquire: () => Promise.resolve({ kind: 'Acquired', campaignId: crypto.randomUUID() }),
         },
@@ -340,6 +492,10 @@ describe('Task Run execution', () => {
           .mockResolvedValue({ kind: 'SupervisorIntegrityFailure' }),
       });
       const execution = new TaskRunExecution({
+        history: {
+          inspect: () =>
+            Promise.resolve({ kind: 'Ready', nextOrdinal: 1, confirmed: 0, excluded: 0 }),
+        },
         campaigns: {
           acquire: () => Promise.resolve({ kind: 'Acquired', campaignId: crypto.randomUUID() }),
         },
@@ -398,6 +554,10 @@ describe('Task Run execution', () => {
         .mockResolvedValue({ kind: 'SupervisorIntegrityFailure' }),
     });
     const execution = new TaskRunExecution({
+      history: {
+        inspect: () =>
+          Promise.resolve({ kind: 'Ready', nextOrdinal: 1, confirmed: 0, excluded: 0 }),
+      },
       campaigns: {
         acquire: () => Promise.resolve({ kind: 'Acquired', campaignId: crypto.randomUUID() }),
       },
@@ -422,6 +582,10 @@ describe('Task Run execution', () => {
         .mockResolvedValue({ kind: 'SupervisorIntegrityFailure' }),
     });
     const execution = new TaskRunExecution({
+      history: {
+        inspect: () =>
+          Promise.resolve({ kind: 'Ready', nextOrdinal: 1, confirmed: 0, excluded: 0 }),
+      },
       campaigns: {
         acquire: () => Promise.resolve({ kind: 'Acquired', campaignId: crypto.randomUUID() }),
       },

@@ -7,9 +7,13 @@ import {
   taskBudgetNames,
   type Run,
   type RunPurpose,
+  type CalibrationRejectionReason,
 } from '@devrandom/domain';
 import { decodeRunProjection } from '@devrandom/protocol';
 import type { RunLeaseReceipt, RunSupervision } from '@devrandom/runtime';
+
+import type { BaselineRunBinding } from '../../run/application/baseline-run-admission.js';
+import type { CalibrationCampaignProgressReading } from '../../run/application/calibration-campaign-progress.js';
 
 import type { TaskRunPreparation, TaskRunPreparationOutcome } from './task-run-preparation.js';
 
@@ -46,6 +50,18 @@ export interface AdmittedRunSupervisionProvision {
 }
 
 export type TaskRunExecutionOutcome =
+  | {
+      readonly kind: 'CalibrationRecoveryRequired';
+      readonly runId: string;
+      readonly ordinal: 1 | 2 | 3 | 4 | 5;
+    }
+  | {
+      readonly kind: 'CalibrationCampaignClosed';
+      readonly runId: string;
+      readonly ordinal: 1 | 2 | 3 | 4 | 5;
+      readonly reason: CalibrationRejectionReason;
+    }
+  | { readonly kind: 'RetainedRunAlreadyAdmitted'; readonly runId: string }
   | TaskRunPreparationFailure
   | {
       readonly kind: 'AdmittedRunBindingRejected';
@@ -87,6 +103,7 @@ export interface PreparedCompatibilityCampaigns {
 
 export interface TaskRunExecutionDependencies {
   readonly campaigns: PreparedCompatibilityCampaigns;
+  readonly history: CalibrationCampaignProgressReading;
   readonly preparation: Pick<TaskRunPreparation, 'prepare'>;
   readonly supervision: AdmittedRunSupervisionProvision;
 }
@@ -231,6 +248,27 @@ function reconstructAdmittedRun(
   };
 }
 
+function continuesCampaign(
+  preparation: AdmittedTaskRunPreparation,
+  prior: BaselineRunBinding | undefined,
+): boolean {
+  if (prior === undefined) return true;
+  const run = preparation.run.run;
+  return isDeepStrictEqual(prior, {
+    purpose: prior.purpose,
+    ownerAid: run.ownerAid,
+    taskId: run.taskId,
+    taskRevisionSaid: run.taskRevisionSaid,
+    harnessLineageId: run.harnessLineageId,
+    harnessRevisionSaid: run.harnessRevisionSaid,
+    personalAgentAid: run.personalAgentAid,
+    taskMandateSaid: run.taskMandateSaid,
+    governorAid: run.governorAid,
+    promotionMandateSaid: run.promotionMandateSaid,
+    repository: run.repository,
+  });
+}
+
 export class TaskRunExecution {
   readonly #dependencies: TaskRunExecutionDependencies;
 
@@ -241,10 +279,32 @@ export class TaskRunExecution {
   async run(label: string, signal: AbortSignal): Promise<TaskRunExecutionOutcome> {
     const campaign = await this.#dependencies.campaigns.acquire(label);
     if (campaign.kind !== 'Acquired') return { kind: 'CalibrationCampaignUnavailable' };
-    let confirmed = 0;
-    let excluded = 0;
+    const progress = await this.#dependencies.history.inspect(label, campaign.campaignId);
+    switch (progress.kind) {
+      case 'Unavailable':
+        return { kind: 'CalibrationCampaignUnavailable' };
+      case 'RecoveryRequired':
+        return { ...progress, kind: 'CalibrationRecoveryRequired' };
+      case 'Rejected':
+        return { ...progress, kind: 'CalibrationCampaignClosed' };
+      case 'RetainedRunExists':
+        return { kind: 'RetainedRunAlreadyAdmitted', runId: progress.runId };
+      case 'Ready':
+        break;
+    }
+    if (
+      !Number.isInteger(progress.confirmed) ||
+      !Number.isInteger(progress.excluded) ||
+      progress.confirmed < 0 ||
+      progress.excluded < 0 ||
+      progress.confirmed + progress.excluded !== progress.nextOrdinal - 1
+    )
+      return { kind: 'CalibrationCampaignUnavailable' };
+    let confirmed = progress.confirmed;
+    let excluded = progress.excluded;
     const ordinals = [1, 2, 3, 4, 5] as const;
     for (const ordinal of ordinals) {
+      if (ordinal < progress.nextOrdinal) continue;
       const purpose: RunPurpose = {
         kind: 'PreparedCompatibilityCalibration',
         campaignId: campaign.campaignId,
@@ -252,6 +312,8 @@ export class TaskRunExecution {
       };
       const calibration = await this.#dependencies.preparation.prepare(label, purpose);
       if (calibration.kind !== 'RunLeaseAcquired') return calibration;
+      if (!continuesCampaign(calibration, progress.priorBinding))
+        return { kind: 'AdmittedRunBindingRejected', reason: 'PreparationBindingMismatch' };
       const reconstructed = reconstructAdmittedRun(calibration, purpose);
       if (reconstructed.kind === 'Rejected') {
         return { kind: 'AdmittedRunBindingRejected', reason: reconstructed.reason };
@@ -289,6 +351,8 @@ export class TaskRunExecution {
     if (preparation.kind !== 'RunLeaseAcquired') {
       return preparation;
     }
+    if (!continuesCampaign(preparation, progress.priorBinding))
+      return { kind: 'AdmittedRunBindingRejected', reason: 'PreparationBindingMismatch' };
     const reconstructed = reconstructAdmittedRun(preparation, purpose);
     if (reconstructed.kind === 'Rejected') {
       return {

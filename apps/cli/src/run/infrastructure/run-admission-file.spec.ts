@@ -56,6 +56,42 @@ function admittedRun() {
 }
 
 describe('Run admission file', () => {
+  it('reads every existing Task admission without creating or advancing custody', async () => {
+    const { directory, file } = await admissionFile();
+    const first = {
+      ...binding(),
+      purpose: {
+        kind: 'PreparedCompatibilityCalibration' as const,
+        campaignId: '2ae44718-f146-47fc-8507-14b75fd7fa98',
+        ordinal: 1 as const,
+      },
+    };
+    await expect(file.inspectTaskAdmissions(first.taskId)).resolves.toEqual({
+      kind: 'Found',
+      admissions: [],
+    });
+    await file.acquire(first, {
+      commandId: runCommandId,
+      incarnationId: runIncarnationId,
+      preparedAt: 1,
+    });
+    const before = await readFile(
+      join(directory, `${first.taskId}.${first.purpose.campaignId}.1.json`),
+      'utf8',
+    );
+    await expect(file.inspectTaskAdmissions(first.taskId)).resolves.toMatchObject({
+      kind: 'Found',
+      admissions: [{ kind: 'PreparingExchange', binding: first }],
+    });
+    expect(
+      await readFile(join(directory, `${first.taskId}.${first.purpose.campaignId}.1.json`), 'utf8'),
+    ).toBe(before);
+    await chmod(directory, 0o755);
+    await expect(file.inspectTaskAdmissions(first.taskId)).resolves.toEqual({
+      kind: 'Unavailable',
+    });
+  });
+
   it('retains distinct stable command custody for each calibration purpose slot', async () => {
     const { directory, file } = await admissionFile();
     const campaignId = '2ae44718-f146-47fc-8507-14b75fd7fa98';
