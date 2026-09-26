@@ -13,8 +13,9 @@ import {
   type TrialObservationEvidence,
 } from '@devrandom/protocol';
 import { observedPublicCase, type ProtectedCaseCustody } from '@devrandom/runtime';
-import Type from 'typebox';
 import Value from 'typebox/value';
+
+import { interpretNativeCesrReceiptRecord } from './native-cesr-receipt-record.js';
 
 /** Only acknowledged local parent ciphertext may be reopened for a promotion check. */
 export interface PromotionProtectedCiphertextReading {
@@ -23,46 +24,6 @@ export interface PromotionProtectedCiphertextReading {
   ):
     | { readonly kind: 'Found'; readonly artifact: ProtectedEvaluationArtifact }
     | { readonly kind: 'Missing' | 'Corrupt' };
-}
-
-const said = Type.String({ pattern: '^[A-Z][A-Za-z0-9_-]{43}$' });
-const observationRecord = Type.Object(
-  {
-    executableSaid: said,
-    stimulusSaid: said,
-    caseScope: Type.Literal('Protected'),
-    observation: cesrVerifierObservationSchema,
-    stdout: Type.String({ maxLength: 512 * 1024 }),
-    effectiveLimitsDigest: Type.String({ pattern: '^sha256:[a-f0-9]{64}$' }),
-  },
-  { additionalProperties: false },
-);
-
-function parseNativeStdout(stdout: string): unknown {
-  const text = stdout.trimEnd();
-  if (text.startsWith('DV1|P|') && !text.includes('\n')) {
-    const raw = text.slice(6);
-    const receipts =
-      raw === ''
-        ? []
-        : raw.split(',').map((part) => {
-            const fields = part.split(':');
-            const version = fields[0];
-            const payload = fields[1];
-            if (
-              fields.length !== 2 ||
-              (version !== 'Legacy' && version !== 'Current') ||
-              payload === undefined ||
-              !/^[A-Z][A-Za-z0-9_-]{43}$/u.test(payload)
-            )
-              throw new Error('invalid native receipt');
-            return { version, payload };
-          });
-    return { kind: 'Parsed', receipts };
-  }
-  const rejected = /^DV1\|R\|(InvalidFrame|InvalidPayload|UnsupportedVersion)$/u.exec(text);
-  if (rejected?.[1] !== undefined) return { kind: 'Rejected', error: rejected[1] };
-  return undefined;
 }
 
 function decodePlaintext(plaintext: Uint8Array): unknown {
@@ -165,14 +126,13 @@ export async function regradeProtectedCesrObservation(
     });
     if (observed.kind !== 'Opened') return { kind: 'Incomplete' };
     const record: unknown = decodePlaintext(observed.plaintext);
-    if (
-      !Value.Check(observationRecord, record) ||
-      record.executableSaid !== disposition.artifactSaid ||
-      record.stimulusSaid !== stimulusArtifact.artifact.d ||
-      !isDeepStrictEqual(parseNativeStdout(record.stdout), record.observation)
-    )
-      return { kind: 'Incomplete' };
-    const passed = observedPublicCase(oracle, record.observation);
+    const interpreted = interpretNativeCesrReceiptRecord(record, {
+      caseScope: 'Protected',
+      executableSaid: disposition.artifactSaid,
+      stimulusSaid: stimulusArtifact.artifact.d,
+    });
+    if (interpreted.kind !== 'Interpreted') return { kind: 'Incomplete' };
+    const passed = observedPublicCase(oracle, interpreted.observation);
     if (passed === undefined) return { kind: 'Incomplete' };
     const verdict = passed ? 'Pass' : 'Fail';
     if (
