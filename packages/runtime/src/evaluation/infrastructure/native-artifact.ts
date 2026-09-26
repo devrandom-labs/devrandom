@@ -59,7 +59,7 @@ function sha(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
-async function commandOutput(
+export async function observeContainedCommand(
   child: ReturnType<DockerEvaluationCompartment['execute']>,
   input: Uint8Array,
   limit: number,
@@ -256,7 +256,7 @@ export class DockerTaskArtifactConstruction implements TaskArtifactConstruction 
       compartment = opened.compartment;
       await compartment.copyInto(sourceRoot, '/work/source');
       await compartment.prepareCopiedSource('/work/source');
-      const build = await commandOutput(
+      const build = await observeContainedCommand(
         compartment.execute([
           'env',
           'CARGO_NET_OFFLINE=true',
@@ -391,7 +391,7 @@ export class DockerReceiptObservation implements ReceiptObservation {
       await chmod(transferred, 0o500);
       await compartment.copyInto(transferred, '/work/devrandom-observe');
       await compartment.prepareCopiedSource('/work/devrandom-observe');
-      const observed = await commandOutput(
+      const observed = await observeContainedCommand(
         compartment.execute(['/work/devrandom-observe']),
         input.stimulus,
         this.#profile.limits.outputBytes,

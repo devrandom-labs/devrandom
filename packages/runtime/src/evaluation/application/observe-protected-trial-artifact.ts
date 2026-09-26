@@ -268,13 +268,58 @@ export async function observePublicTrialArtifact(
     !stopped.providerUsageEventSaids.every((usage) => said.test(usage))
   )
     return { kind: 'Incomplete', frontier: 'TrialExecution' };
+  const observed = await observePublicSourceArtifact(
+    {
+      manifest: input.manifest,
+      bundle,
+      capturedSourceSaid: stopped.capturedSourceSaid,
+      signal: input.signal,
+    },
+    dependencies,
+  );
+  if (observed.kind !== 'PublicObserved') return observed;
+  return {
+    kind: 'PublicObserved',
+    manifestSaid: input.manifest.d,
+    binding: structuredClone(input.binding),
+    capturedSourceSaid: stopped.capturedSourceSaid,
+    trialEvidenceHeadSaid: stopped.evidenceHeadSaid,
+    trialCleanupReceiptSaid: stopped.cleanupReceiptSaid,
+    providerUsageEventSaids: [...stopped.providerUsageEventSaids],
+    frozenArtifact: observed.frozenArtifact,
+    publicCases: observed.publicCases,
+  };
+}
+
+/** Reuses the immutable original public cases for an in-trial submission snapshot. */
+export async function observePublicSourceArtifact(
+  input: {
+    readonly manifest: EvaluationManifest;
+    readonly bundle: EvaluationVerifierBundle;
+    readonly capturedSourceSaid: string;
+    readonly signal: AbortSignal;
+  },
+  dependencies: Pick<ProtectedTrialArtifactDependencies, 'construction' | 'observation'>,
+): Promise<
+  | Extract<PublicTrialArtifactObservation, { kind: 'Incomplete' }>
+  | ({ readonly kind: 'PublicObserved' } & Pick<
+      Extract<PublicTrialArtifactObservation, { kind: 'PublicObserved' }>,
+      'frozenArtifact' | 'publicCases'
+    >)
+> {
+  if (
+    bindEvaluationVerifierBundle(input.bundle, input.manifest).kind !== 'Bound' ||
+    !said.test(input.capturedSourceSaid)
+  )
+    return { kind: 'Incomplete', frontier: 'CaseInventory' };
+  const bundle = input.bundle;
   let built: Awaited<ReturnType<TaskArtifactConstruction['build']>>;
   try {
     built = await dependencies.construction.build({
-      capturedSourceSaid: stopped.capturedSourceSaid,
+      capturedSourceSaid: input.capturedSourceSaid,
       reviewedRecipeSaid: bundle.reviewedRecipeSaid,
       toolchainSaid: bundle.toolchainSaid,
-      containerProfileSaid: input.containerProfileSaid,
+      containerProfileSaid: input.manifest.executionProfileSaid,
       signal: input.signal,
     });
   } catch {
@@ -282,7 +327,7 @@ export async function observePublicTrialArtifact(
   }
   if (
     built.kind !== 'Frozen' ||
-    built.sourceSaid !== stopped.capturedSourceSaid ||
+    built.sourceSaid !== input.capturedSourceSaid ||
     !said.test(built.executableSaid) ||
     !said.test(built.buildReceiptSaid) ||
     !said.test(built.cleanupReceiptSaid)
@@ -331,17 +376,7 @@ export async function observePublicTrialArtifact(
       cleanupReceiptSaid: observed.cleanupReceiptSaid,
     });
   }
-  return {
-    kind: 'PublicObserved',
-    manifestSaid: input.manifest.d,
-    binding: structuredClone(input.binding),
-    capturedSourceSaid: stopped.capturedSourceSaid,
-    trialEvidenceHeadSaid: stopped.evidenceHeadSaid,
-    trialCleanupReceiptSaid: stopped.cleanupReceiptSaid,
-    providerUsageEventSaids: [...stopped.providerUsageEventSaids],
-    frozenArtifact: built,
-    publicCases,
-  };
+  return { kind: 'PublicObserved', frozenArtifact: built, publicCases };
 }
 
 /** Grade exact frozen bytes after the trusted caller has durably selected any search control. */

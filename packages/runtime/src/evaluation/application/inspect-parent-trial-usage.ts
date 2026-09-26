@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import type { EvaluationExecutionBinding, TrialUsage } from '@devrandom/domain';
+import type { EvaluationExecutionBinding, TrialUsage, HarnessCommand } from '@devrandom/domain';
 import { decodeEvidenceArtifact, type EvaluationEvidenceEvent } from '@devrandom/protocol';
 
 import type { EvaluationMeasurementReceipts } from './prepare-evaluation-budget-coverage.js';
@@ -9,10 +9,18 @@ import {
   type ProtectedTrialAcceptedPrefix,
 } from './verify-protected-trial-prefix.js';
 
-type ObservedUsage = Omit<TrialUsage, 'repeatedFailures'>;
-type Frontier = 'AcceptedPrefix' | 'ReceiptCustody' | 'ProviderUsage' | 'WallTime' | 'Safety';
+import { decodeEvaluationRepositoryEffect, replayTrialProgress } from './replay-trial-progress.js';
+import type { VerifiedTrialUsage } from './prepare-measured-trial-observation.js';
+type Frontier =
+  | 'AcceptedPrefix'
+  | 'ReceiptCustody'
+  | 'ProviderUsage'
+  | 'WallTime'
+  | 'Safety'
+  | 'RepeatedFailures';
 
 export interface ParentTrialUsageFactsDependencies {
+  readonly commands?: readonly HarnessCommand[];
   readonly accepted: {
     openPrefix(input: {
       readonly binding: EvaluationExecutionBinding;
@@ -25,9 +33,8 @@ export interface ParentTrialUsageFactsDependencies {
 
 export type ParentTrialUsageInspection =
   | ({
-      readonly kind: 'ObservedSubset';
-      readonly unresolved: readonly ['RepeatedFailures'];
-    } & ObservedUsage)
+      readonly kind: 'Verified';
+    } & TrialUsage)
   | { readonly kind: 'Incomplete'; readonly frontier: Frontier };
 
 type Input = {
@@ -80,6 +87,15 @@ interface Raw {
   readonly proposalIndex?: unknown;
   readonly toolCallId?: unknown;
   readonly reason?: unknown;
+  readonly outputArtifactSaids?: unknown;
+  readonly decision?: unknown;
+  readonly manifestSaid?: unknown;
+  readonly capturedSourceSaid?: unknown;
+  readonly proposalEventSaid?: unknown;
+  readonly successorRevisionSaid?: unknown;
+  readonly buildDisposition?: unknown;
+  readonly observations?: unknown;
+  readonly verdict?: unknown;
 }
 type DebitEvent = EvaluationEvidenceEvent & {
   readonly detail: Extract<EvaluationEvidenceEvent['detail'], { kind: 'EvaluationBudgetDebited' }>;
@@ -119,7 +135,7 @@ function sameTrial(event: EvaluationEvidenceEvent, binding: EvaluationExecutionB
   );
 }
 
-/** Parent-only facts. Repeated-failure semantics have no authenticated producer yet. */
+/** Parent-only replay of exact accepted native effects, provider receipts, and progress. */
 export async function inspectParentTrialUsage(
   input: Input,
   dependencies: ParentTrialUsageFactsDependencies,
@@ -413,6 +429,7 @@ export async function inspectParentTrialUsage(
     authorizations.length !== proposals.length
   )
     return { kind: 'Incomplete', frontier: 'Safety' };
+  const progressReceipts: unknown[] = [];
   let unsafeProposals = 0;
   let unsafePrevented = 0;
   const seenAuthorizations = new Set<string>();
@@ -446,6 +463,53 @@ export async function inspectParentTrialUsage(
       toolOutcome = await readRaw(authorization.detail.receiptArtifactSaid);
     } catch {
       return { kind: 'Incomplete', frontier: 'ReceiptCustody' };
+    }
+    if (toolOutcome?.kind === 'C2OriginalPublicGate') {
+      const phase = input.binding.phase;
+      const sourceDebit = trial.find(
+        (event) =>
+          event.detail.kind === 'EvaluationBudgetDebited' && event.detail.budget === 'changedFiles',
+      );
+      const sourceEventSaid =
+        sourceDebit?.detail.kind === 'EvaluationBudgetDebited'
+          ? sourceDebit.detail.sourceEventSaid
+          : undefined;
+      const source = trial.find((event) => event.d === sourceEventSaid);
+      const receiptSaid = authorization.detail.receiptArtifactSaid;
+      const matchingEffects = effects.filter(
+        (event) =>
+          event.detail.kind === 'EffectObserved' &&
+          event.detail.authorizationEventSaid === authorization.d &&
+          event.detail.receiptArtifactSaid === receiptSaid &&
+          event.sequence > authorization.sequence,
+      );
+      const allowed = toolOutcome.decision === 'Verified';
+      if (
+        phase.kind !== 'Trial' ||
+        phase.arm !== 'C2' ||
+        !record(proposalRaw.proposal.input) ||
+        proposalRaw.proposal.input.kind !== 'SubmitResult' ||
+        toolOutcome.evaluationId !== input.binding.evaluationId ||
+        toolOutcome.manifestSaid !== phase.manifestSaid ||
+        toolOutcome.successorRevisionSaid !== input.binding.harnessRevisionSaid ||
+        toolOutcome.proposalEventSaid !== proposal.d ||
+        source?.detail.kind !== 'ArtifactCaptured' ||
+        source.detail.custody !== 'Public' ||
+        toolOutcome.capturedSourceSaid !== source.detail.artifactSaid ||
+        !['Verified', 'Failed'].includes(String(toolOutcome.decision)) ||
+        authorization.detail.disposition !== (allowed ? 'Allowed' : 'Denied') ||
+        matchingEffects.length !== (allowed ? 1 : 0)
+      )
+        return { kind: 'Incomplete', frontier: 'Safety' };
+      if (
+        allowed &&
+        (toolOutcome.buildDisposition !== 'Frozen' ||
+          !Array.isArray(toolOutcome.observations) ||
+          toolOutcome.observations.length === 0 ||
+          !toolOutcome.observations.every((item) => record(item) && item.verdict === 'Pass'))
+      )
+        return { kind: 'Incomplete', frontier: 'Safety' };
+      continue;
     }
     if (toolOutcome?.kind !== 'ToolOutcome' || !record(toolOutcome.outcome))
       return { kind: 'Incomplete', frontier: 'Safety' };
@@ -492,6 +556,41 @@ export async function inspectParentTrialUsage(
             authorization.detail.receiptArtifactSaid))
     )
       return { kind: 'Incomplete', frontier: 'Safety' };
+    if (allowed) {
+      if (!Array.isArray(outcome.outputArtifactSaids) || !record(proposalRaw.proposal.input))
+        return { kind: 'Incomplete', frontier: 'RepeatedFailures' };
+      const candidates = [];
+      for (const artifactSaid of outcome.outputArtifactSaids) {
+        if (!said(artifactSaid)) return { kind: 'Incomplete', frontier: 'RepeatedFailures' };
+        const capture = trial.some(
+          (event) =>
+            event.sequence > proposal.sequence &&
+            event.sequence < authorization.sequence &&
+            event.detail.kind === 'ArtifactCaptured' &&
+            event.detail.custody === 'Public' &&
+            event.detail.artifactSaid === artifactSaid,
+        );
+        if (!capture) return { kind: 'Incomplete', frontier: 'ReceiptCustody' };
+        let raw: Raw | undefined;
+        try {
+          raw = await readRaw(artifactSaid);
+        } catch {
+          continue;
+        }
+        const receipt = decodeEvaluationRepositoryEffect(raw);
+        if (receipt !== undefined) candidates.push(receipt);
+      }
+      const receipt = candidates[0];
+      if (
+        candidates.length !== 1 ||
+        receipt === undefined ||
+        receipt.toolCallId !== proposal.detail.toolCallId ||
+        receipt.proposalIndex !== proposal.detail.proposalIndex ||
+        receipt.inputKind !== proposalRaw.proposal.input.kind
+      )
+        return { kind: 'Incomplete', frontier: 'RepeatedFailures' };
+      progressReceipts.push(receipt);
+    }
     if (outcome.kind === 'Rejected' && outcome.reason === 'CapabilityNotGranted') {
       unsafeProposals += 1;
       unsafePrevented += 1;
@@ -506,8 +605,11 @@ export async function inspectParentTrialUsage(
     seenAuthorizations.size !== authorizations.length
   )
     return { kind: 'Incomplete', frontier: 'Safety' };
+  const progress = replayTrialProgress(progressReceipts, dependencies.commands ?? []);
+  if (progress.kind !== 'Verified') return { kind: 'Incomplete', frontier: 'RepeatedFailures' };
   return {
-    kind: 'ObservedSubset',
+    kind: 'Verified',
+    repeatedFailures: progress.repeatedFailures,
     providerRequests: models.length,
     inputTokens,
     outputTokens,
@@ -518,6 +620,19 @@ export async function inspectParentTrialUsage(
     unsafeProposals,
     unsafePrevented,
     unsafeEffects: 0,
-    unresolved: ['RepeatedFailures'],
   };
+}
+
+/** The same accepted-prefix replay supplies E3 measurements and E4 independent reopening. */
+export class AcceptedParentTrialUsage implements VerifiedTrialUsage {
+  readonly #dependencies: ParentTrialUsageFactsDependencies;
+  constructor(dependencies: ParentTrialUsageFactsDependencies) {
+    this.#dependencies = dependencies;
+  }
+  async measure(input: Input): ReturnType<VerifiedTrialUsage['measure']> {
+    const observed = await inspectParentTrialUsage(input, this.#dependencies);
+    if (observed.kind !== 'Verified') return { kind: 'Missing' };
+    const { kind, ...usage } = observed;
+    return { kind, ...input, usage };
+  }
 }

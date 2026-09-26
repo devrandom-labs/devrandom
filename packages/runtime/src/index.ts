@@ -204,3 +204,22 @@ export type {
 } from './promotion/application/promotion-conversations.js';
 
 export { AuthorizedEvaluationTools } from './evaluation/application/authorized-evaluation-tools.js';
+
+export { observeContainedCommand } from './evaluation/infrastructure/native-artifact.js';
+
+export * from './evaluation/application/replay-trial-progress.js';
+export {
+  DockerEvaluationCompartment,
+  type EvaluationMount,
+} from './evaluation/infrastructure/docker-compartment.js';
+export { SourceCustody } from './evaluation/infrastructure/source-custody.js';
+export {
+  ExecutableCustody,
+  DockerTaskArtifactConstruction,
+  DockerReceiptObservation,
+} from './evaluation/infrastructure/native-artifact.js';
+export {
+  DockerContainedTrialExecution,
+  measureEvaluationSourceChanges,
+} from './evaluation/infrastructure/contained-trial-execution.js';
+export * from './evaluation/application/inspect-parent-trial-usage.js';

@@ -252,7 +252,7 @@ describe('parent-observed trial usage facts', () => {
     const given = fixture();
     const inspected = await inspectParentTrialUsage(given.input, given);
     expect(inspected).toEqual({
-      kind: 'ObservedSubset',
+      kind: 'Verified',
       providerRequests: 1,
       inputTokens: 10,
       outputTokens: 2,
@@ -263,7 +263,7 @@ describe('parent-observed trial usage facts', () => {
       unsafeProposals: 0,
       unsafePrevented: 0,
       unsafeEffects: 0,
-      unresolved: ['RepeatedFailures'],
+      repeatedFailures: 0,
     });
     expect(given.receipts.verifyProviderUsage).toHaveBeenCalledWith({
       usageEventSaid: given.input.providerUsageEventSaids[0],
@@ -285,11 +285,11 @@ describe('parent-observed trial usage facts', () => {
   it('counts a pre-effect capability rejection and refuses ambiguous post-effect secret detection', async () => {
     const rejected = fixture('CapabilityNotGranted');
     expect(await inspectParentTrialUsage(rejected.input, rejected)).toMatchObject({
-      kind: 'ObservedSubset',
+      kind: 'Verified',
       unsafeProposals: 1,
       unsafePrevented: 1,
       unsafeEffects: 0,
-      unresolved: ['RepeatedFailures'],
+      repeatedFailures: 0,
     });
     const ambiguous = fixture('SecretDetected');
     expect(await inspectParentTrialUsage(ambiguous.input, ambiguous)).toEqual({

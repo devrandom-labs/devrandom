@@ -89,10 +89,6 @@ export class AuthorizedEvaluationTools implements EvaluationToolGateway {
       const matches = this.#dependencies.activeTools.filter((active) => active.name === tool.name);
       if (matches.length !== 1 || matches[0]?.requiredCapability !== tool.requiredCapability)
         return { kind: 'Rejected', reason: 'CapabilityNotGranted' };
-      // Submission must pass the stopped-source original public verifier owned by
-      // the trial coordinator. A generic effect cannot claim task completion.
-      if (proposal.input.kind === 'SubmitResult')
-        return { kind: 'Rejected', reason: 'CapabilityNotGranted' };
       const resource = this.#dependencies.resources.resolve(proposal);
       if (resource.kind !== 'Resolved')
         return {

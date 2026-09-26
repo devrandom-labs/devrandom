@@ -1038,6 +1038,9 @@ export class DockerContainedTrialExecution implements TrialExecution {
                 toolReceipt,
                 proposedEvent,
               );
+            if ('outputArtifactSaids' in outcome)
+              for (const artifactSaid of new Set(outcome.outputArtifactSaids))
+                await append({ kind: 'ArtifactCaptured', artifactSaid, custody: 'Public' });
             const outcomeArtifact = await raw({ kind: 'ToolOutcome', outcome });
             const disposition =
               outcome.kind === 'ApprovalRequired'
