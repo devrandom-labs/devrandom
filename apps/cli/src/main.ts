@@ -441,7 +441,9 @@ async function runTask(label: string, signal: AbortSignal): Promise<TaskRunExecu
     },
     signal,
   );
-  return reconciled.kind === 'Reconciled' ? taskRunExecution().run(label, signal) : outcome;
+  return reconciled.kind === 'Reconciled'
+    ? taskRunExecution().run(label, signal)
+    : { ...outcome, reconciliation: reconciled.kind };
 }
 
 function taskRunObservations(): TaskRunObservations {

@@ -687,7 +687,7 @@ function renderTaskRunExecution(outcome: TaskRunExecutionOutcome): RenderedComma
       return {
         destination: 'stderr',
         exitCode: 6,
-        text: `CalibrationRecoveryRequired: ordinal ${String(outcome.ordinal)} requires sealed terminal evidence.\nRun ID: ${outcome.runId}`,
+        text: `CalibrationRecoveryRequired: ordinal ${String(outcome.ordinal)} requires sealed terminal evidence.\nRun ID: ${outcome.runId}${outcome.reconciliation === undefined ? '' : `\nTerminal reconciliation: ${outcome.reconciliation}`}`,
       };
     case 'CalibrationCampaignClosed':
       return {

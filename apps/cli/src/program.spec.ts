@@ -738,6 +738,29 @@ describe('devrandom command', () => {
     expect(runtime.output).toEqual([]);
   });
 
+  it('reports the terminal reconciliation failure without claiming a completed calibration', async () => {
+    const fixture = commandFixture();
+    const runtime = processFixture();
+    await createProgram(
+      {
+        ...fixture.commands,
+        tasks: {
+          ...fixture.commands.tasks,
+          run: () =>
+            Promise.resolve({
+              kind: 'CalibrationRecoveryRequired',
+              runId: 'original-run',
+              ordinal: 1,
+              reconciliation: 'CheckpointRejected',
+            }),
+        },
+      },
+      runtime.process,
+    ).parseAsync(['node', 'devrandom', 'task', 'run', 'repair-parser']);
+    expect(runtime.errors.join('')).toContain('Terminal reconciliation: CheckpointRejected');
+    expect(runtime.exitCodes).toEqual([6]);
+  });
+
   it('reports a numeric context preflight without disclosing Run content', async () => {
     const decoded = decodeRunProjection(runProjectionFixture());
     if (decoded.kind !== 'Accepted') throw new Error('fixture Run must decode');

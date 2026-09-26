@@ -16,6 +16,7 @@ import type { BaselineRunBinding } from '../../run/application/baseline-run-admi
 import type { CalibrationCampaignProgressReading } from '../../run/application/calibration-campaign-progress.js';
 
 import type { TaskRunPreparation, TaskRunPreparationOutcome } from './task-run-preparation.js';
+import type { TerminalCalibrationReconciliation } from '../../run/application/terminal-calibration-reconciliation.js';
 
 export type AdmittedTaskRunPreparation = Extract<
   TaskRunPreparationOutcome,
@@ -54,6 +55,7 @@ export type TaskRunExecutionOutcome =
       readonly kind: 'CalibrationRecoveryRequired';
       readonly runId: string;
       readonly ordinal: 1 | 2 | 3 | 4 | 5;
+      readonly reconciliation?: Exclude<TerminalCalibrationReconciliation['kind'], 'Reconciled'>;
     }
   | {
       readonly kind: 'CalibrationCampaignClosed';
