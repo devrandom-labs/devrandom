@@ -3,7 +3,7 @@
 Run these commands in your normal zsh terminal. They invoke the built product CLI.
 Identity and Task creation are real; opening this guide starts no model or paid Run.
 
-## What is complete — September 26, 5:48 PM Eastern
+## What is complete — September 26, 6:26 PM Eastern
 
 | Part | Verified result |
 | --- | --- |
@@ -14,15 +14,16 @@ Identity and Task creation are real; opening this guide starts no model or paid 
 | Integration | Distinct changes from all 86 worktrees are integrated into `main`; obsolete duplicate patches were excluded. |
 | Signed continuation receipts | Fixed HTTP serialization to preserve signed JSON field order and SAID verification; real HTTP regressions passed. |
 | Unstarted continuation recovery | Passed real MongoDB/HTTP recovery tests while preserving the Run, signed segment, incarnation, and budget; started or uncertain execution is rejected. |
+| Evidence across restarts | Fixed batch admission and artifact reading to preserve original provenance while reusing exact files within the same Run. Seven real MongoDB/HTTP tests passed; the repair is deployed. |
 | Checks | Latest `just check` passed: 2,491 tests, builds, CLI/server/site smoke checks, four pitch browser tests, and the Darwin Nix check. External integration tests run separately; 151 suite cases were skipped. |
 
 The live evolution campaign is **not complete**. Its first calibration Run has
-a sealed checkpoint after `ContextLimitReached`. The server admitted its same-H1
-continuation, but the CLI rejected the receipt because HTTP serialization changed
-signed field order. No successor model execution began. That transport fix is
-committed; recovery of the admitted-but-unstarted continuation passed integration
-checks and is being deployed. Live execution has not yet resumed.
-Continuation-aware budget verification passed dedicated MongoDB tests.
+a sealed checkpoint after `ContextLimitReached`. Its continuation started, then
+stopped when batch admission rejected reused evidence files. The receipt and
+artifact-admission defects are repaired, but recovery of this started process
+still needs a verified checkpoint and a new incarnation. That recovery is being
+implemented. The failed successor made no model request or tool call; its recorded
+nine seconds remain consumed. Live Task execution is **not ready**.
 
 The complete native comparison fixture ran 18 coding rollouts and produced 15
 measurements. Its honest result was **retain H1 / no eligible improvement**.
