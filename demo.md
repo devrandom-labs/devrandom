@@ -3,6 +3,28 @@
 Run these commands in your normal zsh terminal. They invoke the built product CLI.
 Identity and Task creation are real; opening this guide starts no model or paid Run.
 
+## What is complete — September 26, 5:24 PM Eastern
+
+| Part | Verified result |
+| --- | --- |
+| Normal CLI | Commands run directly from zsh through `devrandom`; no interactive presenter or `RUN` prompt. |
+| Registration | Real browser approval, credential issuance, `init`, and `whoami` passed against the running services. |
+| Task management | Real Task creation, listing, and inspection passed using a separate rehearsal identity. |
+| Registration repairs | Corrected the schema service address and mixed-credential reconciliation that caused the silent wait and rejected issuance. |
+| Integration | Distinct changes from all 86 worktrees are integrated into `main`; obsolete duplicate patches were excluded. |
+| Checks | Latest `just check` passed: 2,484 tests, builds, CLI/server/site smoke checks, four pitch browser tests, and the Darwin Nix check. External integration tests run separately; 151 suite cases were skipped. |
+
+The live evolution campaign is **not complete**. Its first calibration Run has
+a sealed checkpoint after `ContextLimitReached`. Same-H1 continuation and
+continuation-aware budget verification are implemented and passed dedicated MongoDB
+tests; the corrected live recovery is being deployed and has not yet succeeded.
+
+The complete native comparison fixture ran 18 coding rollouts and produced 15
+measurements. Its honest result was **retain H1 / no eligible improvement**.
+That fixture uses a simulated provider and qualification inputs. Qualified live
+failure, live candidate selection and activation, H2 crash recovery, original
+Task completion, and live publication/fetch/fork remain to be proven.
+
 ## 1. Configure the command
 
 If the older interactive presenter is open, type `exit` first. Paste this block
@@ -78,6 +100,19 @@ campaign. It does not enter the interactive presenter.
 cd /Users/joel/Code/devrandom/devrandom
 nix develop -c just demo-prd03-recorded /Users/joel/Code/devrandom/devrandom/.devrandom/prd03-demo
 ```
+
+## Optional: inspect the actual campaign without running it
+
+The campaign belongs to the original identity, separate from the presentation
+identity above. This single command temporarily selects that original profile
+and reads its durable Run state; it does not resume execution or spend model budget.
+
+```zsh
+DEVRANDOM_USER_STATE_DIR=/Users/joel/.devrandom devrandom task status cesr-scoped-compat
+```
+
+Show the actual state, checkpoint, evidence count, and seal it reports. A blocked
+Run is evidence of a recorded stop, not a completed task or a qualified failure.
 
 ## Task file setup — only if the prepared file is missing
 
