@@ -175,14 +175,14 @@ function verifiedEvidence(controlSuccesses = 0): VerifiedPromotionEvidence {
     expectedPointerVersion: 1,
     evaluationManifestSaid: manifest.manifest.d,
     evaluationClosureSaid: closure.closure.d,
-    hypothesisSaid: said('n'),
+    hypothesisSaid: manifest.manifest.hypothesisSaid,
     selection,
   });
   if (record.kind !== 'Prepared') throw new Error('fixture selection record rejected');
   return {
     manifest: manifest.manifest,
     closure: closure.closure,
-    hypothesisSaid: said('n'),
+    hypothesisSaid: manifest.manifest.hypothesisSaid,
     selectionRecord: record.record,
     comparison,
   };
@@ -363,6 +363,35 @@ describe('local governed promotion', () => {
     test.setReading({
       kind: 'Verified',
       evidence: { ...test.evidence, selectionRecord: alternate.record },
+    });
+    expect(await authorizePromotion(test.input, test.dependencies)).toEqual({
+      kind: 'Blocked',
+      reason: 'EvidenceInvalid',
+    });
+    expect(test.counts()).toEqual({ agentSigns: 0, governorSigns: 0, commits: 0, routes: 0 });
+  });
+
+  it('refuses a self-consistent H0 selection that differs from locked M before either principal signs', async () => {
+    const test = harness();
+    const alternate = preparePromotionSelectionRecord({
+      taskId: test.input.taskId,
+      taskRevisionSaid: test.input.taskRevisionSaid,
+      harnessLineageId: test.input.harnessLineageId,
+      expectedIncumbentRevisionSaid: test.input.expectedIncumbentRevisionSaid,
+      expectedPointerVersion: test.input.expectedPointerVersion,
+      evaluationManifestSaid: test.evidence.manifest.d,
+      evaluationClosureSaid: test.evidence.closure.d,
+      hypothesisSaid: said('n'),
+      selection: test.evidence.selectionRecord.selection,
+    });
+    if (alternate.kind !== 'Prepared') throw new Error('alternate H0 rejected');
+    test.setReading({
+      kind: 'Verified',
+      evidence: {
+        ...test.evidence,
+        hypothesisSaid: said('n'),
+        selectionRecord: alternate.record,
+      },
     });
     expect(await authorizePromotion(test.input, test.dependencies)).toEqual({
       kind: 'Blocked',

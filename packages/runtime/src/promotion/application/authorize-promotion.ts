@@ -88,7 +88,7 @@ function evidenceValid(
     evidence.manifest.taskRevisionSaid === input.taskRevisionSaid &&
     evidence.manifest.revisions.H1 === input.expectedIncumbentRevisionSaid &&
     evidence.comparison.evidence === 'Acknowledged' &&
-    said.test(evidence.hypothesisSaid) &&
+    evidence.hypothesisSaid === evidence.manifest.hypothesisSaid &&
     said.test(evidence.selectionRecord.d)
   );
 }
