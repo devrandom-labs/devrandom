@@ -498,6 +498,13 @@ test-file file: _require-nix
 materialize-cesr-fixture destination: _require-nix
     pnpm exec tsx tooling/cesr-receipt-fixture.ts {{quote(destination)}}
 
+# Explicit simulation backup; raw proof reports remain available for inspection.
+demo-prd03-prepare output=".devrandom/prd03-demo": _require-nix
+    pnpm exec tsx tooling/prd03-demo.ts prepare {{quote(output)}}
+
+demo-prd03 output=".devrandom/prd03-demo" stage="": _require-nix
+    pnpm exec tsx tooling/prd03-demo.ts present {{quote(output)}} {{ if stage == "" { "" } else { quote(stage) } }}
+
 test-cesr-fixture: _require-nix
     pnpm exec vitest run tooling/cesr-receipt-fixture.spec.ts
 

@@ -1,5 +1,5 @@
 import type { Db } from 'mongodb';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { issuerAid, personalAgentAid } from '@devrandom/identity';
 import { evaluationClosureSealPayload, prepareEvaluationClosure } from '@devrandom/protocol';
@@ -99,6 +99,13 @@ function fixture() {
 }
 
 describe('KERIA-backed Evaluation closure authority', () => {
+  beforeEach(() => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-26T12:00:00.000Z'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('authorizes only the current Task agent whose issuer KERIA exchange matches the exact claim', async () => {
     const { authority, exchanges } = fixture();
     await expect(authority.verify({ ownerAid, closure })).resolves.toEqual({ kind: 'Authorized' });
