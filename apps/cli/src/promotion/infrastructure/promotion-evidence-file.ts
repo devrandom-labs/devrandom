@@ -12,20 +12,17 @@ import {
   type EvaluationClosureEvidenceIndex,
   type PromotionSelectionRecord,
 } from '@devrandom/protocol';
-import type Type from 'typebox';
 import Value from 'typebox/value';
 
-type ClosureCommand = Type.Static<typeof evaluationClosureCommandSchema>;
+import type {
+  PromotionClosureCommand,
+  StagedPromotionCustody,
+} from '../application/open-promotion-custody.js';
+
+type ClosureCommand = PromotionClosureCommand;
 
 export type PromotionEvidenceStaging = 'Staged' | 'Conflict' | 'Unavailable';
-export type PromotionEvidenceCustody =
-  | {
-      readonly kind: 'Staged';
-      readonly closureCommand: ClosureCommand;
-      readonly index: EvaluationClosureEvidenceIndex;
-      readonly selectionRecord?: PromotionSelectionRecord;
-    }
-  | { readonly kind: 'Absent' | 'Unavailable' };
+export type PromotionEvidenceCustody = StagedPromotionCustody;
 
 const said = /^[A-Z][A-Za-z0-9_-]{43}$/u;
 const maximumClosureBytes = 512 * 1_024;
