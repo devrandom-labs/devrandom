@@ -1,11 +1,30 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import type { Run, TaskBudgets } from '@devrandom/domain';
 import type { EvidenceEvent, VerifiedCheckpoint } from '@devrandom/protocol';
 const fixture = join(process.cwd(), 'apps/cli/test/continuation-process-fixture.ts');
+async function retainDemoProof(
+  scenario: 'verified' | 'tampered',
+  proof: {
+    readonly terminationSignal: NodeJS.Signals | null;
+    readonly runId?: string;
+    readonly originalRunId?: string;
+    readonly recovery: unknown;
+  },
+): Promise<void> {
+  const directory = process.env.DEVRANDOM_DEMO_REPORT_DIRECTORY;
+  if (directory === undefined) return;
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(
+    join(directory, `recovery-process-loss-${scenario}.json`),
+    `${JSON.stringify({ version: 1, mode: 'Simulation', generatedAt: new Date().toISOString(), stageId: 'process-loss-recovery', continuity: 'IndependentFixtureProofs', status: 'Passed', simulatedInputs: ['Initial Run authority', 'Hosted seal acknowledgements', 'Localhost admission authority'], ...proof }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+}
+
 it.each([false, true])(
   'external SIGKILL preserves acknowledged pause custody; tampered source=%s',
   async (tamper) => {
@@ -45,7 +64,8 @@ it.each([false, true])(
         }),
       );
       child.kill('SIGKILL');
-      expect(await killed).toBe('SIGKILL');
+      const terminationSignal = await killed;
+      expect(terminationSignal).toBe('SIGKILL');
       const snapshot = JSON.parse(await readFile(join(root, 'snapshot.json'), 'utf8')) as {
         run: Run;
         worktree: { directory: string };
@@ -85,6 +105,11 @@ it.each([false, true])(
       };
       if (tamper) {
         expect(result).toEqual({ kind: 'ArtifactMismatch', admissions: 0 });
+        await retainDemoProof('tampered', {
+          terminationSignal,
+          runId: snapshot.run.binding.runId,
+          recovery: result,
+        });
         return;
       }
       expect(result.kind).toBe('Resumed');
@@ -102,6 +127,11 @@ it.each([false, true])(
       expect(result.repository.changedFiles).toHaveLength(1);
       expect(result.oldPrefix).toEqual(snapshot.events.map((event) => event.d));
       expect(result.artifactCount).toBeGreaterThan(0);
+      await retainDemoProof('verified', {
+        terminationSignal,
+        originalRunId: snapshot.run.binding.runId,
+        recovery: result,
+      });
     } finally {
       for (const process of children) process.kill('SIGKILL');
       await rm(root, { recursive: true, force: true });
