@@ -838,32 +838,42 @@ export async function executeLockedComparison(
     const finalizationSeconds = Math.max(1, Math.ceil(elapsed.elapsedMilliseconds / 1000));
     if (finalizationSeconds > manifest.allocation.finalization.runWallTimeSeconds)
       throw new Error('FinalizationBudget');
-    const finalizationRaw = await evidence.rawArtifacts.record({
-      mediaType: 'application/json',
-      bytes: Buffer.from(
-        JSON.stringify({
-          version: 1,
-          kind: 'EvaluationFinalizationElapsed',
-          ...(input.researchPreparation === undefined
-            ? {}
-            : { researchPreparationReceiptSaid: input.researchPreparation.receiptArtifactSaid }),
-          method: 'ParentMonotonicComparisonLessCodingIntervals',
-          startedMonotonicMicroseconds: comparisonStarted,
-          finishedMonotonicMicroseconds: comparisonFinished,
-          codingWallReceiptSaids: intervals.map((item) => item.artifactSaid),
-          elapsedMilliseconds: elapsed.elapsedMilliseconds,
-          debitedSeconds: finalizationSeconds,
-          throughSequence: finalizationAnchor.sequence,
-          throughHeadSaid: finalizationAnchor.headSaid,
-        }),
-      ),
-    });
+    const finalizationDeadlineMilliseconds =
+      comparisonFinished / 1000 +
+      manifest.allocation.finalization.runWallTimeSeconds * 1000 -
+      elapsed.elapsedMilliseconds;
+    const withinFinalization = <T>(effect: () => Promise<T>) =>
+      withinFinalizationWall(finalizationDeadlineMilliseconds, effect);
+    const finalizationRaw = await withinFinalization(() =>
+      evidence.rawArtifacts.record({
+        mediaType: 'application/json',
+        bytes: Buffer.from(
+          JSON.stringify({
+            version: 1,
+            kind: 'EvaluationFinalizationElapsed',
+            ...(input.researchPreparation === undefined
+              ? {}
+              : { researchPreparationReceiptSaid: input.researchPreparation.receiptArtifactSaid }),
+            method: 'ParentMonotonicComparisonLessCodingIntervals',
+            startedMonotonicMicroseconds: comparisonStarted,
+            finishedMonotonicMicroseconds: comparisonFinished,
+            codingWallReceiptSaids: intervals.map((item) => item.artifactSaid),
+            elapsedMilliseconds: elapsed.elapsedMilliseconds,
+            debitedSeconds: finalizationSeconds,
+            throughSequence: finalizationAnchor.sequence,
+            throughHeadSaid: finalizationAnchor.headSaid,
+          }),
+        ),
+      }),
+    );
     if (finalizationRaw.kind !== 'Stored') throw new Error('FinalizationReceipt');
-    await append({
-      kind: 'ArtifactCaptured',
-      artifactSaid: finalizationRaw.artifact.d,
-      custody: 'Public',
-    });
+    await withinFinalization(() =>
+      append({
+        kind: 'ArtifactCaptured',
+        artifactSaid: finalizationRaw.artifact.d,
+        custody: 'Public',
+      }),
+    );
     const priorWall = [...beforeFinalization.events]
       .reverse()
       .find(
@@ -873,29 +883,36 @@ export async function executeLockedComparison(
       );
     if (priorWall?.detail.kind !== 'EvaluationBudgetDebited')
       throw new Error('FinalizationReceipt');
-    await append({
-      kind: 'EvaluationBudgetDebited',
-      budget: 'runWallTimeSeconds',
-      amount: finalizationSeconds,
-      consumed: priorWall.detail.consumed + finalizationSeconds,
-      receiptArtifactSaid: finalizationRaw.artifact.d,
-      sourceEventSaid: finalizationAnchor.headSaid,
-    });
-    const coveredPrefix = await readPrefix();
+    const priorWallConsumed = priorWall.detail.consumed;
+    await withinFinalization(() =>
+      append({
+        kind: 'EvaluationBudgetDebited',
+        budget: 'runWallTimeSeconds',
+        amount: finalizationSeconds,
+        consumed: priorWallConsumed + finalizationSeconds,
+        receiptArtifactSaid: finalizationRaw.artifact.d,
+        sourceEventSaid: finalizationAnchor.headSaid,
+      }),
+    );
+    const coveredPrefix = await withinFinalization(readPrefix);
     const reserved = { ...manifest.allocation.diagnosis };
     for (const dimension of evaluationConsumables)
       reserved[dimension] +=
         15 * manifest.allocation.perEntry[dimension] + manifest.allocation.finalization[dimension];
-    const coverage = await prepareEvaluationBudgetCoverage(
-      { binding: activeBinding, reserved, occurredAt: new Date().toISOString() },
-      { accepted, receipts },
+    const coverage = await withinFinalization(() =>
+      prepareEvaluationBudgetCoverage(
+        { binding: activeBinding, reserved, occurredAt: new Date().toISOString() },
+        { accepted, receipts },
+      ),
     );
     if (coverage.kind !== 'Prepared' || coverage.event.detail.kind !== 'EvaluationBudgetCovered')
       throw new Error('BudgetCoverage');
-    if ((await evidence.record(coverage.event)).kind !== 'Recorded')
+    if ((await withinFinalization(() => evidence.record(coverage.event))).kind !== 'Recorded')
       throw new Error('BudgetAcknowledgement');
-    if (!(await refresh())) throw new Error('LeaseLost');
+    if (!(await withinFinalization(refresh))) throw new Error('LeaseLost');
     clearInterval(pulse);
+    if (refreshing !== undefined)
+      await withinFinalization(() => refreshing ?? Promise.resolve(false));
     const index = prepareEvaluationClosureEvidenceIndex({
       version: 1,
       kind: 'EvaluationClosureEvidenceIndex',
@@ -975,11 +992,11 @@ export async function executeLockedComparison(
       payload: { version: 1 as const, kind: 'EvaluationClosureSeal' as const, claim },
       preparedAt: Date.now(),
     };
-    const signed = await input.signing.exchange.prepare(signing);
-    await input.signing.exchange.deliver({ ...signing, ...signed });
+    const signed = await withinFinalization(() => input.signing.exchange.prepare(signing));
+    await withinFinalization(() => input.signing.exchange.deliver({ ...signing, ...signed }));
     const closed = prepareEvaluationClosure({ ...claim, agentSealSaid: signed.exchangeSaid });
     if (closed.kind !== 'Prepared') throw new Error('ClosureSeal');
-    const position = await hosted.readPosition(binding.evaluationId);
+    const position = await withinFinalization(() => hosted.readPosition(binding.evaluationId));
     if (position.kind !== 'Read') throw new Error('ClosureVersion');
     const command = {
       version: 1 as const,
@@ -992,9 +1009,9 @@ export async function executeLockedComparison(
         bytesBase64Url: Buffer.from(index.bytes).toString('base64url'),
       },
     };
-    const staged = await new PromotionEvidenceFile(
-      join(input.stateRoot, 'promotion-evidence'),
-    ).stageClosure(command);
+    const staged = await withinFinalization(() =>
+      new PromotionEvidenceFile(join(input.stateRoot, 'promotion-evidence')).stageClosure(command),
+    );
     if (staged !== 'Staged') throw new Error('ClosureCustody');
     const commandBytes = Buffer.from(JSON.stringify(command));
     const commandArtifact = prepareEvidenceArtifact(commandBytes, 'application/json');
@@ -1004,7 +1021,17 @@ export async function executeLockedComparison(
         .kind !== 'Stored'
     )
       throw new Error('ClosureCommandCustody');
-    const delivered = await hosted.closeEvidence(command, signal);
+    const delivered = await withinFinalization(() =>
+      hosted.closeEvidence(
+        command,
+        AbortSignal.any([
+          signal,
+          AbortSignal.timeout(
+            Math.max(0, Math.ceil(finalizationDeadlineMilliseconds - performance.now())),
+          ),
+        ]),
+      ),
+    );
     return delivered.kind === 'Closed' || delivered.kind === 'AlreadyClosed'
       ? { kind: 'Closed', closureSaid: delivered.closureSaid }
       : { kind: 'Incomplete', frontier: `Closure:${delivered.kind}` };
@@ -1019,6 +1046,19 @@ export async function executeLockedComparison(
     if (refreshing !== undefined) await refreshing.catch(() => false);
     if (directory !== undefined) await rm(directory, { recursive: true, force: true });
   }
+}
+
+/** Closure authority remains bounded while slow control-plane effects finish. */
+export async function withinFinalizationWall<T>(
+  deadlineMilliseconds: number,
+  effect: () => Promise<T>,
+  now: () => number = () => performance.now(),
+): Promise<T> {
+  if (!Number.isFinite(deadlineMilliseconds) || now() >= deadlineMilliseconds)
+    throw new Error('FinalizationBudget');
+  const outcome = await effect();
+  if (now() >= deadlineMilliseconds) throw new Error('FinalizationBudget');
+  return outcome;
 }
 
 /** Retries only a previously sealed exact command; never starts a worker or requests inference. */

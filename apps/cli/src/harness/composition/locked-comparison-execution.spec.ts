@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { prepareEvidenceArtifact } from '@devrandom/protocol';
 import { expect, it, vi } from 'vitest';
 import { fixture, said } from '../../../test/promotion-evidence-fixture.js';
-import { retryRetainedComparisonClosure } from './locked-comparison-execution.js';
+import {
+  retryRetainedComparisonClosure,
+  withinFinalizationWall,
+} from './locked-comparison-execution.js';
 
 it('retries the identical sealed closure after a lost acknowledgement without rerunning trials', async () => {
   const root = await mkdtemp(join(await realpath(tmpdir()), 'comparison-closure-'));
@@ -42,5 +45,23 @@ it('retries the identical sealed closure after a lost acknowledgement without re
     expect(closeEvidence).toHaveBeenCalledTimes(2);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('does not release a late signing or upload outcome after F expires', async () => {
+  for (const kind of ['Signed', 'Closed'] as const) {
+    let now = 0;
+    const effect = vi.fn().mockImplementation(() => {
+      now = 11;
+      return Promise.resolve({ kind });
+    });
+    await expect(withinFinalizationWall(10, effect, () => now)).rejects.toThrow(
+      'FinalizationBudget',
+    );
+    expect(effect).toHaveBeenCalledTimes(1);
+    await expect(withinFinalizationWall(10, effect, () => now)).rejects.toThrow(
+      'FinalizationBudget',
+    );
+    expect(effect).toHaveBeenCalledTimes(1);
   }
 });
