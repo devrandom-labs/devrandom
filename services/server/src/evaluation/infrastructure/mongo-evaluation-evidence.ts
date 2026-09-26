@@ -9,7 +9,12 @@ import {
   type ClientSession,
 } from 'mongodb';
 
-import { taskBudgetCeilings } from '@devrandom/domain';
+import {
+  evaluationConsumables,
+  taskBudgetCeilings,
+  type EvaluationAllowance,
+  type EvaluationConsumable,
+} from '@devrandom/domain';
 import {
   decodeEvaluationClosure,
   decodeEvaluationEvidenceBatch,
@@ -144,6 +149,120 @@ function referencedArtifacts(event: EvaluationEvidenceEvent): readonly string[] 
     case 'EvaluationBudgetDebited':
       return [event.detail.receiptArtifactSaid];
   }
+}
+
+type DebitedBudget = Exclude<EvaluationConsumable, 'evidencePlusArtifactsPerRunBytes'>;
+const debitedBudgets: readonly DebitedBudget[] = evaluationConsumables.filter(
+  (budget) => budget !== 'evidencePlusArtifactsPerRunBytes',
+);
+
+export type EvaluationBudgetCoverageReplay =
+  | {
+      readonly kind: 'StructurallyConsistent';
+      readonly totals: Readonly<Record<DebitedBudget, number>>;
+      readonly receiptArtifactSaids: readonly string[];
+    }
+  | {
+      readonly kind: 'Incomplete';
+      readonly reason:
+        | 'EventChainInvalid'
+        | 'MissingCoverage'
+        | 'SourceMissing'
+        | 'DebitSequenceInvalid'
+        | 'BudgetExceeded'
+        | 'TotalsMismatch'
+        | 'ProviderUsageUnlinked'
+        | 'MissingDimension';
+    };
+
+/** Structural replay only: it does not attest provider, clock, child, or worktree measurements. */
+export function replayEvaluationBudgetCoverage(input: {
+  readonly events: readonly EvaluationEvidenceEvent[];
+  readonly reserved: EvaluationAllowance;
+}): EvaluationBudgetCoverageReplay {
+  if (input.events.length < 2 || input.events.length > 10_000)
+    return { kind: 'Incomplete', reason: 'EventChainInvalid' };
+  if (
+    debitedBudgets.some(
+      (budget) =>
+        !Number.isSafeInteger(input.reserved[budget]) ||
+        input.reserved[budget] < 0 ||
+        input.reserved[budget] > taskBudgetCeilings[budget],
+    )
+  )
+    return { kind: 'Incomplete', reason: 'BudgetExceeded' };
+  const first = input.events[0];
+  const last = input.events.at(-1);
+  if (first === undefined || last?.detail.kind !== 'EvaluationBudgetCovered')
+    return { kind: 'Incomplete', reason: 'MissingCoverage' };
+  const totals = Object.fromEntries(debitedBudgets.map((budget) => [budget, 0])) as Record<
+    DebitedBudget,
+    number
+  >;
+  const seen = new Set<DebitedBudget>();
+  const prior = new Map<string, EvaluationEvidenceEvent>();
+  const receiptArtifactSaids = new Set<string>();
+  for (const [index, event] of input.events.entries()) {
+    const predecessor = input.events[index - 1];
+    if (
+      decodeEvaluationEvidenceEvent(event).kind !== 'Accepted' ||
+      event.sequence !== index ||
+      event.evaluationId !== first.evaluationId ||
+      event.streamId !== first.streamId ||
+      event.originRunId !== first.originRunId ||
+      event.taskId !== first.taskId ||
+      event.taskRevisionSaid !== first.taskRevisionSaid ||
+      event.personalAgentAid !== first.personalAgentAid ||
+      event.taskMandateSaid !== first.taskMandateSaid ||
+      (index === 0
+        ? event.previous.kind !== 'Genesis'
+        : event.previous.kind !== 'Previous' || event.previous.eventSaid !== predecessor?.d)
+    )
+      return { kind: 'Incomplete', reason: 'EventChainInvalid' };
+    if (event.detail.kind === 'EvaluationBudgetCovered' && index !== input.events.length - 1)
+      return { kind: 'Incomplete', reason: 'MissingCoverage' };
+    if (event.detail.kind === 'EvaluationBudgetDebited') {
+      const debit = event.detail;
+      // TypeBox's mapped literal union erases this property to `never` in Static.
+      const budget = debit.budget as DebitedBudget;
+      const source =
+        debit.sourceEventSaid === undefined ? undefined : prior.get(debit.sourceEventSaid);
+      if (
+        source === undefined ||
+        (budget.startsWith('provider') && source.detail.kind !== 'ModelExchange') ||
+        (budget === 'toolProposals' && source.detail.kind !== 'ToolProposed')
+      )
+        return { kind: 'Incomplete', reason: 'SourceMissing' };
+      const next = totals[budget] + debit.amount;
+      if (
+        !Number.isSafeInteger(next) ||
+        next > input.reserved[budget] ||
+        next > taskBudgetCeilings[budget]
+      )
+        return { kind: 'Incomplete', reason: 'BudgetExceeded' };
+      if (debit.consumed !== next) return { kind: 'Incomplete', reason: 'DebitSequenceInvalid' };
+      totals[budget] = next;
+      seen.add(budget);
+      receiptArtifactSaids.add(debit.receiptArtifactSaid);
+    }
+    prior.set(event.d, event);
+  }
+  const coverage = last.detail;
+  if (
+    coverage.throughSequence !== last.sequence - 1 ||
+    coverage.throughHeadSaid !== input.events.at(-2)?.d ||
+    debitedBudgets.some((budget) => coverage.totals[budget] !== totals[budget])
+  )
+    return { kind: 'Incomplete', reason: 'TotalsMismatch' };
+  if (coverage.providerUsageEventSaids.length !== totals.providerRequests)
+    return { kind: 'Incomplete', reason: 'ProviderUsageUnlinked' };
+  if (debitedBudgets.some((budget) => !seen.has(budget)))
+    return { kind: 'Incomplete', reason: 'MissingDimension' };
+  return {
+    kind: 'StructurallyConsistent',
+    totals,
+    receiptArtifactSaids: [...receiptArtifactSaids],
+  };
 }
 
 /** Atomic native Evaluation stream; a Run's sealed stream is never touched. */
@@ -474,52 +593,92 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
             ...Object.values(closure.armAuditSaids),
             closure.protectedCustodySaid,
           ];
-          const stored = await this.#artifacts.countDocuments(
-            { evaluationId: evaluation._id, ownerAid, 'artifact.d': { $in: requiredSaids } },
-            { session },
-          );
-          if (stored !== new Set(requiredSaids).size) return { kind: 'Incomplete' as const };
-          const coverageDocument = await this.#events.findOne(
-            {
-              ownerAid,
-              evaluationId: evaluation._id,
-              streamId: evaluation.evidenceStreamId,
-              sequence: evaluation.acceptedThroughSequence,
-            },
-            { session },
-          );
           if (
-            coverageDocument === null ||
-            coverageDocument._id !== evaluation.chainHeadSaid ||
-            coverageDocument.event.d !== coverageDocument._id ||
-            decodeEvaluationEvidenceEvent(coverageDocument.event).kind !== 'Accepted' ||
-            coverageDocument.event.detail.kind !== 'EvaluationBudgetCovered' ||
-            coverageDocument.event.sequence !== evaluation.acceptedThroughSequence ||
-            coverageDocument.event.detail.throughSequence !==
-              evaluation.acceptedThroughSequence - 1 ||
-            coverageDocument.event.previous.kind !== 'Previous' ||
-            coverageDocument.event.previous.eventSaid !==
-              coverageDocument.event.detail.throughHeadSaid
+            new Set(requiredSaids).size !== requiredSaids.length ||
+            evaluation.acceptedThroughSequence < 1 ||
+            evaluation.acceptedThroughSequence >= 10_000
           )
             return { kind: 'Incomplete' as const };
-          const predecessor = await this.#events.findOne(
-            {
-              ownerAid,
-              evaluationId: evaluation._id,
-              streamId: evaluation.evidenceStreamId,
-              sequence: coverageDocument.event.detail.throughSequence,
-            },
-            { session },
-          );
+          const eventDocuments = await this.#events
+            .find(
+              {
+                ownerAid,
+                evaluationId: evaluation._id,
+                streamId: evaluation.evidenceStreamId,
+                sequence: { $lte: evaluation.acceptedThroughSequence },
+              },
+              { session },
+            )
+            .sort({ sequence: 1 })
+            .limit(10_001)
+            .toArray();
           if (
-            predecessor === null ||
-            predecessor._id !== coverageDocument.event.detail.throughHeadSaid ||
-            predecessor.event.d !== predecessor._id ||
-            decodeEvaluationEvidenceEvent(predecessor.event).kind !== 'Accepted'
+            eventDocuments.length !== evaluation.acceptedThroughSequence + 1 ||
+            eventDocuments.some(
+              ({ _id, event }) =>
+                _id !== event.d ||
+                event.evaluationId !== evaluation._id ||
+                event.streamId !== evaluation.evidenceStreamId ||
+                event.originRunId !== evaluation.command.originRunId ||
+                event.taskId !== evaluation.command.taskId ||
+                event.taskRevisionSaid !== evaluation.command.taskRevisionSaid ||
+                event.personalAgentAid !== evaluation.command.personalAgentAid ||
+                event.taskMandateSaid !== evaluation.command.taskMandateSaid,
+            ) ||
+            eventDocuments.at(-1)?.event.d !== evaluation.chainHeadSaid
           )
             return { kind: 'Incomplete' as const };
+          const replay = replayEvaluationBudgetCoverage({
+            events: eventDocuments.map(({ event }) => event),
+            reserved: evaluation.reserved,
+          });
+          if (replay.kind !== 'StructurallyConsistent') return { kind: 'Incomplete' as const };
+          const captured = new Map<string, 'Public' | 'ProtectedCiphertext'>();
+          for (const { event } of eventDocuments)
+            if (event.detail.kind === 'ArtifactCaptured')
+              captured.set(event.detail.artifactSaid, event.detail.custody);
+          if (
+            requiredSaids.some(
+              (said) =>
+                captured.get(said) !==
+                (said === closure.protectedCustodySaid ? 'ProtectedCiphertext' : 'Public'),
+            )
+          )
+            return { kind: 'Incomplete' as const };
+          const artifactSaids = [...new Set([...requiredSaids, ...replay.receiptArtifactSaids])];
+          if (replay.receiptArtifactSaids.some((said) => captured.get(said) !== 'Public'))
+            return { kind: 'Incomplete' as const };
+          const artifactDocuments = await this.#artifacts
+            .find(
+              { evaluationId: evaluation._id, ownerAid, 'artifact.d': { $in: artifactSaids } },
+              { session },
+            )
+            .limit(artifactSaids.length + 1)
+            .toArray();
+          if (artifactDocuments.length !== artifactSaids.length)
+            return { kind: 'Incomplete' as const };
+          for (const stored of artifactDocuments) {
+            if (stored._id !== stored.artifact.d || !artifactSaids.includes(stored._id))
+              return { kind: 'Incomplete' as const };
+            if (stored._id === closure.protectedCustodySaid) {
+              const protectedArtifact = decodeProtectedEvaluationArtifact(stored.artifact);
+              if (
+                stored.custody !== 'ProtectedCiphertext' ||
+                protectedArtifact.kind !== 'Accepted' ||
+                protectedArtifact.artifact.evaluationId !== evaluation._id
+              )
+                return { kind: 'Incomplete' as const };
+            } else if (
+              stored.custody !== 'Public' ||
+              !(stored.bytes instanceof Binary) ||
+              decodeEvidenceArtifact(stored.artifact, Uint8Array.from(stored.bytes.buffer)).kind !==
+                'Accepted'
+            )
+              return { kind: 'Incomplete' as const };
+          }
           // A SAID-valid coverage claim and retained bytes do not prove measured consumption.
-          // Until trusted measured-source receipts are verified, the reservation stays held.
+          // The current producer omits four dimensions and no independent source proves
+          // provider, clock, child-command, or worktree measurements. Hold the reservation.
           return { kind: 'Incomplete' as const };
         }),
       );

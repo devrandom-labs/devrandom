@@ -26,7 +26,11 @@ import {
   MongoEvaluationReservations,
   type EvaluationDocument,
 } from './mongo-evaluation-reservations.js';
-import { evaluationEvidenceIndexes, MongoEvaluationEvidence } from './mongo-evaluation-evidence.js';
+import {
+  evaluationEvidenceIndexes,
+  MongoEvaluationEvidence,
+  replayEvaluationBudgetCoverage,
+} from './mongo-evaluation-evidence.js';
 import { MongoEvaluationBootstrap } from './mongo-evaluation-bootstrap.js';
 
 const mongoUri = process.env.DEVRANDOM_MONGODB_URI;
@@ -65,6 +69,20 @@ function event(
         elapsedMilliseconds: number;
       }
     | { kind: 'ModelExchange'; rawArtifactSaid: string }
+    | {
+        kind: 'ToolProposed';
+        proposalIndex: number;
+        toolCallId: string;
+        inputArtifactSaid: string;
+      }
+    | {
+        kind: 'EvaluationBudgetDebited';
+        budget: Exclude<keyof typeof budget, 'evidencePlusArtifactsPerRunBytes'>;
+        amount: number;
+        consumed: number;
+        receiptArtifactSaid: string;
+        sourceEventSaid: string;
+      }
     | { kind: 'SourceRead'; sourceSaid: string; rawArtifactSaid: string }
     | {
         kind: 'ArtifactCaptured';
@@ -108,6 +126,172 @@ function event(
   if (prepared.kind !== 'Prepared') throw new Error(prepared.reason);
   return prepared.event;
 }
+
+it('rejects a final zero-coverage claim after an acknowledged provider request debit', () => {
+  const zeroTotals = {
+    providerRequests: 0,
+    providerInputTokens: 0,
+    providerOutputTokens: 0,
+    providerSpendMicroUsd: 0,
+    runWallTimeSeconds: 0,
+    toolProposals: 0,
+    aggregateChildCommandTimeSeconds: 0,
+    changedFiles: 0,
+    changedWorktreeBytes: 0,
+  };
+  const exchange = event(
+    0,
+    { kind: 'Genesis' },
+    { kind: 'ModelExchange', rawArtifactSaid: said('x') },
+  );
+  const debit = event(
+    1,
+    { kind: 'Previous', eventSaid: exchange.d },
+    {
+      kind: 'EvaluationBudgetDebited',
+      budget: 'providerRequests',
+      amount: 1,
+      consumed: 1,
+      receiptArtifactSaid: said('u'),
+      sourceEventSaid: exchange.d,
+    },
+  );
+  const coverage = event(
+    2,
+    { kind: 'Previous', eventSaid: debit.d },
+    {
+      kind: 'EvaluationBudgetCovered',
+      throughSequence: 1,
+      throughHeadSaid: debit.d,
+      totals: zeroTotals,
+      providerUsageEventSaids: [],
+    },
+  );
+  expect(
+    replayEvaluationBudgetCoverage({ events: [exchange, debit, coverage], reserved: budget }),
+  ).toEqual({
+    kind: 'Incomplete',
+    reason: 'TotalsMismatch',
+  });
+  const omittedDimensions = event(
+    2,
+    { kind: 'Previous', eventSaid: debit.d },
+    {
+      kind: 'EvaluationBudgetCovered',
+      throughSequence: 1,
+      throughHeadSaid: debit.d,
+      totals: { ...zeroTotals, providerRequests: 1 },
+      providerUsageEventSaids: [said('v')],
+    },
+  );
+  expect(
+    replayEvaluationBudgetCoverage({
+      events: [exchange, debit, omittedDimensions],
+      reserved: budget,
+    }),
+  ).toEqual({ kind: 'Incomplete', reason: 'MissingDimension' });
+  expect(
+    replayEvaluationBudgetCoverage({
+      events: [exchange, debit, omittedDimensions],
+      reserved: { ...budget, providerRequests: 0 },
+    }),
+  ).toEqual({ kind: 'Incomplete', reason: 'BudgetExceeded' });
+  const misboundDebit = event(
+    1,
+    { kind: 'Previous', eventSaid: exchange.d },
+    {
+      kind: 'EvaluationBudgetDebited',
+      budget: 'providerRequests',
+      amount: 1,
+      consumed: 1,
+      receiptArtifactSaid: said('u'),
+      sourceEventSaid: said('z'),
+    },
+  );
+  const misboundCoverage = event(
+    2,
+    { kind: 'Previous', eventSaid: misboundDebit.d },
+    {
+      kind: 'EvaluationBudgetCovered',
+      throughSequence: 1,
+      throughHeadSaid: misboundDebit.d,
+      totals: { ...zeroTotals, providerRequests: 1 },
+      providerUsageEventSaids: [],
+    },
+  );
+  expect(
+    replayEvaluationBudgetCoverage({
+      events: [exchange, misboundDebit, misboundCoverage],
+      reserved: budget,
+    }),
+  ).toEqual({ kind: 'Incomplete', reason: 'SourceMissing' });
+});
+
+it('replays each of the nine budget dimensions but does not attest its measurements', () => {
+  const names = [
+    'providerRequests',
+    'providerInputTokens',
+    'providerOutputTokens',
+    'providerSpendMicroUsd',
+    'runWallTimeSeconds',
+    'toolProposals',
+    'aggregateChildCommandTimeSeconds',
+    'changedFiles',
+    'changedWorktreeBytes',
+  ] as const;
+  const exchange = event(
+    0,
+    { kind: 'Genesis' },
+    { kind: 'ModelExchange', rawArtifactSaid: said('x') },
+  );
+  const proposal = event(
+    1,
+    { kind: 'Previous', eventSaid: exchange.d },
+    { kind: 'ToolProposed', proposalIndex: 0, toolCallId: 'tool-1', inputArtifactSaid: said('i') },
+  );
+  const events = [exchange, proposal];
+  for (const [index, name] of names.entries()) {
+    const predecessor = events.at(-1);
+    if (predecessor === undefined) throw new Error('fixture predecessor missing');
+    events.push(
+      event(
+        index + 2,
+        { kind: 'Previous', eventSaid: predecessor.d },
+        {
+          kind: 'EvaluationBudgetDebited',
+          budget: name,
+          amount: 1,
+          consumed: 1,
+          receiptArtifactSaid: said(String(index)),
+          sourceEventSaid: name === 'toolProposals' ? proposal.d : exchange.d,
+        },
+      ),
+    );
+  }
+  const head = events.at(-1);
+  if (head === undefined) throw new Error('fixture head missing');
+  events.push(
+    event(
+      events.length,
+      { kind: 'Previous', eventSaid: head.d },
+      {
+        kind: 'EvaluationBudgetCovered',
+        throughSequence: head.sequence,
+        throughHeadSaid: head.d,
+        totals: Object.fromEntries(names.map((name) => [name, 1])) as Record<
+          (typeof names)[number],
+          number
+        >,
+        providerUsageEventSaids: [said('u')],
+      },
+    ),
+  );
+  expect(replayEvaluationBudgetCoverage({ events, reserved: budget })).toMatchObject({
+    kind: 'StructurallyConsistent',
+    totals: Object.fromEntries(names.map((name) => [name, 1])),
+  });
+  // This fixture has no independent provider or measurement receipts and cannot close a live Evaluation.
+});
 
 function upload(events: ReturnType<typeof event>[]) {
   const prepared = prepareEvaluationEvidenceBatch(events);
