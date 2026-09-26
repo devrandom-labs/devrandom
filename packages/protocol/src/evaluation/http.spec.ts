@@ -1,7 +1,17 @@
+import { Buffer } from 'node:buffer';
+
 import Value from 'typebox/value';
 import { describe, expect, it } from 'vitest';
 
-import { evaluationAdmissionCommandSchema, experienceQuerySchema } from './http.js';
+import { prepareEvidenceArtifact } from '../evidence/evidence-artifact.js';
+import {
+  decodePublicEvaluationArtifact,
+  evaluationAdmissionCommandSchema,
+  evaluationEvidenceUploadSchema,
+  evaluationLeaseRenewalCommandSchema,
+  evaluationLeaseRenewalReceiptSchema,
+  experienceQuerySchema,
+} from './http.js';
 
 const said = (character: string): string => `E${character.repeat(43)}`;
 const id = (digit: string): string =>
@@ -63,5 +73,59 @@ describe('closed evaluation hosted commands', () => {
       expect(Value.Check(experienceQuerySchema, { ...query, ...extra })).toBe(false);
     }
     expect(Value.Check(experienceQuerySchema, { ...query, maximumResults: 100 })).toBe(false);
+  });
+
+  it('requires a bounded public artifact envelope on an evidence upload', () => {
+    const bytes = new TextEncoder().encode('raw parent observation');
+    const prepared = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
+    if (prepared.kind !== 'Prepared') throw new Error('expected artifact');
+    const envelope = {
+      artifact: prepared.artifact,
+      bytesBase64Url: Buffer.from(bytes).toString('base64url'),
+    };
+    const upload = {
+      version: 1,
+      commandId: id('1'),
+      fingerprint: `sha256:${'a'.repeat(64)}`,
+      batch: {},
+      events: [],
+      protectedArtifacts: [],
+      publicArtifacts: [],
+    };
+    expect(evaluationEvidenceUploadSchema.properties.publicArtifacts).toBeDefined();
+    expect(Value.Check(evaluationEvidenceUploadSchema, upload)).toBe(false);
+    expect(Value.Check(evaluationEvidenceUploadSchema.properties.publicArtifacts, [envelope])).toBe(
+      true,
+    );
+    expect(decodePublicEvaluationArtifact(envelope).kind).toBe('Accepted');
+    expect(decodePublicEvaluationArtifact({ ...envelope, bytesBase64Url: 'AAAA' })).toEqual({
+      kind: 'Rejected',
+    });
+    expect(
+      Value.Check(evaluationEvidenceUploadSchema.properties.publicArtifacts, [
+        { ...envelope, bytesBase64Url: 'A'.repeat(524_289) },
+      ]),
+    ).toBe(false);
+  });
+
+  it('binds renewal to the current evaluation/version and closes lease outcomes', () => {
+    const command = {
+      version: 1,
+      commandId: id('1'),
+      fingerprint: `sha256:${'a'.repeat(64)}`,
+      evaluationId: id('2'),
+      leaseId: id('3'),
+      expectedEvaluationVersion: 2,
+    };
+    expect(Value.Check(evaluationLeaseRenewalCommandSchema, command)).toBe(true);
+    expect(
+      Value.Check(evaluationLeaseRenewalCommandSchema, { ...command, ownerAid: said('o') }),
+    ).toBe(false);
+    expect(
+      Value.Check(evaluationLeaseRenewalReceiptSchema, {
+        kind: 'Lost',
+        evaluationId: id('2'),
+      }),
+    ).toBe(true);
   });
 });

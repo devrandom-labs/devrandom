@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { assessEvaluationLease, evaluationLeaseSafetyDeadline } from './lease.js';
+import {
+  assessEvaluationLease,
+  evaluationLeaseSafetyDeadline,
+  renewEvaluationLease,
+} from './lease.js';
 
 const receipt = {
   evaluationId: 'evaluation',
@@ -31,5 +35,21 @@ describe('exclusive evaluation lease', () => {
     expect(
       evaluationLeaseSafetyDeadline({ ...receipt, expiresAt: '2026-09-26T03:00:46.000Z' }, 1000),
     ).toBeUndefined();
+  });
+
+  it('renews only an unexpired evaluation lease in its 15-second window', () => {
+    expect(renewEvaluationLease(receipt, '2026-09-26T03:00:29.999Z')).toEqual({
+      kind: 'TooEarly',
+    });
+    expect(renewEvaluationLease(receipt, '2026-09-26T03:00:30.000Z')).toEqual({
+      kind: 'Renewed',
+      lease: {
+        ...receipt,
+        version: 2,
+        serverTime: '2026-09-26T03:00:30.000Z',
+        expiresAt: '2026-09-26T03:01:15.000Z',
+      },
+    });
+    expect(renewEvaluationLease(receipt, receipt.expiresAt)).toEqual({ kind: 'Lost' });
   });
 });

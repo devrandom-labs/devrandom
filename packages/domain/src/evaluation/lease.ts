@@ -62,3 +62,35 @@ export function assessEvaluationLease(
         : 'Lost',
   };
 }
+
+export type EvaluationLeaseRenewal =
+  | { readonly kind: 'Renewed'; readonly lease: EvaluationLeaseReceipt }
+  | { readonly kind: 'TooEarly' | 'Lost' | 'Invalid' };
+
+export function renewEvaluationLease(
+  current: EvaluationLeaseReceipt,
+  observedAt: string,
+): EvaluationLeaseRenewal {
+  if (
+    evaluationLeaseSafetyDeadline(current, 0) === undefined ||
+    current.version < 1 ||
+    !timestampPattern.test(observedAt)
+  )
+    return { kind: 'Invalid' };
+  const now = Date.parse(observedAt);
+  const expiry = Date.parse(current.expiresAt);
+  if (!Number.isFinite(now) || new Date(now).toISOString() !== observedAt)
+    return { kind: 'Invalid' };
+  if (now >= expiry) return { kind: 'Lost' };
+  if (now < expiry - evaluationLeasePolicy.renewalSeconds * 1_000) return { kind: 'TooEarly' };
+  return {
+    kind: 'Renewed',
+    lease: {
+      evaluationId: current.evaluationId,
+      leaseId: current.leaseId,
+      version: current.version + 1,
+      serverTime: observedAt,
+      expiresAt: new Date(now + evaluationLeasePolicy.leaseSeconds * 1_000).toISOString(),
+    },
+  };
+}

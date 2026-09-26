@@ -1,5 +1,9 @@
-import Type from 'typebox';
+import { Buffer } from 'node:buffer';
 
+import Type from 'typebox';
+import Value from 'typebox/value';
+
+import { decodeEvidenceArtifact, evidenceArtifactSchema } from '../evidence/evidence-artifact.js';
 import { evaluationClosureSchema } from './closure.js';
 import { evaluationEvidenceBatchSchema } from './evidence-batch.js';
 import { evaluationEvidenceEventSchema } from './evidence-event.js';
@@ -88,6 +92,78 @@ export const evaluationAdmissionReceiptSchema = Type.Union([
   Type.Object({ kind: Type.Literal('Unavailable') }, { additionalProperties: false }),
 ]);
 
+export const evaluationLeaseRenewalCommandSchema = Type.Object(
+  {
+    version: Type.Literal(1),
+    commandId: uuid,
+    fingerprint,
+    evaluationId: uuid,
+    leaseId: uuid,
+    expectedEvaluationVersion: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+
+const evaluationLeaseSchema = Type.Object(
+  {
+    evaluationId: uuid,
+    leaseId: uuid,
+    version: Type.Integer({ minimum: 1 }),
+    serverTime: timestamp,
+    expiresAt: timestamp,
+  },
+  { additionalProperties: false },
+);
+
+export const evaluationLeaseRenewalReceiptSchema = Type.Union([
+  Type.Object(
+    {
+      kind: Type.Union([Type.Literal('Renewed'), Type.Literal('AlreadyRenewed')]),
+      evaluationId: uuid,
+      version: Type.Integer({ minimum: 1 }),
+      lease: evaluationLeaseSchema,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object({ kind: Type.Literal('Lost'), evaluationId: uuid }, { additionalProperties: false }),
+  Type.Object(
+    {
+      kind: Type.Literal('Blocked'),
+      gate: Type.Union([Type.Literal('Authority'), Type.Literal('Budget'), Type.Literal('Closed')]),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object({ kind: Type.Literal('Conflict') }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal('Unavailable') }, { additionalProperties: false }),
+]);
+
+/** One public payload per request keeps base64 and event bytes inside the current artifact body cap. */
+export const publicEvaluationArtifactEnvelopeSchema = Type.Object(
+  {
+    artifact: evidenceArtifactSchema,
+    bytesBase64Url: Type.String({
+      minLength: 0,
+      maxLength: (384 * 1024 * 4) / 3,
+      pattern: '^[A-Za-z0-9_-]*$',
+    }),
+  },
+  { additionalProperties: false },
+);
+
+export function decodePublicEvaluationArtifact(
+  input: unknown,
+): { readonly kind: 'Accepted'; readonly bytes: Uint8Array } | { readonly kind: 'Rejected' } {
+  if (!Value.Check(publicEvaluationArtifactEnvelopeSchema, input)) return { kind: 'Rejected' };
+  const bytes = Buffer.from(input.bytesBase64Url, 'base64url');
+  if (
+    bytes.byteLength > 384 * 1024 ||
+    bytes.toString('base64url') !== input.bytesBase64Url ||
+    decodeEvidenceArtifact(input.artifact, bytes).kind !== 'Accepted'
+  )
+    return { kind: 'Rejected' };
+  return { kind: 'Accepted', bytes };
+}
+
 export const evaluationEvidenceUploadSchema = Type.Object(
   {
     version: Type.Literal(1),
@@ -95,6 +171,7 @@ export const evaluationEvidenceUploadSchema = Type.Object(
     fingerprint,
     batch: evaluationEvidenceBatchSchema,
     events: Type.Array(evaluationEvidenceEventSchema, { minItems: 1, maxItems: 32 }),
+    publicArtifacts: Type.Array(publicEvaluationArtifactEnvelopeSchema, { maxItems: 1 }),
     protectedArtifacts: Type.Array(protectedEvaluationArtifactSchema, { maxItems: 32 }),
   },
   { additionalProperties: false },
