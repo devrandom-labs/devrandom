@@ -185,7 +185,6 @@ export function assessTerminalCalibrationBatch(
   const marker = body.events[markerIndex];
   const recorded = body.events[markerIndex + 1];
   if (
-    stream.provisional.kind !== 'None' ||
     checkpoint === undefined ||
     markerIndex < 0 ||
     markerIndex !== body.events.length - 2 ||

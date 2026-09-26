@@ -417,7 +417,7 @@ export class MongoTerminalCalibrationEvidence implements TerminalCalibrationEvid
       const document = await this.#batches.findOne({ _id: input.command.body.batch.d });
       return document === null
         ? { kind: 'EvidenceCursorConcurrentUpdate' }
-        : this.#existing(input, document);
+        : await this.#existing(input, document);
     } catch {
       return { kind: 'DependencyUnavailable', dependency: 'HostedMongoDB' };
     }

@@ -56,34 +56,35 @@ function fixture() {
   });
   if (leased.kind !== 'Acquired' || leased.run.lease.kind !== 'Held')
     throw new Error('Lease fixture failed');
+  const run = leased.run;
   const stream = createEvidenceStream({
-    streamId: leased.run.binding.evidenceStreamId,
+    streamId: run.binding.evidenceStreamId,
     runId,
-    ownerAid: leased.run.binding.ownerAid,
-    taskId: leased.run.binding.taskId,
-    taskRevisionSaid: leased.run.binding.taskRevisionSaid,
+    ownerAid: run.binding.ownerAid,
+    taskId: run.binding.taskId,
+    taskRevisionSaid: run.binding.taskRevisionSaid,
     incarnationId,
-    harnessRevisionSaid: leased.run.binding.initialHarnessRevisionSaid,
-    personalAgentAid: leased.run.binding.personalAgentAid,
-    taskMandateSaid: leased.run.binding.taskMandateSaid,
-    combinedByteCeiling: leased.run.binding.budget.evidencePlusArtifactsPerRunBytes,
+    harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+    personalAgentAid: run.binding.personalAgentAid,
+    taskMandateSaid: run.binding.taskMandateSaid,
+    combinedByteCeiling: run.binding.budget.evidencePlusArtifactsPerRunBytes,
   });
   if (stream.kind !== 'Created') throw new Error('Stream fixture failed');
   const started = prepareEvidenceEvent({
     version: 1,
     sequence: 0,
     predecessor: { kind: 'Genesis' },
-    taskId: leased.run.binding.taskId,
-    taskRevisionSaid: leased.run.binding.taskRevisionSaid,
+    taskId: run.binding.taskId,
+    taskRevisionSaid: run.binding.taskRevisionSaid,
     runId,
     incarnationId,
-    harnessRevisionSaid: leased.run.binding.initialHarnessRevisionSaid,
-    personalAgentAid: leased.run.binding.personalAgentAid,
-    taskMandateSaid: leased.run.binding.taskMandateSaid,
+    harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+    personalAgentAid: run.binding.personalAgentAid,
+    taskMandateSaid: run.binding.taskMandateSaid,
     occurredAt: '2026-09-24T20:00:10.000Z',
     recordedAt: '2026-09-24T20:00:10.000Z',
     producer: { kind: 'RunSupervisor' },
-    event: { kind: 'RunStarted', fromRunVersion: leased.run.version },
+    event: { kind: 'RunStarted', fromRunVersion: run.version },
   });
   if (started.kind !== 'Prepared') throw new Error('RunStarted fixture failed');
   const checkpointSaid = said('p');
@@ -109,13 +110,13 @@ function fixture() {
       version: 1,
       sequence: 4,
       predecessor: { kind: 'Previous', eventSaid: current.cursor.chainHeadSaid },
-      taskId: leased.run.binding.taskId,
-      taskRevisionSaid: leased.run.binding.taskRevisionSaid,
+      taskId: run.binding.taskId,
+      taskRevisionSaid: run.binding.taskRevisionSaid,
       runId,
       incarnationId,
-      harnessRevisionSaid: leased.run.binding.initialHarnessRevisionSaid,
-      personalAgentAid: leased.run.binding.personalAgentAid,
-      taskMandateSaid: leased.run.binding.taskMandateSaid,
+      harnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+      personalAgentAid: run.binding.personalAgentAid,
+      taskMandateSaid: run.binding.taskMandateSaid,
       occurredAt: recordedAt,
       recordedAt,
       producer: { kind: 'EvidenceRecorder' },
@@ -125,13 +126,13 @@ function fixture() {
     const batch = prepareEvidenceBatch({
       version: 1,
       runId,
-      evidenceStreamId: leased.run.binding.evidenceStreamId,
+      evidenceStreamId: run.binding.evidenceStreamId,
       events: [prepared.event],
     });
     if (batch.kind !== 'Prepared') throw new Error('Batch fixture failed');
     return { version: 1, batch: batch.batch, events: [prepared.event] };
   }
-  return { run: leased.run, stream: current, started: started.event, checkpointSaid, body };
+  return { run: run, stream: current, started: started.event, checkpointSaid, body };
 }
 
 describe('terminal calibration evidence reconciliation', () => {
@@ -164,6 +165,7 @@ describe('terminal calibration evidence reconciliation', () => {
       },
     });
     if (debit.kind !== 'Prepared') throw new Error('Debit fixture failed');
+    const debitEvent = debit.event;
     const checkpoint = prepareVerifiedCheckpoint(
       {
         version: 1,
@@ -186,7 +188,7 @@ describe('terminal calibration evidence reconciliation', () => {
         },
         outputArtifactSaids: [],
         verifierReceipts: [],
-        evidence: { eventCount: 5, finalSequence: 4, chainHeadSaid: debit.event.d },
+        evidence: { eventCount: 5, finalSequence: 4, chainHeadSaid: debitEvent.d },
         budget: {
           consumed: { ...run.consumedBudget, changedWorktreeBytes: overrun },
           remaining: { ...run.binding.budget, changedWorktreeBytes: 0 },
@@ -202,10 +204,12 @@ describe('terminal calibration evidence reconciliation', () => {
     );
     if (checkpoint.kind !== 'Prepared')
       throw new Error(`Checkpoint fixture failed: ${checkpoint.reason}`);
+    if (checkpoint.checkpoint.version !== 1)
+      throw new Error('Measured checkpoint fixture required');
     const verified = prepareEvidenceEvent({
       ...common,
       sequence: 5,
-      predecessor: { kind: 'Previous', eventSaid: debit.event.d },
+      predecessor: { kind: 'Previous', eventSaid: debitEvent.d },
       producer: { kind: 'EvidenceRecorder' },
       event: { kind: 'CheckpointVerified', checkpointSaid: checkpoint.checkpoint.d },
     });
@@ -222,7 +226,7 @@ describe('terminal calibration evidence reconciliation', () => {
       },
     });
     if (calibration.kind !== 'Prepared') throw new Error('Calibration fixture failed');
-    const events = [debit.event, verified.event, calibration.event];
+    const events = [debitEvent, verified.event, calibration.event];
     const prepared = prepareEvidenceBatch({
       version: 1,
       runId,
@@ -256,18 +260,22 @@ describe('terminal calibration evidence reconciliation', () => {
     });
     // Rebuild every content address, so these fail on binding rather than invalid SAIDs.
     function reboundCheckpoint(draft: VerifiedCheckpoint) {
-      const { d: _checkpointSaid, ...checkpointDraft } = draft;
-      const { d: _verifiedSaid, ...verifiedDraft } = verified.event;
-      const { d: _calibrationSaid, ...calibrationDraft } = calibration.event;
+      const checkpointDraft = { ...draft };
+      Reflect.deleteProperty(checkpointDraft, 'd');
       const rebound = prepareVerifiedCheckpoint(checkpointDraft, ['public-test']);
       if (rebound.kind !== 'Prepared') throw new Error('Rebound checkpoint fixture failed');
       const verifiedAgain = prepareEvidenceEvent({
-        ...verifiedDraft,
+        ...common,
+        sequence: 5,
+        predecessor: { kind: 'Previous', eventSaid: debitEvent.d },
+        producer: { kind: 'EvidenceRecorder' },
         event: { kind: 'CheckpointVerified', checkpointSaid: rebound.checkpoint.d },
       });
       if (verifiedAgain.kind !== 'Prepared') throw new Error('Rebound marker fixture failed');
       const calibratedAgain = prepareEvidenceEvent({
-        ...calibrationDraft,
+        ...common,
+        sequence: 6,
+        producer: { kind: 'RunSupervisor' },
         predecessor: { kind: 'Previous', eventSaid: verifiedAgain.event.d },
         event: {
           kind: 'RunCalibrationRecorded',
@@ -277,7 +285,7 @@ describe('terminal calibration evidence reconciliation', () => {
       });
       if (calibratedAgain.kind !== 'Prepared')
         throw new Error('Rebound disposition fixture failed');
-      const reboundEvents = [debit.event, verifiedAgain.event, calibratedAgain.event];
+      const reboundEvents = [debitEvent, verifiedAgain.event, calibratedAgain.event];
       const reboundBatch = prepareEvidenceBatch({
         version: 1,
         runId,

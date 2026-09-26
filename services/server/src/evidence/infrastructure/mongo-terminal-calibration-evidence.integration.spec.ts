@@ -259,7 +259,9 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
     const server = Fastify().withTypeProvider<TypeBoxTypeProvider>();
     server.register(
       terminalCalibrationRoutes({
-        access: { authorize: async () => ({ kind: 'EvidenceAccessAuthorized', ownerAid }) },
+        access: {
+          authorize: () => Promise.resolve({ kind: 'EvidenceAccessAuthorized', ownerAid }),
+        },
         reconciliation,
         now: () => '2026-09-24T20:01:01.000Z',
         newCorrelationId: () => randomUUID(),
@@ -270,7 +272,7 @@ describeMongo('terminal calibration Fastify and replica Mongo boundary', () => {
       const address = server.server.address();
       if (address === null || typeof address === 'string')
         throw new Error('Fastify failed to listen');
-      const endpoint = `http://127.0.0.1:${address.port}/api/runs/${runId}/evidence-terminal-reconciliation`;
+      const endpoint = `http://127.0.0.1:${String(address.port)}/api/runs/${runId}/evidence-terminal-reconciliation`;
       const post = (command: unknown) =>
         fetch(endpoint, {
           method: 'POST',
