@@ -132,7 +132,10 @@ export function calibrationTranscript(input: {
           const said = event.outputArtifactSaids[0];
           const raw = said === undefined ? undefined : bytes(said);
           if (raw === undefined) return { kind: 'Rejected' };
-          const text = new TextDecoder('utf-8', { fatal: true }).decode(raw);
+          const text = new TextDecoder('utf-8', {
+            fatal: true,
+            ignoreBOM: event.tool !== 'read_file',
+          }).decode(raw);
           messages.push({
             role: 'toolResult',
             toolCallId: event.toolCallId,
