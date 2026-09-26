@@ -338,7 +338,7 @@ it('replays the exact staged batch after a lost ACK and never invents retention'
   reopened.outbox.close();
 });
 
-it('stops before upload when the fresh M lock is unavailable or its lease version drifts', async () => {
+it('stops before upload when the fresh M lock is unavailable or its lease identity changes', async () => {
   const given = fixture();
   const server = hosted(given);
   const adapter = new HostedEvaluationProtectedArtifacts(
@@ -350,7 +350,7 @@ it('stops before upload when the fresh M lock is unavailable or its lease versio
   expect(await adapter.retain(given.input)).toEqual({ kind: 'Unavailable' });
   server.inspectManifestLock.mockResolvedValueOnce({
     kind: 'Locked',
-    receipt: { ...server.receipt, currentLeaseVersion: 2 },
+    receipt: { ...server.receipt, currentLeaseVersion: 2, leaseId: randomUUID() },
   });
   expect(await adapter.retain(given.input)).not.toMatchObject({ kind: 'Acknowledged' });
   expect(server.appendEvidence).not.toHaveBeenCalled();
@@ -427,3 +427,54 @@ it('requires a fresh active M-lock read after the batch ACK before reporting ret
   expect(server.appendEvidence).toHaveBeenCalledTimes(1);
   given.outbox.close();
 });
+
+it('acknowledges original ciphertext once despite same-lease heartbeat during upload', async () => {
+  const given = fixture();
+  const server = hosted(given);
+  server.inspectManifestLock
+    .mockResolvedValueOnce({ kind: 'Locked', receipt: server.receipt })
+    .mockResolvedValue({
+      kind: 'Locked',
+      receipt: { ...server.receipt, currentLeaseVersion: 3, currentEvaluationVersion: 4 },
+    });
+  const adapter = new HostedEvaluationProtectedArtifacts(
+    server,
+    { open: vi.fn().mockResolvedValue({ kind: 'Opened', bytes: given.verifierBytes }) },
+    given.outbox,
+    () => '2026-09-26T06:00:02.000Z',
+  );
+  const first = await adapter.retain(given.input);
+  expect(first.kind).toBe('Acknowledged');
+  expect(await adapter.retain(given.input)).toEqual(first);
+  expect(server.appendEvidence).toHaveBeenCalledTimes(1);
+  given.outbox.close();
+});
+
+it.each(['ownerAid', 'manifestSaid', 'policySaid', 'leaseId'] as const)(
+  'refuses to report custody if %s changes after upload ACK',
+  async (field) => {
+    const given = fixture();
+    const server = hosted(given);
+    server.inspectManifestLock
+      .mockResolvedValueOnce({ kind: 'Locked', receipt: server.receipt })
+      .mockResolvedValue({
+        kind: 'Locked',
+        receipt: {
+          ...server.receipt,
+          currentLeaseVersion: 3,
+          currentEvaluationVersion: 4,
+          [field]: field === 'leaseId' ? randomUUID() : said('x'),
+        },
+      });
+    const adapter = new HostedEvaluationProtectedArtifacts(
+      server,
+      { open: vi.fn().mockResolvedValue({ kind: 'Opened', bytes: given.verifierBytes }) },
+      given.outbox,
+      () => '2026-09-26T06:00:02.000Z',
+    );
+    expect(await adapter.retain(given.input)).toEqual({ kind: 'LeaseLost' });
+    expect(server.appendEvidence).toHaveBeenCalledTimes(1);
+    expect(given.outbox.pending()).toEqual({ kind: 'Empty' });
+    given.outbox.close();
+  },
+);

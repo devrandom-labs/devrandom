@@ -213,13 +213,15 @@ export class HostedEvaluationProtectedArtifacts implements EvaluationProtectedAr
         return { kind: 'Unavailable' };
       if (lock.kind !== 'Locked' && lock.kind !== 'AlreadyLocked')
         return lock.kind === 'Denied' ? { kind: 'LeaseLost' } : { kind: 'Conflict' };
+      // Acknowledging ciphertext can overlap a heartbeat, but cannot change the
+      // authenticated owner, manifest/allocation, policy, or immutable lease identity.
       const receipt = lock.receipt;
       return receipt.evaluationId === input.manifest.evaluationId &&
         receipt.manifestSaid === input.manifest.d &&
         receipt.ownerAid === input.manifest.ownerAid &&
         receipt.policySaid === input.manifest.policySaid &&
         receipt.leaseId === input.lease.leaseId &&
-        receipt.currentLeaseVersion === input.lease.version &&
+        receipt.currentLeaseVersion >= input.lease.version &&
         receipt.currentLeaseVersion >= receipt.lockedAtLeaseVersion &&
         receipt.currentEvaluationVersion >= receipt.lockedAtEvaluationVersion
         ? { kind: 'Held' }

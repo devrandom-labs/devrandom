@@ -433,3 +433,48 @@ describe('protected trial artifact conversation', () => {
     });
   });
 });
+
+it('grades under a fresh exact manifest lock after same lease heartbeat renewal', async () => {
+  const given = fixture();
+  const wired = dependencies(given);
+  wired.lock.mockResolvedValue({
+    kind: 'Acknowledged',
+    evaluationId: given.manifest.evaluationId,
+    manifestSaid: given.manifest.d,
+    ownerAid: given.manifest.ownerAid,
+    policySaid: given.manifest.policySaid,
+    leaseId: given.input.lease.leaseId,
+    leaseVersion: given.input.lease.version + 2,
+    acknowledgementSaid: said('z'),
+  });
+  expect(await observeProtectedTrialArtifact(given.input, wired.ports)).toMatchObject({
+    kind: 'Retained',
+  });
+});
+it.each(['ownerAid', 'manifestSaid', 'policySaid', 'leaseId', 'olderVersion'] as const)(
+  'does not spend a trial under changed lock %s',
+  async (field) => {
+    const given = fixture();
+    const wired = dependencies(given);
+    const lock = {
+      kind: 'Acknowledged',
+      evaluationId: given.manifest.evaluationId,
+      manifestSaid: given.manifest.d,
+      ownerAid: given.manifest.ownerAid,
+      policySaid: given.manifest.policySaid,
+      leaseId: given.input.lease.leaseId,
+      leaseVersion: given.input.lease.version + 2,
+      acknowledgementSaid: said('z'),
+    };
+    wired.lock.mockResolvedValue(
+      field === 'olderVersion'
+        ? { ...lock, leaseVersion: given.input.lease.version - 1 }
+        : { ...lock, [field]: field === 'leaseId' ? id('9') : said('x') },
+    );
+    expect(await observeProtectedTrialArtifact(given.input, wired.ports)).toMatchObject({
+      kind: 'Incomplete',
+      frontier: 'ManifestLock',
+    });
+    expect(wired.run).not.toHaveBeenCalled();
+  },
+);

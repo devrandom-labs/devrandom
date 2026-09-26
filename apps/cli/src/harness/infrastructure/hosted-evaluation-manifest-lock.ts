@@ -42,6 +42,8 @@ export class HostedEvaluationManifestLock implements EvaluationManifestLock {
     if (reading.kind === 'Unavailable' || reading.kind === 'ResponseInvalid')
       return { kind: 'Unavailable' };
     if (reading.kind !== 'Locked') return { kind: 'Unlocked' };
+    // The authenticated read rechecks current authority and immutable allocation.
+    // A heartbeat may advance this same lease after the caller captured its snapshot.
     const receipt = reading.receipt;
     if (
       receipt.evaluationId !== manifest.evaluationId ||
@@ -49,7 +51,7 @@ export class HostedEvaluationManifestLock implements EvaluationManifestLock {
       receipt.ownerAid !== manifest.ownerAid ||
       receipt.policySaid !== manifest.policySaid ||
       receipt.leaseId !== lease.leaseId ||
-      receipt.currentLeaseVersion !== lease.version ||
+      receipt.currentLeaseVersion < lease.version ||
       receipt.currentEvaluationVersion < receipt.lockedAtEvaluationVersion ||
       receipt.currentLeaseVersion < receipt.lockedAtLeaseVersion
     )

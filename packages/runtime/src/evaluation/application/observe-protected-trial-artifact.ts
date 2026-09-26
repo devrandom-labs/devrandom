@@ -218,7 +218,8 @@ async function inspectTrialBasis(
       lock.ownerAid !== input.manifest.ownerAid ||
       lock.policySaid !== input.manifest.policySaid ||
       lock.leaseId !== input.lease.leaseId ||
-      lock.leaseVersion !== input.lease.version ||
+      !Number.isSafeInteger(lock.leaseVersion) ||
+      lock.leaseVersion < input.lease.version ||
       !said.test(lock.acknowledgementSaid)
     )
       return { kind: 'Incomplete', frontier: 'ManifestLock' };

@@ -107,3 +107,49 @@ describe('hosted Evaluation manifest lock', () => {
     expect(await lock.inspect({ manifest, lease })).toEqual({ kind: 'Unavailable' });
   });
 });
+
+it('retains the fresh authenticated version when the same lease renews after the caller snapshot', async () => {
+  const { manifest, lease, receipt } = fixture();
+  const renewed = {
+    ...receipt,
+    currentLeaseVersion: lease.version + 2,
+    currentEvaluationVersion: receipt.currentEvaluationVersion + 2,
+  };
+  const inspectManifestLock = vi.fn().mockResolvedValue({ kind: 'Locked', receipt: renewed });
+  const record = vi.fn().mockImplementation(({ bytes }: { bytes: Uint8Array }) => {
+    const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+    if (prepared.kind !== 'Prepared') throw new Error('fixture');
+    return Promise.resolve({ kind: 'Stored', artifact: prepared.artifact });
+  });
+  expect(
+    await new HostedEvaluationManifestLock({ inspectManifestLock }, { record }).inspect({
+      manifest,
+      lease,
+    }),
+  ).toMatchObject({ kind: 'Acknowledged', leaseVersion: renewed.currentLeaseVersion });
+});
+
+it.each(['ownerAid', 'manifestSaid', 'policySaid', 'leaseId'] as const)(
+  'rejects higher version with substituted %s',
+  async (field) => {
+    const { manifest, lease, receipt } = fixture();
+    const inspectManifestLock = vi
+      .fn()
+      .mockResolvedValue({
+        kind: 'Locked',
+        receipt: {
+          ...receipt,
+          currentLeaseVersion: lease.version + 2,
+          [field]: field === 'leaseId' ? id('9') : said('x'),
+        },
+      });
+    const record = vi.fn();
+    expect(
+      await new HostedEvaluationManifestLock({ inspectManifestLock }, { record }).inspect({
+        manifest,
+        lease,
+      }),
+    ).toEqual({ kind: 'Unlocked' });
+    expect(record).not.toHaveBeenCalled();
+  },
+);
