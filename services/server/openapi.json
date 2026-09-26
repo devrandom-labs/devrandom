@@ -24738,6 +24738,22 @@
                         "type": "string",
                         "const": "CalibrationContinuation"
                       },
+                      "unstartedSuccessor": {
+                        "type": "object",
+                        "required": ["segmentSaid", "expectedRunVersion"],
+                        "properties": {
+                          "segmentSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "expectedRunVersion": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "additionalProperties": false
+                      },
                       "expectedRunVersion": {
                         "type": "integer",
                         "minimum": 0,
