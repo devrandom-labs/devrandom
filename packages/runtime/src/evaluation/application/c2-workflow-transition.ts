@@ -26,9 +26,10 @@ export interface C2WorkflowTransition {
         readonly readReceiptSaid: string;
         readonly sourceEvidenceSaid: string;
         readonly withSourceChoiceSaid: string;
-        readonly withoutSourceChoiceSaid: string;
         readonly withSourceAction: string;
-        readonly withoutSourceAction: string;
+        readonly withoutSource:
+          | { readonly kind: 'Chosen'; readonly action: string; readonly sourceChoiceSaid: string }
+          | { readonly kind: 'Unsupported'; readonly sourceSpecificTo: string };
         /** Parent-reviewed bounded context, never raw or protected source bytes. */
         readonly contextText: string;
       }

@@ -622,16 +622,18 @@ export class DockerContainedTrialExecution implements TrialExecution {
             prepared.hypothesisSaid !== c2.hypothesis.d ||
             prepared.sourceInventorySaid !== input.manifest.sourceInventorySaid ||
             prepared.failureWindowSaid !== c2.hypothesis.publicReplay.failureWindowSaid ||
-            prepared.queryReceiptSaid !== c2.hypothesis.retrievalReceiptSaid ||
+            !isSaid(prepared.queryReceiptSaid) ||
             prepared.sourceEvidenceSaid !== c2.hypothesis.source.rawEvidenceSaid ||
             prepared.withSourceChoiceSaid !==
               c2.hypothesis.publicReplay.predictedSourceChoiceSaid ||
             prepared.withSourceAction !== c2.hypothesis.publicReplay.predictedAction ||
-            (prepared.withSourceChoiceSaid === prepared.withoutSourceChoiceSaid &&
-              prepared.withSourceAction === prepared.withoutSourceAction) ||
-            ![prepared.readReceiptSaid, prepared.withoutSourceChoiceSaid].every(isSaid) ||
-            typeof prepared.withoutSourceAction !== 'string' ||
-            prepared.withoutSourceAction.length === 0 ||
+            !isSaid(prepared.readReceiptSaid) ||
+            (prepared.withoutSource.kind === 'Chosen'
+              ? !isSaid(prepared.withoutSource.sourceChoiceSaid) ||
+                prepared.withoutSource.action.length === 0 ||
+                (prepared.withSourceChoiceSaid === prepared.withoutSource.sourceChoiceSaid &&
+                  prepared.withSourceAction === prepared.withoutSource.action)
+              : prepared.withoutSource.sourceSpecificTo !== c2.hypothesis.source.episodeSaid) ||
             typeof prepared.contextText !== 'string' ||
             prepared.contextText.trim().length === 0 ||
             Buffer.byteLength(prepared.contextText, 'utf8') > 32 * 1024
@@ -647,13 +649,13 @@ export class DockerContainedTrialExecution implements TrialExecution {
             hypothesisSaid: prepared.hypothesisSaid,
             failureWindowSaid: prepared.failureWindowSaid,
             sourceInventorySaid: prepared.sourceInventorySaid,
+            originalHypothesisQueryReceiptSaid: c2.hypothesis.retrievalReceiptSaid,
             queryReceiptSaid: prepared.queryReceiptSaid,
             readReceiptSaid: prepared.readReceiptSaid,
             sourceEvidenceSaid: prepared.sourceEvidenceSaid,
             withSourceChoiceSaid: prepared.withSourceChoiceSaid,
-            withoutSourceChoiceSaid: prepared.withoutSourceChoiceSaid,
             withSourceAction: prepared.withSourceAction,
-            withoutSourceAction: prepared.withoutSourceAction,
+            withoutSource: prepared.withoutSource,
             contextText: prepared.contextText,
           });
           await append({

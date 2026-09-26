@@ -145,7 +145,7 @@ function interrupted(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
-function observedPublicCase(
+export function observedPublicCase(
   expected: EvaluationVerifierBundle['publicConditions'][number]['expected'],
   actual: unknown,
 ): boolean | undefined {
