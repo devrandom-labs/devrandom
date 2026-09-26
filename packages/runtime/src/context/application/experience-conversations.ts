@@ -18,7 +18,7 @@ export interface ExperienceRetrieval {
         readonly queryReceiptSaid: string;
         readonly chargedMicroUsd: number;
       }
-    | { readonly kind: 'Denied' | 'Unavailable' | 'IndexNotReady' }
+    | { readonly kind: 'Denied' | 'Unavailable' | 'IndexNotReady' | 'Irrelevant' }
   >;
 }
 
