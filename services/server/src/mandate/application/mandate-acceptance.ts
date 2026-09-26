@@ -5,10 +5,12 @@ import {
   type CurrentPromotionMandate,
   type MandateInvalidity,
   type MandateTask,
+  type PromotionMandateInspection,
 } from '@devrandom/domain';
 import {
   promotionMandateSchemaSaid,
   promotionMandateV2SchemaSaid,
+  promotionMandateV3SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
   type TaskProjection,
@@ -74,6 +76,17 @@ function mandateTask(task: TaskProjection): MandateTask {
     expiresAt: task.revision.expiresAt,
     ...(task.revision.version === 2 ? { experience: task.revision.constraints.experience } : {}),
   };
+}
+
+function promotionSchemaSaid(task: TaskProjection, inspection: PromotionMandateInspection): string {
+  if (task.revision.version !== 2) return promotionMandateSchemaSaid;
+  return inspection.credential.schemaSaid === promotionMandateV3SchemaSaid &&
+    'evaluationManifestSaid' in inspection &&
+    'requiredMetrics' in inspection &&
+    'requiredChecks' in inspection &&
+    'riskLimit' in inspection
+    ? promotionMandateV3SchemaSaid
+    : promotionMandateV2SchemaSaid;
 }
 
 export type CurrentTaskMandateInspection =
@@ -275,10 +288,7 @@ export function inspectCurrentPromotionMandate(input: {
         issuerAid: input.ownerAid,
         issueeAid: acceptedReference.issueeAid,
         registryId: acceptedReference.registryId,
-        schemaSaid:
-          input.task.revision.version === 2
-            ? promotionMandateV2SchemaSaid
-            : promotionMandateSchemaSaid,
+        schemaSaid: promotionSchemaSaid(input.task, input.evidence.inspection.value),
         credentialSaid: input.credentialSaid,
       },
       task: mandateTask(input.task),
@@ -440,8 +450,7 @@ export async function verifyMandateAcceptance(
         issuerAid: input.ownerAid,
         issueeAid: acceptedReference.issueeAid,
         registryId: acceptedReference.registryId,
-        schemaSaid:
-          task.experience === undefined ? promotionMandateSchemaSaid : promotionMandateV2SchemaSaid,
+        schemaSaid: promotionSchemaSaid(found.task, inspection.value),
         credentialSaid: input.credentialSaid,
       },
       task,

@@ -5,6 +5,7 @@ import {
   credentialSchema,
   promotionMandateSchema,
   promotionMandateV2Schema,
+  promotionMandateV3Schema,
   taskMandateSchema,
   taskMandateV2Schema,
 } from '@devrandom/protocol';
@@ -31,5 +32,9 @@ await Promise.all([
   writeFile(
     resolve(schemaDirectory, 'devrandom-promotion-mandate-v2.json'),
     `${JSON.stringify(promotionMandateV2Schema, undefined, 2)}\n`,
+  ),
+  writeFile(
+    resolve(schemaDirectory, 'devrandom-promotion-mandate-v3.json'),
+    `${JSON.stringify(promotionMandateV3Schema, undefined, 2)}\n`,
   ),
 ]);

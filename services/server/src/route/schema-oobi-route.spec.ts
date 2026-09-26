@@ -2,6 +2,7 @@ import {
   credentialSchema,
   promotionMandateSchema,
   promotionMandateV2Schema,
+  promotionMandateV3Schema,
   taskMandateSchema,
   taskMandateV2Schema,
 } from '@devrandom/protocol';
@@ -24,6 +25,7 @@ describe('credential schema OOBI route', () => {
     ['Task Mandate v2', taskMandateV2Schema],
     ['Promotion Mandate', promotionMandateSchema],
     ['Promotion Mandate v2', promotionMandateV2Schema],
+    ['Promotion Mandate v3', promotionMandateV3Schema],
   ])('publishes the exact deterministic %s schema bytes', async (_label, schema) => {
     const server = Fastify();
     instances.push(server);

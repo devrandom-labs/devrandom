@@ -465,6 +465,13 @@ test-concentrate-integration: _require-nix
     [[ -n "${CONCENTRATE_API_KEY:-}" ]] || { echo "CONCENTRATE_API_KEY is required" >&2; exit 1; }
     DEVRANDOM_CONCENTRATE_INTEGRATION=1 pnpm exec vitest run packages/runtime/src/pi/concentrate-provider.integration.spec.ts
 
+test-concentrate-accepted-model: _require-nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    integration_env=".env.cli"
+    test -f "$integration_env" || { echo "$integration_env is required" >&2; exit 2; }
+    node --env-file="$integration_env" -e 'const { spawnSync } = require("node:child_process"); if (!process.env.CONCENTRATE_API_KEY) { console.error("CONCENTRATE_API_KEY is required"); process.exit(2); } const result = spawnSync("pnpm", ["exec", "vitest", "run", "packages/runtime/src/pi/concentrate-provider.integration.spec.ts", "-t", "accounts for a paid DeepSeek Flash tool call"], { env: { ...process.env, DEVRANDOM_CONCENTRATE_INTEGRATION: "1" }, stdio: "inherit" }); process.exit(result.status ?? 1);'
+
 test-atlas-integration: _require-nix
     #!/usr/bin/env bash
     set -euo pipefail

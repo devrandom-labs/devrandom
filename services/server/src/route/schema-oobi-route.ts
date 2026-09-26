@@ -3,6 +3,7 @@ import {
   credentialSchemaDocumentSchema,
   promotionMandateSchema,
   promotionMandateV2Schema,
+  promotionMandateV3Schema,
   taskMandateSchema,
   taskMandateV2Schema,
 } from '@devrandom/protocol';
@@ -35,6 +36,10 @@ const publishedSchemas: readonly PublishedSchema[] = [
   {
     said: promotionMandateV2Schema.$id,
     body: Buffer.from(JSON.stringify(promotionMandateV2Schema), 'utf8'),
+  },
+  {
+    said: promotionMandateV3Schema.$id,
+    body: Buffer.from(JSON.stringify(promotionMandateV3Schema), 'utf8'),
   },
 ];
 
