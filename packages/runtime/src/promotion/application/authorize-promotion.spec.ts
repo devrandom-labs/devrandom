@@ -279,7 +279,9 @@ function harness(controlSuccesses = 0) {
               command.disposition.kind === 'Activate'
                 ? command.disposition.candidateRevisionSaid
                 : command.expectedIncumbentRevisionSaid,
-            pointerVersion: command.disposition.kind === 'Activate' ? 2 : 1,
+            // Every committed activation decision advances the hosted CAS pointer,
+            // including a decision to retain the incumbent revision.
+            pointerVersion: 2,
             disposition: command.disposition.kind === 'Activate' ? 'Activated' : 'Retained',
           }
         );

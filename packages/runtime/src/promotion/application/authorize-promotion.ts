@@ -186,8 +186,7 @@ async function commitAndRoute(
     command.disposition.kind === 'Activate'
       ? command.disposition.candidateRevisionSaid
       : command.expectedIncumbentRevisionSaid;
-  const expectedVersion =
-    input.expectedPointerVersion + (command.disposition.kind === 'Activate' ? 1 : 0);
+  const expectedVersion = input.expectedPointerVersion + 1;
   if (
     !Number.isSafeInteger(expectedVersion) ||
     receipt.activeRevisionSaid !== expectedRevision ||
