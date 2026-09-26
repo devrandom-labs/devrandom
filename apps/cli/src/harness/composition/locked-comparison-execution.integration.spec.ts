@@ -429,6 +429,19 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             protectedArtifacts: [expect.objectContaining({ purpose: 'OracleObservation' })],
           },
         });
+        const pendingRaw = outbox.unstagedPublicArtifacts();
+        expect(pendingRaw.kind).toBe('Found');
+        if (pendingRaw.kind !== 'Found') throw new Error('pending accounting raw missing');
+        expect(
+          pendingRaw.artifacts.some((item) => {
+            const text = Buffer.from(item.bytes).toString('utf8');
+            return (
+              text.includes('"kind":"EvaluationFinalizationNativeElapsed"') &&
+              text.includes('"operation":"ProtectedObservation"')
+            );
+          }),
+        ).toBe(true);
+        expect(raw.some((text) => text.includes('"operation":"ProtectedObservation"'))).toBe(false);
         rejectCiphertext = false;
         expect(await executeLockedComparison(input)).toEqual({
           kind: 'RecoveryRequired',

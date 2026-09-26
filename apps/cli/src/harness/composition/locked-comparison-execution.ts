@@ -1,4 +1,7 @@
-import { FinalizationNativeGrading } from '../application/finalization-native-grading.js';
+import {
+  FinalizationNativeGrading,
+  type FinalizationNativeMeasurement,
+} from '../application/finalization-native-grading.js';
 import Value from 'typebox/value';
 import { evaluationClosureCommandSchema, prepareEvidenceArtifact } from '@devrandom/protocol';
 import { createHash, randomUUID } from 'node:crypto';
@@ -423,49 +426,62 @@ export async function executeLockedComparison(
       artifacts: evidence.rawArtifacts,
       protectedCases: input.custody,
     });
+    const pendingProtectedMeasurements: FinalizationNativeMeasurement[] = [];
+    const recordGrading = async (receipt: FinalizationNativeMeasurement) => {
+      await capturePending();
+      const cleanup = await reading.openPublic({
+        evaluationId: binding.evaluationId,
+        artifactSaid: receipt.cleanupReceiptSaid,
+      });
+      if (cleanup.kind !== 'Opened') return false;
+      if (receipt.operation !== 'ProtectedObservation') {
+        const raw = await reading.openPublic({
+          evaluationId: binding.evaluationId,
+          artifactSaid: receipt.rawReceiptSaid,
+        });
+        if (raw.kind !== 'Opened') return false;
+        await capture(raw);
+      }
+      const source = await capture(cleanup);
+      const bytes = Buffer.from(JSON.stringify(receipt));
+      const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+      if (prepared.kind !== 'Prepared') return false;
+      await capture({ artifact: prepared.artifact, bytes });
+      const prior = (await readPrefix()).events
+        .filter(
+          (event) =>
+            event.detail.kind === 'EvaluationBudgetDebited' &&
+            event.detail.budget === 'aggregateChildCommandTimeSeconds',
+        )
+        .at(-1);
+      if (prior !== undefined && prior.detail.kind !== 'EvaluationBudgetDebited') return false;
+      await append({
+        kind: 'EvaluationBudgetDebited',
+        budget: 'aggregateChildCommandTimeSeconds',
+        amount: receipt.childCommandDebitedSeconds,
+        consumed:
+          (prior?.detail.kind === 'EvaluationBudgetDebited' ? prior.detail.consumed : 0) +
+          receipt.childCommandDebitedSeconds,
+        receiptArtifactSaid: prepared.artifact.d,
+        sourceEventSaid: source.d,
+      });
+      return true;
+    };
     const grading = new FinalizationNativeGrading({
       maximumSeconds: manifest.allocation.finalization.aggregateChildCommandTimeSeconds,
       construction,
       observation,
       nowMicroseconds: () => Math.floor(performance.now() * 1000),
       record: async (receipt) => {
-        await capturePending();
-        const cleanup = await reading.openPublic({
-          evaluationId: binding.evaluationId,
-          artifactSaid: receipt.cleanupReceiptSaid,
+        if (receipt.operation !== 'ProtectedObservation') return recordGrading(receipt);
+        // Ciphertext must follow the head inspected before protected observation.
+        // Persist accounting bytes now, but advance its events only after that exact ACK.
+        const stored = await evidence.rawArtifacts.record({
+          bytes: Buffer.from(JSON.stringify(receipt)),
+          mediaType: 'application/json',
         });
-        if (cleanup.kind !== 'Opened') return false;
-        if (receipt.operation !== 'ProtectedObservation') {
-          const raw = await reading.openPublic({
-            evaluationId: binding.evaluationId,
-            artifactSaid: receipt.rawReceiptSaid,
-          });
-          if (raw.kind !== 'Opened') return false;
-          await capture(raw);
-        }
-        const source = await capture(cleanup);
-        const bytes = Buffer.from(JSON.stringify(receipt));
-        const prepared = prepareEvidenceArtifact(bytes, 'application/json');
-        if (prepared.kind !== 'Prepared') return false;
-        await capture({ artifact: prepared.artifact, bytes });
-        const prior = (await readPrefix()).events
-          .filter(
-            (event) =>
-              event.detail.kind === 'EvaluationBudgetDebited' &&
-              event.detail.budget === 'aggregateChildCommandTimeSeconds',
-          )
-          .at(-1);
-        if (prior !== undefined && prior.detail.kind !== 'EvaluationBudgetDebited') return false;
-        await append({
-          kind: 'EvaluationBudgetDebited',
-          budget: 'aggregateChildCommandTimeSeconds',
-          amount: receipt.childCommandDebitedSeconds,
-          consumed:
-            (prior?.detail.kind === 'EvaluationBudgetDebited' ? prior.detail.consumed : 0) +
-            receipt.childCommandDebitedSeconds,
-          receiptArtifactSaid: prepared.artifact.d,
-          sourceEventSaid: source.d,
-        });
+        if (stored.kind !== 'Stored') return false;
+        pendingProtectedMeasurements.push(receipt);
         return true;
       },
     });
@@ -509,6 +525,9 @@ export async function executeLockedComparison(
         },
       });
       if (retained.kind !== 'Retained') throw new Error(`ProtectedGrading:${retained.frontier}`);
+      for (const measurement of pendingProtectedMeasurements.splice(0)) {
+        if (!(await recordGrading(measurement))) throw new Error('ProtectedGradingAccounting');
+      }
       await capturePending();
       await operation(item.slot.arm, opened, {
         kind: 'ProtectedGrading',
