@@ -450,3 +450,79 @@ it('refuses an encoded protected artifact request above the hosted body limit', 
   expect(outbox.pending()).toEqual({ kind: 'Empty' });
   outbox.close();
 });
+
+it('reopens only hosted-acknowledged protected ciphertext by exact SAID and rejects substituted custody', () => {
+  const stateRoot = root();
+  const prepared = prepareProtectedEvaluationArtifact({
+    evaluationId: binding.evaluationId,
+    objectSaid: said('x'),
+    purpose: 'OracleObservation',
+    segment: 0,
+    nonce: 'a'.repeat(16),
+    tag: 'b'.repeat(22),
+    ciphertext: 'YWJjZA',
+    plaintextByteCount: 4,
+  });
+  if (prepared.kind !== 'Prepared') throw new Error(prepared.reason);
+  const captured = prepareEvaluationEvidenceEvent({
+    evaluationId: binding.evaluationId,
+    streamId: binding.streamId,
+    originRunId: binding.originRunId,
+    taskId: binding.taskId,
+    taskRevisionSaid: binding.taskRevisionSaid,
+    personalAgentAid: binding.personalAgentAid,
+    taskMandateSaid: binding.taskMandateSaid,
+    harnessRevisionSaid: said('h'),
+    phase: { kind: 'Trial', manifestSaid: said('m'), arm: 'H1', repetition: 1, attempt: 1 },
+    sequence: 0,
+    previous: { kind: 'Genesis' },
+    occurredAt: '2026-09-26T05:00:00.000Z',
+    detail: {
+      kind: 'ArtifactCaptured',
+      artifactSaid: prepared.artifact.d,
+      custody: 'ProtectedCiphertext',
+    },
+  });
+  if (captured.kind !== 'Prepared') throw new Error(captured.reason);
+  const outbox = open(stateRoot);
+  expect(
+    outbox.stage({
+      commandId: randomUUID(),
+      fingerprint: `sha256:${'a'.repeat(64)}`,
+      events: [captured.event],
+      publicArtifacts: [],
+      protectedArtifacts: [prepared.artifact],
+    }).kind,
+  ).toBe('Staged');
+  expect(outbox.protectedArtifact(prepared.artifact.d)).toEqual({ kind: 'Missing' });
+  const pending = outbox.pending();
+  if (pending.kind !== 'Pending') throw new Error(pending.kind);
+  expect(
+    outbox.acknowledge({
+      version: 1,
+      disposition: 'Accepted',
+      evaluationId: binding.evaluationId,
+      streamId: binding.streamId,
+      batchSaid: pending.upload.batch.d,
+      acceptedThroughSequence: 0,
+      chainHeadSaid: captured.event.d,
+    }),
+  ).toEqual({ kind: 'Recorded' });
+  outbox.close();
+
+  const reopened = open(stateRoot);
+  expect(reopened.protectedArtifact(prepared.artifact.d)).toEqual({
+    kind: 'Found',
+    artifact: prepared.artifact,
+  });
+  expect(reopened.protectedArtifact(said('z'))).toEqual({ kind: 'Missing' });
+  const database = new DatabaseSync(
+    join(stateRoot, 'evaluations', binding.evaluationId, 'outbox.sqlite'),
+  );
+  database
+    .prepare('UPDATE artifacts SET custody = ? WHERE artifact_said = ?')
+    .run('Public', prepared.artifact.d);
+  database.close();
+  expect(reopened.protectedArtifact(prepared.artifact.d)).toEqual({ kind: 'Corrupt' });
+  reopened.close();
+});

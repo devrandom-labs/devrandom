@@ -540,6 +540,41 @@ export class SqliteEvaluationEvidenceOutbox {
     }
   }
 
+  /** Exact protected ciphertext retained locally and acknowledged by hosted Evidence. */
+  protectedArtifact(
+    artifactSaid: string,
+  ):
+    | { readonly kind: 'Found'; readonly artifact: ProtectedEvaluationArtifact }
+    | { readonly kind: 'Missing' | 'Corrupt' } {
+    if (!saidPattern.test(artifactSaid)) return { kind: 'Corrupt' };
+    try {
+      if (!validStoredState(this.#database, this.#binding)) return { kind: 'Corrupt' };
+      const candidate: unknown = this.#database
+        .prepare('SELECT * FROM artifacts WHERE artifact_said = ?')
+        .get(artifactSaid);
+      if (candidate === undefined) return { kind: 'Missing' };
+      if (!Value.Check(artifactRowSchema, candidate)) return { kind: 'Corrupt' };
+      if (candidate.custody !== 'ProtectedCiphertext') return { kind: 'Missing' };
+      const row = uploadRow(
+        this.#database
+          .prepare('SELECT * FROM uploads WHERE batch_said = ?')
+          .get(candidate.batch_said),
+      );
+      if (row === undefined) return { kind: 'Corrupt' };
+      const upload = decodeStoredUpload(row, this.#binding);
+      if (upload === undefined) return { kind: 'Corrupt' };
+      if (row.acknowledgement === null) return { kind: 'Missing' };
+      const receipt: unknown = JSON.parse(row.acknowledgement);
+      if (!matchingAcknowledgement(receipt, upload, this.#binding)) return { kind: 'Corrupt' };
+      const artifact = upload.protectedArtifacts.find((item) => item.d === artifactSaid);
+      if (artifact === undefined || decodeProtectedEvaluationArtifact(artifact).kind !== 'Accepted')
+        return { kind: 'Corrupt' };
+      return { kind: 'Found', artifact };
+    } catch {
+      return { kind: 'Corrupt' };
+    }
+  }
+
   stage(
     input: EvaluationEvidenceStaging,
   ):
