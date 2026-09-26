@@ -85,6 +85,7 @@ describe('Signify local mandate authority', () => {
     const connectRunAdmission = vi.fn();
     const connectEvidenceSeal = vi.fn();
     const connectPromotion = vi.fn();
+    const connectActivationReceipts = vi.fn();
     const authority = new SignifyLocalMandateAuthority(
       identityConfiguration,
       mandateConfiguration,
@@ -96,6 +97,7 @@ describe('Signify local mandate authority', () => {
         connectRunAdmission,
         connectEvidenceSeal,
         connectPromotion,
+        connectActivationReceipts,
       },
     );
 
@@ -107,5 +109,6 @@ describe('Signify local mandate authority', () => {
     expect(connectRunAdmission).not.toHaveBeenCalled();
     expect(connectEvidenceSeal).not.toHaveBeenCalled();
     expect(connectPromotion).not.toHaveBeenCalled();
+    expect(connectActivationReceipts).not.toHaveBeenCalled();
   });
 });

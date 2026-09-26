@@ -6,6 +6,7 @@ import type {
   LocalMandateCustody,
   LocalPromotionExchanges,
   LocalRunAdmissionExchange,
+  IssuerActivationReceiptExchange,
 } from '@devrandom/identity';
 
 import type {
@@ -35,6 +36,7 @@ export type CurrentLocalMandateAuthority =
       readonly runAdmissionExchange: LocalRunAdmissionExchange;
       readonly evidenceSealExchange: LocalEvidenceSealExchange;
       readonly promotionExchanges: LocalPromotionExchanges;
+      readonly activationReceipts: Pick<IssuerActivationReceiptExchange, 'inspect'>;
     }
   | { readonly kind: 'CustodyUnavailable' }
   | {
