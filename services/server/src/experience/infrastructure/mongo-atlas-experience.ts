@@ -50,7 +50,7 @@ export interface AtlasExperienceProfile {
   readonly maximumEmbeddingChargeMicroUsd: number;
 }
 
-interface ExperienceEpisodeDocument {
+export interface ExperienceEpisodeDocument {
   readonly _id: string;
   readonly ownerAid: string;
   readonly repositoryResourceSaid: string;
@@ -91,13 +91,20 @@ interface VectorMatch {
   readonly score: number;
 }
 
-interface ExperienceQueryReceiptDocument {
+export interface ExperienceQueryReceiptDocument {
   readonly _id: string;
   readonly ownerAid: string;
+  readonly taskId: string;
+  readonly taskRevisionSaid: string;
+  readonly repositoryResourceSaid: string;
+  readonly corpusSaid: string;
   readonly query: string;
   readonly sourceInventorySaid: string;
   readonly sources: readonly VectorMatch[];
   readonly chargedMicroUsd: number;
+  readonly indexName: string;
+  readonly modelId: string;
+  readonly modelVersion: string;
   readonly artifact: EvidenceArtifact;
   readonly bytes: Binary;
   readonly acceptedAt: Date;
@@ -447,10 +454,17 @@ export class MongoAtlasExperience implements AnalogousExperience {
       await this.#receipts.insertOne({
         _id: receipt.artifact.d,
         ownerAid,
+        taskId: query.taskId,
+        taskRevisionSaid: inventory.taskRevisionSaid,
+        repositoryResourceSaid: inventory.repositoryResourceSaid,
+        corpusSaid: inventory.corpusSaid,
         query: query.failureQuery,
         sourceInventorySaid: query.sourceInventorySaid,
         sources,
         chargedMicroUsd: embedded.chargedMicroUsd,
+        indexName: this.#profile.indexName,
+        modelId: this.#profile.modelId,
+        modelVersion: this.#profile.modelVersion,
         artifact: receipt.artifact,
         bytes: new Binary(Uint8Array.from(receiptBytes)),
         acceptedAt: new Date(),

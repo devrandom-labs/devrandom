@@ -27,9 +27,11 @@ import {
 import { MongoEvidenceReading } from '../../evidence/infrastructure/mongo-evidence-reading.js';
 import { evidenceCollectionNames } from '../../evidence/infrastructure/evidence-storage-contract.js';
 import { MongoEvaluationPreparations } from '../../evaluation/infrastructure/mongo-evaluation-reservations.js';
+import { readExperienceQueryReceipt } from '../application/read-query-receipt.js';
 import { retrieveExperience } from '../application/retrieve-experience.js';
 import { experienceRoutes } from '../route/experience-routes.js';
 import { MongoAtlasExperience, experienceCollectionNames } from './mongo-atlas-experience.js';
+import { MongoExperienceQueryReceipts } from './mongo-query-receipt-reading.js';
 
 const atlasUri = process.env.DEVRANDOM_ATLAS_URI;
 const describeAtlas = atlasUri === undefined ? describe.skip : describe;
@@ -124,6 +126,7 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
         Promise.resolve({ kind: 'Embedded' as const, vector: [1, 0, 0], chargedMicroUsd: 0 }),
     },
   });
+  const queryReceipts = new MongoExperienceQueryReceipts(database, { profile, reading });
   let rawArtifactSaid: string;
   let episodeSaid: string;
   let inventorySaid: string;
@@ -313,6 +316,25 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
       expect(
         decodeEvidenceArtifact(receipt.artifact, Uint8Array.from(receipt.bytes.buffer)),
       ).toMatchObject({ kind: 'Accepted' });
+      const receiptQuery = {
+        ownerAid,
+        taskId,
+        sourceInventorySaid: inventorySaid,
+        receiptSaid: body.queryReceiptSaid,
+        offset: 0,
+        maximumBytes: 32 * 1024,
+      };
+      const receiptRead = await readExperienceQueryReceipt(receiptQuery, {
+        scopes: { inspect: () => Promise.resolve({ kind: 'Authorized' as const, scope }) },
+        receipts: queryReceipts,
+      });
+      expect(receiptRead).toMatchObject({
+        kind: 'Read',
+        artifact: receipt.artifact,
+        totalBytes: receipt.artifact.byteLength,
+      });
+      if (receiptRead.kind !== 'Read') throw new Error('Exact receipt read denied');
+      expect(receiptRead.bytes).toEqual(Uint8Array.from(receipt.bytes.buffer));
       await expect(
         reading.read({
           ownerAid,
@@ -333,6 +355,12 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
       const afterDeletion = await fetchQuery();
       expect(afterDeletion.status).toBe(403);
       expect(await afterDeletion.json()).toMatchObject({ code: 'ExperienceDenied' });
+      await expect(
+        readExperienceQueryReceipt(receiptQuery, {
+          scopes: { inspect: () => Promise.resolve({ kind: 'Authorized' as const, scope }) },
+          receipts: queryReceipts,
+        }),
+      ).resolves.toMatchObject({ kind: 'Denied' });
     } finally {
       await server.close();
     }
