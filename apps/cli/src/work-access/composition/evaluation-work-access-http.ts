@@ -163,6 +163,15 @@ export function evaluationWorkAccessHttp(
     access.request((grant) => grant.server.evidence().readVerifierReceipt(...args));
   return {
     evaluations,
+    // Fresh proof must not hold the comparison lock needed by lease renewal.
+    appendEvidence: (
+      upload: Parameters<Client['appendEvidence']>[0],
+      signal: AbortSignal,
+      sequenceMutation: <T>(effect: () => Promise<T>) => Promise<T>,
+    ): ReturnType<Client['appendEvidence']> =>
+      access.request((grant) =>
+        sequenceMutation(() => grant.server.evaluations().appendEvidence(upload, signal)),
+      ),
     readArtifact,
     context,
     qualification: {

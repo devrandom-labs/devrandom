@@ -6,7 +6,7 @@ import {
   prepareEvaluationEvidenceBatch,
   workAccessScopes,
 } from '@devrandom/protocol';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { GrantedWorkAccessProjection } from '../infrastructure/server-work-access-http.js';
 import { acquireWorkAccess } from '../application/work-access-acquisition.js';
 import {
@@ -90,7 +90,7 @@ function admittedUser(): AdmittedUser {
   return admission.user;
 }
 
-it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant boundary', async () => {
+async function exerciseRollover(scenario: 'continuity' | 'slow-proof-sequencing') {
   // Synthetic localhost admission/ledger. Real HTTP clients, no live identity,
   // MongoDB, provider, Evaluation lease extension or native effects are claimed.
   const evaluationId = randomUUID();
@@ -98,6 +98,10 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
   const leaseId = randomUUID();
   const leaseStartedAt = Date.now() - 31_000;
   let leaseRenewals = 0;
+  const proofAllowed = Promise.withResolvers<undefined>();
+  const renewalAllowed = Promise.withResolvers<undefined>();
+  const renewalArrived = Promise.withResolvers<undefined>();
+  let appendRequests = 0;
   const said = (letter: string) => `E${letter.repeat(43)}`;
   const event = prepareEvaluationEvidenceEvent({
     evaluationId,
@@ -195,7 +199,10 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
           throw new Error('proof binding');
         const chunks: Buffer[] = [];
         for await (const chunk of request) chunks.push(Buffer.from(chunk as Uint8Array));
-        expect(JSON.parse(Buffer.concat(chunks).toString())).toEqual({ version: 1, responseSaid });
+        expect(JSON.parse(Buffer.concat(chunks).toString())).toEqual({
+          version: 1,
+          responseSaid,
+        });
         ledger.set(secret, { grant, remaining: 2000, charged: 0, released: false });
         const binding = Object.fromEntries(
           Object.entries(grant).filter(
@@ -250,6 +257,31 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
       }
       held.remaining--;
       held.charged++;
+      if (request.url?.endsWith('/position')) {
+        expect(held.grant.attemptId).toBe(initial.server.grant.attemptId);
+        response.end(
+          JSON.stringify({
+            version: 1,
+            currentEvaluationVersion: 1,
+            evaluationId,
+            ownerAid: userAid,
+            commandId: upload.commandId,
+            originRunId: event.event.originRunId,
+            streamId,
+            reservationSaid: said('r'),
+            acceptedThroughSequence: -1,
+            chainHeadSaid: null,
+            lease: {
+              evaluationId,
+              leaseId,
+              version: 1,
+              serverTime: new Date().toISOString(),
+              expiresAt: new Date(leaseStartedAt + 45_000).toISOString(),
+            },
+          }),
+        );
+        return;
+      }
       if (request.method === 'GET') {
         expect(held.grant.attemptId).not.toBe(initial.server.grant.attemptId);
         response.writeHead(404, { 'cache-control': 'no-store' }).end('{}');
@@ -268,6 +300,10 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
         expect(Date.now() - leaseStartedAt).toBeGreaterThanOrEqual(30_000);
         expect(Date.now() - leaseStartedAt).toBeLessThan(45_000);
         leaseRenewals++;
+        if (scenario === 'slow-proof-sequencing') {
+          renewalArrived.resolve(undefined);
+          await renewalAllowed.promise;
+        }
         response.end(
           JSON.stringify({
             kind: 'Renewed',
@@ -285,6 +321,7 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
         return;
       }
       commandBodies.add(encoded);
+      appendRequests++;
       response.writeHead(200).end(
         JSON.stringify({
           version: 1,
@@ -318,15 +355,84 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
     return acquired;
   };
   const initial = await acquire();
+  const initialLedger = [...ledger.values()][0];
+  if (initialLedger === undefined) throw new Error('initial grant');
+  if (scenario === 'slow-proof-sequencing') initialLedger.remaining = 128;
+  const freshProof = vi.fn(async (signal: AbortSignal) => {
+    if (scenario === 'slow-proof-sequencing') await proofAllowed.promise;
+    return acquire(signal);
+  });
   const stopped = new AbortController();
   const transport = evaluationWorkAccessHttp(
-    { initial, acquire, release: (grant) => grant.server.releaseGrant() },
+    { initial, acquire: freshProof, release: (grant) => grant.server.releaseGrant() },
     origin,
     stopped.signal,
   );
   const capturedClient = transport.evaluations;
   const capturedQualification = transport.qualification;
   try {
+    if (scenario === 'slow-proof-sequencing') {
+      let mutationFinished = Promise.resolve();
+      let sequencerEntries = 0;
+      const sequenceMutation = <T>(effect: () => Promise<T>): Promise<T> => {
+        sequencerEntries++;
+        const pending = mutationFinished.then(() => {
+          stopped.signal.throwIfAborted();
+          return effect();
+        });
+        mutationFinished = pending.then(
+          () => undefined,
+          () => undefined,
+        );
+        return pending;
+      };
+      const append = transport.appendEvidence(upload, stopped.signal, sequenceMutation);
+      void append.catch(() => undefined);
+      await vi.waitFor(() => {
+        expect(freshProof).toHaveBeenCalledTimes(1);
+      });
+      expect(sequencerEntries).toBe(0);
+      expect(appendRequests).toBe(0);
+      const maintenance = sequenceMutation(async () => {
+        expect(await capturedClient.readPosition(evaluationId)).toMatchObject({ kind: 'Read' });
+        return capturedClient.renewLease({
+          version: 1,
+          commandId: randomUUID(),
+          fingerprint: `sha256:${'c'.repeat(64)}`,
+          evaluationId,
+          leaseId,
+          expectedEvaluationVersion: 1,
+        });
+      });
+      await renewalArrived.promise;
+      expect(acquisitions).toBe(1);
+      expect(leaseRenewals).toBe(1);
+      proofAllowed.resolve(undefined);
+      await vi.waitFor(
+        () => {
+          expect(sequencerEntries).toBe(2);
+        },
+        { timeout: 5000 },
+      );
+      expect(appendRequests).toBe(0);
+      expect(initialLedger.released).toBe(false);
+      renewalAllowed.resolve(undefined);
+      expect(await maintenance).toMatchObject({
+        kind: 'Renewed',
+        receipt: { evaluationId, lease: { leaseId } },
+      });
+      expect(await append).toMatchObject({
+        kind: 'Acknowledged',
+        acknowledgement: { batchSaid: batch.batch.d, chainHeadSaid: event.event.d },
+      });
+      await vi.waitFor(() => {
+        expect(initialLedger.released).toBe(true);
+      });
+      expect(appendRequests).toBe(1);
+      expect(commandBodies).toEqual(new Set([JSON.stringify(upload)]));
+      expect([...ledger.values()].map((held) => held.charged)).toEqual([2, 1]);
+      return;
+    }
     for (let index = 0; index < 2100; index++) {
       expect(await capturedClient.appendEvidence(upload)).toMatchObject({
         kind: 'Acknowledged',
@@ -366,6 +472,8 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
     expect(observations).toBeLessThan(150);
   } finally {
     stopped.abort();
+    proofAllowed.resolve(undefined);
+    renewalAllowed.resolve(undefined);
     await transport.close();
     server.closeAllConnections();
     await new Promise<void>((resolve) => {
@@ -374,4 +482,10 @@ it('keeps exact Evaluation HTTP commands and ACKs across the 2000-request grant 
       });
     });
   }
-}, 30_000);
+}
+
+it.each(['continuity', 'slow-proof-sequencing'] as const)(
+  'keeps exact Evaluation HTTP commands, ACKs and maintenance through rollover: %s',
+  exerciseRollover,
+  30_000,
+);

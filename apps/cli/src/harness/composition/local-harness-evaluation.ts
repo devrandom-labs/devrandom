@@ -1328,6 +1328,7 @@ export async function evaluateLocalHarness(
           C3: c3,
         },
         hosted: hosted.evaluations,
+        appendEvidence: transport.appendEvidence,
         outbox,
         mandate: new SignifyTaskToolMandate({
           task,
