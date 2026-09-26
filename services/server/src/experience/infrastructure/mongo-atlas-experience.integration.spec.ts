@@ -120,13 +120,18 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
   const reading = new MongoEvidenceReading(database);
   const experience = new MongoAtlasExperience(database, {
     profile,
+    preparationsDatabase: database,
     reading,
     embedding: {
       embed: () =>
         Promise.resolve({ kind: 'Embedded' as const, vector: [1, 0, 0], chargedMicroUsd: 0 }),
     },
   });
-  const queryReceipts = new MongoExperienceQueryReceipts(database, { profile, reading });
+  const queryReceipts = new MongoExperienceQueryReceipts(database, {
+    profile,
+    reading,
+    preparationsDatabase: database,
+  });
   let rawArtifactSaid: string;
   let episodeSaid: string;
   let inventorySaid: string;

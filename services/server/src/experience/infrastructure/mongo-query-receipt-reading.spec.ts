@@ -115,15 +115,21 @@ function fixture() {
   const database = {
     collection(name: string) {
       if (name === 'experienceQueryReceipts') return { findOne: () => Promise.resolve(receipt) };
-      if (name === 'evaluationPreparations')
-        return { findOne: () => Promise.resolve({ sourceInventory: inventory }) };
       if (name === 'experienceEpisodes') return { findOne: () => Promise.resolve(episode) };
       throw new Error(`Unexpected collection ${name}`);
+    },
+  } as unknown as Db;
+  const preparationsDatabase = {
+    collection(name: string) {
+      if (name === 'evaluationPreparations')
+        return { findOne: () => Promise.resolve({ sourceInventory: inventory }) };
+      throw new Error(`Host preparation lookup crossed into ${name}`);
     },
   } as unknown as Db;
   const receipts = new MongoExperienceQueryReceipts(database, {
     profile,
     reading: { read: rawRead },
+    preparationsDatabase,
   });
   const scopes = { inspect: () => Promise.resolve({ kind: 'Authorized' as const, scope }) };
   const input = {

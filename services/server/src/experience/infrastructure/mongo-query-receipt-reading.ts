@@ -109,10 +109,13 @@ export class MongoExperienceQueryReceipts implements ExperienceQueryReceiptReadi
     dependencies: {
       readonly reading: RawEvidenceReading;
       readonly profile: AtlasExperienceProfile;
+      readonly preparationsDatabase: Db;
     },
   ) {
     this.#receipts = database.collection(experienceCollectionNames.queryReceipts);
-    this.#preparations = database.collection(evaluationCollectionNames.preparations);
+    this.#preparations = dependencies.preparationsDatabase.collection(
+      evaluationCollectionNames.preparations,
+    );
     this.#episodes = database.collection(experienceCollectionNames.episodes);
     this.#reading = dependencies.reading;
     this.#profile = dependencies.profile;

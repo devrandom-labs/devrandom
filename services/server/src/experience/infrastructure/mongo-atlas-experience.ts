@@ -187,11 +187,14 @@ export class MongoAtlasExperience implements AnalogousExperience {
       readonly embedding: ExperienceEmbedding;
       readonly profile: AtlasExperienceProfile;
       readonly reading: RawEvidenceReading;
+      readonly preparationsDatabase: Db;
     },
   ) {
     this.#episodes = database.collection(experienceCollectionNames.episodes);
     this.#receipts = database.collection(experienceCollectionNames.queryReceipts);
-    this.#preparations = database.collection(evaluationCollectionNames.preparations);
+    this.#preparations = dependencies.preparationsDatabase.collection(
+      evaluationCollectionNames.preparations,
+    );
     this.#embedding = dependencies.embedding;
     this.#profile = dependencies.profile;
     this.#reading = dependencies.reading;

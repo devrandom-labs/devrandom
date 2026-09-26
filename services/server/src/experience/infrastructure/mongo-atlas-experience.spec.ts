@@ -106,8 +106,6 @@ describe('server-owned Atlas ENN boundary', () => {
     const insertOne = vi.fn();
     const database = {
       collection(name: string) {
-        if (name === evaluationCollectionNames.preparations)
-          return { findOne: () => Promise.resolve({ sourceInventory: inventory.inventory }) };
         if (name === experienceCollectionNames.queryReceipts) return { insertOne };
         if (name === experienceCollectionNames.episodes)
           return {
@@ -150,6 +148,13 @@ describe('server-owned Atlas ENN boundary', () => {
         throw new Error(`unexpected collection ${name}`);
       },
     } as unknown as Db;
+    const preparationsDatabase = {
+      collection(name: string) {
+        if (name === evaluationCollectionNames.preparations)
+          return { findOne: () => Promise.resolve({ sourceInventory: inventory.inventory }) };
+        throw new Error(`hosted preparation lookup crossed into ${name}`);
+      },
+    } as unknown as Db;
     const read = vi.fn(() => Promise.resolve({ kind: 'Denied' as const }));
     const experience = new MongoAtlasExperience(database, {
       profile,
@@ -162,6 +167,7 @@ describe('server-owned Atlas ENN boundary', () => {
           }),
       },
       reading: { read },
+      preparationsDatabase,
     });
     const outcome = await experience.retrieve({
       ownerAid,

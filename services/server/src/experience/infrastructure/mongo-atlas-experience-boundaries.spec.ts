@@ -71,6 +71,7 @@ describe('Atlas Experience source and active-index boundary', () => {
     };
     const experience = new MongoAtlasExperience(database, {
       profile,
+      preparationsDatabase: database,
       embedding,
       reading: {
         read: () =>
@@ -116,6 +117,7 @@ describe('Atlas Experience source and active-index boundary', () => {
     const bytes = new TextEncoder().encode('authorized source');
     const experience = new MongoAtlasExperience(database, {
       profile,
+      preparationsDatabase: database,
       embedding: {
         embed: () =>
           Promise.resolve({ kind: 'Embedded' as const, vector: [1, 0, 0], chargedMicroUsd: 1 }),
@@ -179,6 +181,7 @@ describe('Atlas Experience source and active-index boundary', () => {
     } as unknown as Db;
     const experience = new MongoAtlasExperience(database, {
       profile,
+      preparationsDatabase: database,
       embedding: { embed: () => Promise.resolve({ kind: 'Unavailable' as const }) },
       reading: { read: () => Promise.resolve({ kind: 'Denied' as const }) },
     });
