@@ -142,7 +142,14 @@ export class GitCesrPublicHistory implements CurrentPublicHistory, ReviewedHisto
           {
             artifact: edit.artifact,
             bytes: editBytes,
-            text: 'Current parser handles the current version marker and rejects other version markers.',
+            text: `Selected exact source lines from src/lib.rs:\n${source.stdout
+              .split('\n')
+              .flatMap((line, index) =>
+                /short_frame|split_group|strip_prefix|decode_count/u.test(line)
+                  ? [`${String(index + 1)}: ${line}`]
+                  : [],
+              )
+              .join('\n')}`,
           },
         ],
       ]);

@@ -30,7 +30,7 @@ const scopedSourceFiles = [
   ['tests/tamper_rejection.rs', '163cdc3480d59d53c76bfd012fabf195c357595ced8b151c91e36ae6da8a064f'],
   [
     'tests/legacy_compatibility.rs',
-    '7bce2b8775894886b4301ac04f27d0772db8639a377158dd536fb0a0689e63b1',
+    '5ed0e714e1a5af21549caa5c3ebec39b82e139107ce6c8412d0411af8efa5138',
   ],
 ] as const;
 

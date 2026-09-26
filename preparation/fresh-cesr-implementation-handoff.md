@@ -11,19 +11,19 @@ New native regression `cesr-scoped-oracle.integration.spec.ts`: application-boun
 Public materializer smoke passed:
 
 ```
-nix develop -c just --command pnpm exec tsx tooling/cesr-receipt-fixture.ts /tmp/devrandom-cesr-scoped-source-review-20260926 scoped-groups
+nix develop -c just --command pnpm exec tsx tooling/cesr-receipt-fixture.ts /tmp/devrandom-cesr-scoped-source-review-v2-20260926 scoped-groups
 ```
 
-Local prepared source commit `40a3117dbf0b040f178eec4475b29d8c0354b735`, tree `474f4722d8ce5a1ee863dd75e3a16e0c77ef3ea6`. This only writes a local source checkout and Task template, not a hosted Task or grant.
+Local prepared source commit `087d94c252e693a25a917fa1184fd4c2b761f668`, tree `a89b00f68e27f67d87827a151c32af3bb6335e98`. This only writes a local source checkout and Task template, not a hosted Task or grant.
 
 Validation:
 
 - Red: old catalogue rejects fresh source; old verifier bundle rejects legitimate large-frame public stimuli; old sealer does not select fresh protected cases.
-- Green: eight narrow files,25 tests; includes original materializer regression, fresh fixture/native33-case replay, exact catalogue substitution, protected custody and original manifest sequencing.
+- Green: nine narrow files,26 tests (25 initial plus C3 regression); includes original materializer regression, fresh fixture/native33-case replay, exact catalogue substitution, protected custody and original manifest sequencing.
 - CLI and dependency builds PASS; workspace strict typecheck PASS; changed TypeScript lint PASS.
 - `git diff --check` PASS.
 - Docker native replay NOT RUN: serialized behind backup demo at lead request.
 - Full `just check` NOT RUN: pending coordinated heavy gate.
 - Q NOT RUN: proper bindings/profile/source/budget gates remain open. There is no evidence of repeatable unchanged-H1 failure.
 
-Review finding still awaiting follow-up: `GitCesrPublicHistory` hardcodes that parser rejects non-Current versions; that assertion is false of this recorded repaired starting point. Must repair projection semantics before any C3 causal claim; do not invent a failure history. Lead notified, no unauthorized edit made.
+Approved follow-up repairs `GitCesrPublicHistory`: exact line-numbered source excerpts replace its false claim that the repaired parser rejects Legacy. Real clean Git/source/raw projection regression failed for that claim and now passes; substituted raw bytes remain rejected. Fresh large-boundary tests retain every assertion while emitting compact parse/length/per-receipt diagnostics. CLI rebuild, changed-source lint, strict typecheck and six affected narrow tests passed after this follow-up. Docker and full gate remain pending.

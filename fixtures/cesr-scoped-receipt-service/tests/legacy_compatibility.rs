@@ -77,15 +77,17 @@ fn large_group_accepts_small_and_over_short_limit_bodies() {
     for count in [2, 373] {
         let body = format!("-_AAABAA{}", FIRST.repeat(count));
         let stream = frame(&body, true);
-        assert_eq!(
-            parse_receipt_stream(&stream),
-            Ok((0..count)
-                .map(|_| VerifiedReceipt {
+        let receipts = parse_receipt_stream(&stream).expect("large group must parse");
+        assert_eq!(receipts.len(), count);
+        for receipt in receipts {
+            assert_eq!(
+                receipt,
+                VerifiedReceipt {
                     version: ReceiptVersion::Legacy,
                     payload: FIRST
-                })
-                .collect())
-        );
+                }
+            );
+        }
     }
 }
 
