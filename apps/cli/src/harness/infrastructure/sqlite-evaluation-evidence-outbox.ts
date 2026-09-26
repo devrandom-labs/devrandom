@@ -476,6 +476,68 @@ export class SqliteEvaluationEvidenceOutbox {
     }
   }
 
+  /** Durable local and hosted-acknowledged cursors for exact successor staging. */
+  position():
+    | {
+        readonly kind: 'Position';
+        readonly nextSequence: number;
+        readonly chainHeadSaid: string | null;
+        readonly acknowledgedSequence: number;
+        readonly acknowledgedHeadSaid: string | null;
+      }
+    | { readonly kind: 'Corrupt' } {
+    try {
+      if (!validStoredState(this.#database, this.#binding)) return { kind: 'Corrupt' };
+      const current = state(this.#database);
+      if (current === undefined) return { kind: 'Corrupt' };
+      return {
+        kind: 'Position',
+        nextSequence: current.next_sequence,
+        chainHeadSaid: current.chain_head_said,
+        acknowledgedSequence: current.acknowledged_sequence,
+        acknowledgedHeadSaid: current.acknowledged_head_said,
+      };
+    } catch {
+      return { kind: 'Corrupt' };
+    }
+  }
+
+  /** Exact staged successor, including a prior ACK, for crash and lost-response reconciliation. */
+  following(predecessorSaid: string | null):
+    | {
+        readonly kind: 'Found';
+        readonly upload: Upload;
+        readonly acknowledgement: Acknowledgement | null;
+      }
+    | { readonly kind: 'Empty' | 'Corrupt' } {
+    try {
+      if (!validStoredState(this.#database, this.#binding)) return { kind: 'Corrupt' };
+      const rows: unknown[] = this.#database
+        .prepare('SELECT * FROM uploads ORDER BY starting_sequence')
+        .all();
+      for (const candidate of rows) {
+        const row = uploadRow(candidate);
+        if (row === undefined) return { kind: 'Corrupt' };
+        const upload = decodeStoredUpload(row, this.#binding);
+        if (upload === undefined) return { kind: 'Corrupt' };
+        const previous = upload.events[0]?.previous;
+        if (
+          !(predecessorSaid === null
+            ? previous?.kind === 'Genesis'
+            : previous?.kind === 'Previous' && previous.eventSaid === predecessorSaid)
+        )
+          continue;
+        if (row.acknowledgement === null) return { kind: 'Found', upload, acknowledgement: null };
+        const receipt: unknown = JSON.parse(row.acknowledgement);
+        if (!matchingAcknowledgement(receipt, upload, this.#binding)) return { kind: 'Corrupt' };
+        return { kind: 'Found', upload, acknowledgement: receipt };
+      }
+      return { kind: 'Empty' };
+    } catch {
+      return { kind: 'Corrupt' };
+    }
+  }
+
   stage(
     input: EvaluationEvidenceStaging,
   ):

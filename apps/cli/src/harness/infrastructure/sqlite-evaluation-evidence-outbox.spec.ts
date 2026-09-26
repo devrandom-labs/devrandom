@@ -81,6 +81,50 @@ function open(stateRoot: string): SqliteEvaluationEvidenceOutbox {
   return opening.outbox;
 }
 
+it('exposes the exact durable position and a staged batch following a stopped head', () => {
+  const outbox = open(root());
+  expect(outbox.position()).toEqual({
+    kind: 'Position',
+    nextSequence: 0,
+    chainHeadSaid: null,
+    acknowledgedSequence: -1,
+    acknowledgedHeadSaid: null,
+  });
+  const bytes = new TextEncoder().encode('source');
+  const artifact = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
+  if (artifact.kind !== 'Prepared') throw new Error('fixture artifact rejected');
+  const first = event(
+    0,
+    { kind: 'Genesis' },
+    {
+      kind: 'ModelExchange',
+      rawArtifactSaid: artifact.artifact.d,
+    },
+  );
+  expect(
+    outbox.stage({
+      commandId: randomUUID(),
+      fingerprint: `sha256:${'a'.repeat(64)}`,
+      events: [first],
+      publicArtifacts: [{ artifact: artifact.artifact, bytes }],
+      protectedArtifacts: [],
+    }).kind,
+  ).toBe('Staged');
+  expect(outbox.position()).toMatchObject({
+    kind: 'Position',
+    nextSequence: 1,
+    chainHeadSaid: first.d,
+    acknowledgedSequence: -1,
+  });
+  expect(outbox.following(null)).toMatchObject({
+    kind: 'Found',
+    upload: { events: [first] },
+    acknowledgement: null,
+  });
+  expect(outbox.following(first.d)).toEqual({ kind: 'Empty' });
+  outbox.close();
+});
+
 it('restores exact raw bytes and the oldest unacknowledged batch after restart', () => {
   const stateRoot = root();
   const outbox = open(stateRoot);
