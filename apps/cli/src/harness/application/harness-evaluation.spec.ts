@@ -125,7 +125,7 @@ it('persists command before hosted prepare/admit and blocks worker until protect
       'policy.json',
       new AbortController().signal,
     ),
-  ).toEqual({ kind: 'Blocked', gate: 'ProtectedCases' });
+  ).toEqual({ kind: 'Blocked', gate: 'ProtectedCases', evaluationId });
   expect(calls).toEqual([
     'policy',
     'authority',
@@ -209,7 +209,7 @@ it('reconciles an admitted command against the hosted receipt without preparing 
       'policy.json',
       new AbortController().signal,
     ),
-  ).toEqual({ kind: 'Reconciled', evaluationId });
+  ).toEqual({ kind: 'Blocked', gate: 'ProtectedCases', evaluationId });
   expect(calls).toEqual(['policy', 'authority', 'task', 'qualification', `admit:${commandId}`]);
 });
 

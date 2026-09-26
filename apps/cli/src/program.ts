@@ -179,7 +179,14 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
 function renderHarnessEvaluation(outcome: HarnessEvaluationOutcome): RenderedCommand {
   switch (outcome.kind) {
     case 'Blocked':
-      return { destination: 'stderr', exitCode: 6, text: `Evaluation blocked: ${outcome.gate}.` };
+      return {
+        destination: 'stderr',
+        exitCode: 6,
+        text:
+          outcome.gate === 'ProtectedCases'
+            ? `Evaluation ${outcome.evaluationId} admitted; protected cases and M are not locked. No trial started.`
+            : `Evaluation blocked: ${outcome.gate}.`,
+      };
     case 'InvalidInput':
       return {
         destination: 'stderr',
@@ -191,12 +198,6 @@ function renderHarnessEvaluation(outcome: HarnessEvaluationOutcome): RenderedCom
         destination: 'stderr',
         exitCode: 5,
         text: `Evaluation unavailable: ${outcome.reason}.`,
-      };
-    case 'Reconciled':
-      return {
-        destination: 'stdout',
-        exitCode: 0,
-        text: `Evaluation ${outcome.evaluationId} recorded; no trial was restarted.`,
       };
     case 'Interrupted':
       return { destination: 'stderr', exitCode: 130, text: 'Evaluation interrupted.' };

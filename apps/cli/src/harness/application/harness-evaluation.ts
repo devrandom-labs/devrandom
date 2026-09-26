@@ -23,15 +23,9 @@ export type HarnessEvaluationOutcome =
   | {
       readonly kind: 'Blocked';
       readonly gate:
-        | 'Qualification'
-        | 'Profile'
-        | 'Source'
-        | 'Authority'
-        | 'Budget'
-        | 'Evidence'
-        | 'ProtectedCases'
-        | 'Manifest';
+        'Qualification' | 'Profile' | 'Source' | 'Authority' | 'Budget' | 'Evidence' | 'Manifest';
     }
+  | { readonly kind: 'Blocked'; readonly gate: 'ProtectedCases'; readonly evaluationId: string }
   | {
       readonly kind: 'InvalidInput';
       readonly reason: 'Label' | 'RunId' | 'Policy' | 'PolicyBinding' | 'CommandConflict';
@@ -40,8 +34,7 @@ export type HarnessEvaluationOutcome =
       readonly kind: 'Unavailable';
       readonly reason: 'Custody' | 'HostedWork' | 'EvaluationService';
     }
-  | { readonly kind: 'Interrupted' }
-  | { readonly kind: 'Reconciled'; readonly evaluationId: string };
+  | { readonly kind: 'Interrupted' };
 
 type AdmissionCommand = Type.Static<typeof evaluationAdmissionCommandSchema>;
 type PreparationCommand = {
@@ -306,7 +299,7 @@ export class HarnessEvaluation {
     }
     if (command.admittedEvaluationId !== undefined) {
       return command.admittedEvaluationId === admitted.evaluationId
-        ? { kind: 'Reconciled', evaluationId: admitted.evaluationId }
+        ? { kind: 'Blocked', gate: 'ProtectedCases', evaluationId: admitted.evaluationId }
         : { kind: 'InvalidInput', reason: 'CommandConflict' };
     }
     const recorded = await this.#dependencies.commands.recordAdmission(
@@ -317,6 +310,6 @@ export class HarnessEvaluation {
     if (recorded.kind !== 'Recorded') return { kind: 'Unavailable', reason: 'Custody' };
     if (interrupted(signal)) return { kind: 'Interrupted' };
     // A reservation is not a manifest or protected-case custody. Stop before a worker.
-    return { kind: 'Blocked', gate: 'ProtectedCases' };
+    return { kind: 'Blocked', gate: 'ProtectedCases', evaluationId: admitted.evaluationId };
   }
 }

@@ -190,6 +190,37 @@ describe('devrandom command', () => {
     expect(runtime.interruptionReleases).toEqual(['released']);
   });
 
+  it('reports the admitted Evaluation ID while protected cases and M remain unprepared', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const evaluator = {
+      ...commands,
+      harness: {
+        evaluate: () =>
+          Promise.resolve({
+            kind: 'Blocked' as const,
+            gate: 'ProtectedCases' as const,
+            evaluationId: '81d7f67f-d2f9-4fae-87cc-ac827de6f0d1',
+          }),
+      },
+    };
+    await createProgram(evaluator, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'evaluate',
+      'cesr-compat',
+      '--from-run',
+      'retained-run-id',
+      '--policy',
+      'evaluation.json',
+    ]);
+    expect(runtime.errors).toEqual([
+      'Evaluation 81d7f67f-d2f9-4fae-87cc-ac827de6f0d1 admitted; protected cases and M are not locked. No trial started.\n',
+    ]);
+    expect(runtime.exitCodes).toEqual([6]);
+  });
+
   it('exposes the retained identity and Task surface without deferred runtime commands', () => {
     const { commands } = commandFixture();
     const runtime = processFixture();
