@@ -137,6 +137,7 @@ interface UntrustedMeasurement {
   readonly providerReportArtifactSaid?: unknown;
   readonly modelExchangeEventSaid?: unknown;
   readonly proposalEventSaid?: unknown;
+  readonly proposal?: unknown;
   readonly toolCallId?: unknown;
   readonly proposalIndex?: unknown;
   readonly toolName?: unknown;
@@ -219,6 +220,13 @@ function sourceMatches(
       source.detail.kind === 'ModelExchange' &&
       receipt.kind === 'EvaluationProviderUsageReceipt' &&
       receipt.modelExchangeEventSaid === source.d
+    );
+  if (budget === 'toolProposals' && receipt.kind === 'C2ProvisionalSubmissionAuthorized')
+    return (
+      source.phase.kind === 'Trial' &&
+      source.phase.arm === 'C2' &&
+      source.detail.kind === 'ToolProposed' &&
+      receipt.proposalEventSaid === source.d
     );
   if (budget === 'toolProposals')
     return (
@@ -354,6 +362,8 @@ function validElapsed(receipt: UntrustedMeasurement): boolean {
 
 function validMeasurement(budget: Budget, receipt: UntrustedMeasurement, amount: number): boolean {
   if (measuredAmount(budget, receipt) !== amount) return false;
+  if (budget === 'toolProposals' && receipt.kind === 'C2ProvisionalSubmissionAuthorized')
+    return amount === 1;
   if (
     budget === 'toolProposals' ||
     (budget === 'aggregateChildCommandTimeSeconds' && receipt.kind === 'EvaluationToolElapsed')
@@ -553,6 +563,25 @@ export async function prepareEvaluationBudgetCoverage(
       !validMeasurement(budget, receipt, debit.amount)
     )
       return incomplete('ReceiptAuthority');
+    if (receipt.kind === 'C2ProvisionalSubmissionAuthorized') {
+      if (budget !== 'toolProposals' || source.detail.kind !== 'ToolProposed')
+        return incomplete('ReceiptAuthority');
+      let proposal: UntrustedMeasurement | undefined;
+      try {
+        proposal = await readRaw(source.detail.inputArtifactSaid);
+      } catch {
+        return incomplete('ReceiptCustody');
+      }
+      if (
+        proposal?.kind !== 'ToolProposal' ||
+        !record(proposal.proposal) ||
+        proposal.proposal.toolCallId !== source.detail.toolCallId ||
+        proposal.proposal.proposalIndex !== source.detail.proposalIndex ||
+        !record(proposal.proposal.input) ||
+        proposal.proposal.input.kind !== 'SubmitResult'
+      )
+        return incomplete('ReceiptAuthority');
+    }
     const groupKind = providerBudgets.some((name) => name === budget)
       ? 'Provider'
       : budget === 'toolProposals' ||
@@ -569,10 +598,16 @@ export async function prepareEvaluationBudgetCoverage(
     if (groupedReceipt !== undefined && groupedReceipt !== debit.receiptArtifactSaid)
       return incomplete('ReceiptAuthority');
     groupReceipt.set(groupKey, debit.receiptArtifactSaid);
-    const previousSource = receiptSource.get(debit.receiptArtifactSaid);
+    // Equal source manifests can legitimately recur in independently executed trials.
+    // The source event, phase-local captures and manifest replay still bind each debit.
+    const receiptConsumption =
+      groupKind === 'Source'
+        ? `${debit.receiptArtifactSaid}/${phaseKey(event)}`
+        : debit.receiptArtifactSaid;
+    const previousSource = receiptSource.get(receiptConsumption);
     if (previousSource !== undefined && previousSource !== source.d)
       return incomplete('ReceiptAuthority');
-    receiptSource.set(debit.receiptArtifactSaid, source.d);
+    receiptSource.set(receiptConsumption, source.d);
     const group = sourceBudgets.get(source.d) ?? new Set<Budget>();
     if (group.has(budget)) return incomplete('ReceiptAuthority');
     group.add(budget);

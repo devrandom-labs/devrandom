@@ -1,3 +1,4 @@
+import type { EvaluationExecutionBinding } from '@devrandom/domain';
 import {
   prepareEvaluationEvidenceEvent,
   prepareEvaluationProviderUsageReceipt,
@@ -73,7 +74,11 @@ function event(
   return prepared.event;
 }
 
-function fixture() {
+function fixture(
+  trialBinding: EvaluationExecutionBinding = binding,
+  previousEvents: readonly EvaluationEvidenceEvent[] = [],
+  provisionalSubmission: boolean | 'OtherTool' = false,
+) {
   const artifacts = new Map<string, { artifact: EvidenceArtifact; bytes: Uint8Array }>();
   const raw = (value: unknown): string => {
     const bytes = Buffer.from(JSON.stringify(value));
@@ -82,9 +87,30 @@ function fixture() {
     artifacts.set(prepared.artifact.d, { artifact: prepared.artifact, bytes });
     return prepared.artifact.d;
   };
-  const events: EvaluationEvidenceEvent[] = [];
+  const events: EvaluationEvidenceEvent[] = [...previousEvents];
   const append = (detail: unknown) => {
-    const next = event(events.length, events.at(-1), detail);
+    const prepared = event(events.length, events.at(-1), detail, trialBinding);
+    const previous =
+      prepared.detail.kind === 'EvaluationBudgetDebited'
+        ? previousEvents
+            .filter(
+              (item) =>
+                item.detail.kind === 'EvaluationBudgetDebited' &&
+                prepared.detail.kind === 'EvaluationBudgetDebited' &&
+                item.detail.budget === prepared.detail.budget,
+            )
+            .at(-1)
+        : undefined;
+    const next =
+      prepared.detail.kind === 'EvaluationBudgetDebited' &&
+      previous?.detail.kind === 'EvaluationBudgetDebited'
+        ? event(
+            events.length,
+            events.at(-1),
+            { ...prepared.detail, consumed: prepared.detail.consumed + previous.detail.consumed },
+            trialBinding,
+          )
+        : prepared;
     events.push(next);
     return next;
   };
@@ -111,10 +137,10 @@ function fixture() {
   });
   append({ kind: 'ArtifactCaptured', artifactSaid: providerReport, custody: 'Public' });
   const preparedProviderReceipt = prepareEvaluationProviderUsageReceipt({
-    evaluationId: binding.evaluationId,
-    streamId: binding.evidenceStreamId,
-    harnessRevisionSaid: binding.harnessRevisionSaid,
-    phase: binding.phase,
+    evaluationId: trialBinding.evaluationId,
+    streamId: trialBinding.evidenceStreamId,
+    harnessRevisionSaid: trialBinding.harnessRevisionSaid,
+    phase: trialBinding.phase,
     requestOrdinal: 0,
     modelExchangeEventSaid: exchange.d,
     provider: 'concentrate',
@@ -156,25 +182,43 @@ function fixture() {
       receiptArtifactSaid: providerReceipt,
       sourceEventSaid: exchange.d,
     });
-  const toolInputSaid = raw({ kind: 'ToolProposal', name: 'write_file' });
+  const toolInputSaid = raw(
+    provisionalSubmission
+      ? {
+          kind: 'ToolProposal',
+          proposal: {
+            toolCallId: 'tool-1',
+            proposalIndex: 0,
+            input: {
+              kind: provisionalSubmission === 'OtherTool' ? 'ReadFile' : 'SubmitResult',
+              artifactSaids: [],
+            },
+          },
+        }
+      : { kind: 'ToolProposal', name: 'write_file' },
+  );
   const proposal = append({
     kind: 'ToolProposed',
     proposalIndex: 0,
     toolCallId: 'tool-1',
     inputArtifactSaid: toolInputSaid,
   });
-  const toolReceipt = raw({
-    kind: 'EvaluationToolElapsed',
-    proposalEventSaid: proposal.d,
-    toolCallId: 'tool-1',
-    proposalIndex: 0,
-    toolName: 'write_file',
-    startedMonotonicMicroseconds: 1000,
-    finishedMonotonicMicroseconds: 2000,
-    elapsedMilliseconds: 1,
-    outcomeKind: 'Completed',
-    childCommandDuration: 'NotApplicable',
-  });
+  const toolReceipt = raw(
+    provisionalSubmission
+      ? { kind: 'C2ProvisionalSubmissionAuthorized', proposalEventSaid: proposal.d }
+      : {
+          kind: 'EvaluationToolElapsed',
+          proposalEventSaid: proposal.d,
+          toolCallId: 'tool-1',
+          proposalIndex: 0,
+          toolName: 'write_file',
+          startedMonotonicMicroseconds: 1000,
+          finishedMonotonicMicroseconds: 2000,
+          elapsedMilliseconds: 1,
+          outcomeKind: 'Completed',
+          childCommandDuration: 'NotApplicable',
+        },
+  );
   append({ kind: 'ArtifactCaptured', artifactSaid: toolReceipt, custody: 'Public' });
   append({
     kind: 'EvaluationBudgetDebited',
@@ -227,6 +271,7 @@ function fixture() {
   });
   const zeroChildReceipt = raw({
     kind: 'EvaluationChildCommands',
+    ...(previousEvents.length === 0 ? {} : { phase: trialBinding.phase }),
     method: 'NoNativeCommandToolEffect',
     debitedSeconds: 0,
   });
@@ -288,7 +333,7 @@ function fixture() {
     accepted: { open },
     receipts: { openPublic, verifyProviderUsage },
   };
-  const input = { binding, reserved, occurredAt: '2026-09-26T05:01:00.000Z' };
+  const input = { binding: trialBinding, reserved, occurredAt: '2026-09-26T05:01:00.000Z' };
   const rechain = (start: number, replacement?: unknown) => {
     for (let index = start; index < events.length; index += 1) {
       const prior = events[index - 1];
@@ -348,6 +393,7 @@ describe('trusted parent Evaluation budget coverage', () => {
   it('prepares coverage for an acknowledged, measured nine-dimension prefix', async () => {
     const given = fixture();
     const phase = given.input.binding.phase;
+    if (phase.kind !== 'Trial') throw new Error('expected trial fixture');
     const decodedInput = {
       ...given.input,
       binding: {
@@ -820,3 +866,86 @@ for (const operation of ['Build', 'PublicObservation', 'ProtectedObservation'] a
       }
     });
 }
+
+it('charges equal source measurements separately for two independently completed trial phases', async () => {
+  const first = fixture();
+  const second = fixture({ ...binding, phase: { ...binding.phase, repetition: 2 } }, first.events);
+  for (const [said, raw] of first.artifacts) second.artifacts.set(said, raw);
+  second.verifyProviderUsage.mockImplementation((input: { usageEventSaid: string }) =>
+    Promise.resolve({
+      kind: 'Verified',
+      usageEventSaid: input.usageEventSaid,
+      responseId: 'response-1',
+      inputTokens: 10,
+      outputTokens: 2,
+      spendMicroUsd: 7,
+    }),
+  );
+  expect(await prepareEvaluationBudgetCoverage(second.input, second.dependencies)).toMatchObject({
+    kind: 'Prepared',
+    event: {
+      detail: { totals: { changedFiles: 2, changedWorktreeBytes: 14, providerRequests: 2 } },
+    },
+  });
+});
+
+it('rejects consuming the same source receipt against a second source event within one trial', async () => {
+  const given = fixture();
+  const debit = given.events.find(
+    (item) =>
+      item.detail.kind === 'EvaluationBudgetDebited' && item.detail.budget === 'changedFiles',
+  );
+  if (debit?.detail.kind !== 'EvaluationBudgetDebited') throw new Error('source debit fixture');
+  const sourceEventSaid = debit.detail.sourceEventSaid;
+  const source = given.events.find((item) => item.d === sourceEventSaid);
+  if (source === undefined) throw new Error('source fixture');
+  const repeated = event(given.events.length, given.events.at(-1), source.detail);
+  given.events.push(repeated);
+  given.events.push(
+    event(given.events.length, repeated, {
+      ...debit.detail,
+      sourceEventSaid: repeated.d,
+      consumed: debit.detail.consumed + debit.detail.amount,
+    }),
+  );
+  expect(await prepareEvaluationBudgetCoverage(given.input, given.dependencies)).toEqual({
+    kind: 'Incomplete',
+    frontier: 'ReceiptAuthority',
+  });
+});
+
+for (const arm of ['C2', 'H1'] as const) {
+  it(`counts the actual C2 provisional submit proposal only in its bound arm (${arm})`, async () => {
+    const given = fixture({ ...binding, phase: { ...binding.phase, arm } }, [], true);
+    expect(await prepareEvaluationBudgetCoverage(given.input, given.dependencies)).toMatchObject(
+      arm === 'C2'
+        ? { kind: 'Prepared', event: { detail: { totals: { toolProposals: 1 } } } }
+        : { kind: 'Incomplete', frontier: 'ReceiptAuthority' },
+    );
+  });
+}
+
+it('does not use a C2 provisional submission receipt to account for another tool', async () => {
+  const given = fixture({ ...binding, phase: { ...binding.phase, arm: 'C2' } }, [], 'OtherTool');
+  expect(await prepareEvaluationBudgetCoverage(given.input, given.dependencies)).toMatchObject({
+    kind: 'Incomplete',
+    frontier: 'ReceiptAuthority',
+  });
+});
+
+it('rejects a second debit of the same C2 provisional proposal', async () => {
+  const context = { ...binding, phase: { ...binding.phase, arm: 'C2' as const } };
+  const given = fixture(context, [], true);
+  const debit = given.events.find(
+    (item) =>
+      item.detail.kind === 'EvaluationBudgetDebited' && item.detail.budget === 'toolProposals',
+  );
+  if (debit?.detail.kind !== 'EvaluationBudgetDebited') throw new Error('proposal debit fixture');
+  given.events.push(
+    event(given.events.length, given.events.at(-1), { ...debit.detail, consumed: 2 }, context),
+  );
+  expect(await prepareEvaluationBudgetCoverage(given.input, given.dependencies)).toMatchObject({
+    kind: 'Incomplete',
+    frontier: 'ReceiptAuthority',
+  });
+});

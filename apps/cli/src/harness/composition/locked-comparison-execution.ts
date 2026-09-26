@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { renewOwnedEvaluationLease } from '../application/renew-owned-evaluation-lease.js';
 import {
   FinalizationNativeGrading,
@@ -465,7 +466,10 @@ export async function executeLockedComparison(
       artifacts: evidence.rawArtifacts,
       protectedCases: input.custody,
     });
-    const pendingGradingMeasurements: FinalizationNativeMeasurement[] = [];
+    const pendingGradingMeasurements: {
+      readonly binding: EvaluationExecutionBinding;
+      readonly receipt: FinalizationNativeMeasurement;
+    }[] = [];
     const recordGrading = async (receipt: FinalizationNativeMeasurement) => {
       await capturePending();
       const cleanup = await reading.openPublic({
@@ -520,7 +524,7 @@ export async function executeLockedComparison(
           mediaType: 'application/json',
         });
         if (stored.kind !== 'Stored') return false;
-        pendingGradingMeasurements.push(receipt);
+        pendingGradingMeasurements.push({ binding: activeBinding, receipt });
         return true;
       },
     });
@@ -568,8 +572,14 @@ export async function executeLockedComparison(
         },
       });
       if (retained.kind !== 'Retained') throw new Error(`ProtectedGrading:${retained.frontier}`);
-      for (const measurement of pendingGradingMeasurements.splice(0)) {
-        if (!(await recordGrading(measurement))) throw new Error('ProtectedGradingAccounting');
+      // Public task-search observations for both attempts precede either hidden grade.
+      // Release only this acknowledged trial's measurements, preserving the other prefix.
+      for (const measurement of pendingGradingMeasurements.filter((item) =>
+        isDeepStrictEqual(item.binding, activeBinding),
+      )) {
+        if (!(await recordGrading(measurement.receipt)))
+          throw new Error('ProtectedGradingAccounting');
+        pendingGradingMeasurements.splice(pendingGradingMeasurements.indexOf(measurement), 1);
       }
       await capturePending();
       await operation(item.slot.arm, opened, {
