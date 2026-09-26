@@ -397,10 +397,12 @@ async function continueCalibrationFixture(
     worktreeBranch: `devrandom/run/${running.binding.runId}`,
   });
   const unresolved = commandIds.map((completionConditionId, index) => {
+    const commandSaid = commandSaids[index];
+    if (commandSaid === undefined) throw new Error('Missing verifier command fixture');
     const prepared = preparePublicVerifierReceipt({
       version: 1,
       completionConditionId,
-      commandSaid: commandSaids[index],
+      commandSaid,
       recordedAt: receivedAt,
       outcome: { kind: 'Unresolved', reason: 'RunBlocked' },
     });
