@@ -178,15 +178,20 @@ export async function openPromotionCustody(
     if (opened.kind !== 'Opened')
       return { kind: opened.kind === 'Unavailable' ? 'Unavailable' : 'Missing' };
     const decoded = decodeComparisonMeasurementEvidence(opened.artifact, opened.bytes);
+    const sourceObservationSaids = index.observations
+      .filter(
+        (observation) =>
+          observation.slot.arm === item.slot.arm &&
+          observation.slot.repetition === item.slot.repetition,
+      )
+      .map((observation) => observation.artifactSaid);
     if (
       decoded.kind !== 'Accepted' ||
       decoded.evidence.evaluationId !== closure.evaluationId ||
       decoded.evidence.manifestSaid !== input.manifest.d ||
       decoded.evidence.harnessRevisionSaid !== expectedRevision(item.slot.arm) ||
       !isDeepStrictEqual(decoded.evidence.measurement.slot, item.slot) ||
-      decoded.evidence.sourceObservationSaids.some(
-        (said) => !closure.observationSaids.includes(said),
-      )
+      !isDeepStrictEqual(decoded.evidence.sourceObservationSaids, sourceObservationSaids)
     )
       return { kind: 'Missing' };
   }
