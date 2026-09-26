@@ -33,6 +33,10 @@ import {
   loadTaskCursorKey,
   type HostedWorkEnvironment,
 } from './configuration/hosted-work-environment.js';
+import {
+  loadAtlasExperienceConfiguration,
+  type AtlasExperienceEnvironment,
+} from './configuration/atlas-experience-environment.js';
 import { createHostedWorkMongoClient } from './configuration/hosted-work-mongo.js';
 import type { DevrandomIssuerProfile } from './domain/devrandom-issuer-profile.js';
 import type { IssuerServerAddress } from './domain/issuer-configuration.js';
@@ -72,6 +76,10 @@ import { MongoEvidenceTimelines } from './evidence/infrastructure/mongo-evidence
 import { workAccessEvidenceAuthorizer } from './evidence/infrastructure/work-access-evidence-authorizer.js';
 import type { EvidenceRoutesConfiguration } from './evidence/route/evidence-routes.js';
 import { composeHostedEvaluation } from './evaluation/composition/hosted-evaluation.js';
+import {
+  openServerAtlasExperience,
+  type ServerAtlasExperience,
+} from './experience/composition/server-atlas-experience.js';
 import { MongoEvaluationBootstrap } from './evaluation/infrastructure/mongo-evaluation-bootstrap.js';
 import type { HostedWorkReadinessProbe } from './route/server-readiness-route.js';
 import { admitBaselineHarness } from './harness/application/admit-baseline-harness.js';
@@ -106,7 +114,9 @@ import { MongoTasks } from './task/infrastructure/mongo-tasks.js';
 import { workAccessTaskAuthorizer } from './task/infrastructure/work-access-task-authorizer.js';
 import type { TaskRoutesConfiguration } from './task/route/task-routes.js';
 
-type DevrandomServerEnvironment = IssuerEnvironment & HostedWorkEnvironment;
+type DevrandomServerEnvironment = IssuerEnvironment &
+  HostedWorkEnvironment &
+  AtlasExperienceEnvironment;
 
 function devrandomServerEnvironment(environment: NodeJS.ProcessEnv): DevrandomServerEnvironment {
   return {
@@ -115,6 +125,9 @@ function devrandomServerEnvironment(environment: NodeJS.ProcessEnv): DevrandomSe
     DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS:
       environment.DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS,
     DEVRANDOM_TASK_CURSOR_KEY: environment.DEVRANDOM_TASK_CURSOR_KEY,
+    DEVRANDOM_ATLAS_URI: environment.DEVRANDOM_ATLAS_URI,
+    DEVRANDOM_ATLAS_DATABASE: environment.DEVRANDOM_ATLAS_DATABASE,
+    DEVRANDOM_ATLAS_MODEL_CACHE_DIRECTORY: environment.DEVRANDOM_ATLAS_MODEL_CACHE_DIRECTORY,
   };
 }
 
@@ -285,6 +298,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
   );
   let hostedWorkMongo: MongoClient | undefined;
   let hostedWorkCandidate: MongoClient | undefined;
+  let serverAtlas: ServerAtlasExperience | undefined;
   let hostedWork: HostedWorkCapabilities = { kind: 'Unavailable' };
   let workAccessPolicyManifest = manifestWorkAccessPolicy(workAccessPolicy);
   let hostedWorkReadiness: HostedWorkReadinessProbe = {
@@ -314,6 +328,10 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     await runBootstrap.verify();
     await evidenceBootstrap.verify();
     await evaluationBootstrap.verify();
+    serverAtlas = await openServerAtlasExperience(
+      loadAtlasExperienceConfiguration(environment),
+      hostedDatabase,
+    );
     const attempts = new MongoWorkAccessAttempts(
       hostedDatabase,
       hostedWorkConfiguration.workAccessPolicy,
@@ -511,6 +529,10 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       currentTaskMandate,
       issuerAid: result.issuer.identity.issuerAid,
       closureExchanges: result.infrastructure.evaluationClosureSealExchange,
+      experienceSources: serverAtlas.sources,
+      ...(serverAtlas.kind === 'Available'
+        ? { experience: serverAtlas.experience, experienceReceipts: serverAtlas.receipts }
+        : {}),
     });
     hostedWorkMongo = hostedWorkCandidate;
     hostedWorkCandidate = undefined;
@@ -536,6 +558,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await runBootstrap.verify();
         await evidenceBootstrap.verify();
         await evaluationBootstrap.verify();
+        await serverAtlas?.verify();
         await result.infrastructure.taskMandateSchemaAvailability.verify();
         await result.infrastructure.taskMandateV2SchemaAvailability.verify();
         await result.infrastructure.promotionMandateSchemaAvailability.verify();
@@ -543,6 +566,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       },
     };
   } catch {
+    await serverAtlas?.close();
     await hostedWorkCandidate?.close();
   }
   const server = buildDevrandomServer(
@@ -584,6 +608,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     await server.close();
     await mongo.close();
     await hostedWorkMongo?.close();
+    await serverAtlas?.close();
     const failure = new IssuerFailure({
       kind: 'issuer-server-failed',
       reason: cause instanceof Error ? cause.message : 'unknown listener failure',
@@ -599,6 +624,9 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       const shutdown = [server.close(), mongo.close()];
       if (hostedWorkMongo !== undefined) {
         shutdown.push(hostedWorkMongo.close());
+      }
+      if (serverAtlas !== undefined) {
+        shutdown.push(serverAtlas.close());
       }
       void Promise.all(shutdown).then(
         () => {
