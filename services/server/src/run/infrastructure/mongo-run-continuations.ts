@@ -40,6 +40,12 @@ import { decodeRunDocument, encodeRunDocument, type RunDocument } from './run-do
 import { runsCollectionName } from './mongo-runs.js';
 import { decodeTaskDocument, type TaskDocument } from '../../task/infrastructure/task-document.js';
 import { tasksCollectionName } from '../../task/infrastructure/mongo-tasks.js';
+import {
+  decodeHarnessDocument,
+  type HarnessDocument,
+} from '../../harness/infrastructure/harness-document.js';
+import { harnessRevisionsCollectionName } from '../../harness/infrastructure/mongo-harness-revisions.js';
+import { activationCollectionNames } from '../../activation/infrastructure/mongo-activation-commits.js';
 
 export const runSuccessorSegmentsCollectionName = 'runSuccessorSegments' as const;
 
@@ -82,6 +88,8 @@ export class MongoRunContinuations implements RunContinuationCommitments {
   readonly #artifacts: Collection<EvidenceArtifactDocument>;
   readonly #segments: Collection<RunSuccessorSegmentDocument>;
   readonly #pointers: Collection<ActivationPointerDocument>;
+  readonly #harnesses: Collection<HarnessDocument>;
+  readonly #transitions: Collection<{ ownerAid: string; taskId: string }>;
 
   constructor(client: MongoClient, database: Db) {
     this.#client = client;
@@ -92,7 +100,9 @@ export class MongoRunContinuations implements RunContinuationCommitments {
     this.#checkpoints = database.collection(evidenceCollectionNames.checkpoints);
     this.#artifacts = database.collection(evidenceCollectionNames.artifacts);
     this.#segments = database.collection(runSuccessorSegmentsCollectionName);
-    this.#pointers = database.collection('activationPointers');
+    this.#pointers = database.collection(activationCollectionNames.pointers);
+    this.#harnesses = database.collection(harnessRevisionsCollectionName);
+    this.#transitions = database.collection(activationCollectionNames.transitions);
   }
 
   async admit(
@@ -167,22 +177,58 @@ export class MongoRunContinuations implements RunContinuationCommitments {
       { _id: run.binding.taskId, ownerAid: input.ownerAid },
       { session },
     );
-    if (
+    if (input.command.version === 2) {
+      if (
+        input.activation.kind !== 'Initial' ||
+        input.activation.taskId !== run.binding.taskId ||
+        input.activation.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+        input.activation.harnessLineageId !== run.binding.harnessLineageId ||
+        input.activation.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        input.command.expectedHarnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        (pointer !== null &&
+          (pointer.version !== 1 ||
+            pointer.pendingCommandId !== undefined ||
+            pointer.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+            pointer.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+            pointer.harnessLineageId !== run.binding.harnessLineageId)) ||
+        (await this.#transitions.findOne(
+          { ownerAid: input.ownerAid, taskId: run.binding.taskId },
+          { session },
+        )) !== null
+      )
+        return rejected();
+      // Initial activation belongs to the accepted H1 record. A pointer is only
+      // materialized by promotion; absence does not invalidate that activation.
+      const initialHarnesses = await this.#harnesses
+        .find(
+          {
+            ownerAid: input.ownerAid,
+            taskId: run.binding.taskId,
+            'activation.kind': 'InitialSpecializationAccepted',
+          },
+          { session },
+        )
+        .limit(2)
+        .toArray();
+      const initial = initialHarnesses[0];
+      if (initialHarnesses.length !== 1 || initial === undefined) return rejected();
+      const accepted = decodeHarnessDocument(initial);
+      if (
+        initial._id !== run.binding.initialHarnessRevisionSaid ||
+        initial.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+        initial.harnessLineageId !== run.binding.harnessLineageId ||
+        !isDeepStrictEqual(accepted.activation, run.binding.initialSpecialization)
+      )
+        return rejected();
+    } else if (
       pointer === null ||
       pointer.version !== input.activation.pointerVersion ||
-      (input.command.version === 1 &&
-        pointer.version !== input.command.expectedActivePointerVersion) ||
+      pointer.version !== input.command.expectedActivePointerVersion ||
       pointer.activeRevisionSaid !== input.activation.activeRevisionSaid ||
       pointer.taskRevisionSaid !== run.binding.taskRevisionSaid ||
       pointer.harnessLineageId !== run.binding.harnessLineageId ||
-      (input.command.version === 2
-        ? input.activation.kind !== 'Initial' ||
-          pointer.pendingCommandId !== undefined ||
-          pointer.version !== 1 ||
-          pointer.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
-          input.command.expectedHarnessRevisionSaid !== run.binding.initialHarnessRevisionSaid
-        : input.activation.kind !== 'Committed' ||
-          input.activation.decisionReceiptSaid !== input.command.expectedActivationReceiptSaid)
+      input.activation.kind !== 'Committed' ||
+      input.activation.decisionReceiptSaid !== input.command.expectedActivationReceiptSaid
     )
       return rejected();
     const predecessorStreamId =

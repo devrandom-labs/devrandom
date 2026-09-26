@@ -1,9 +1,22 @@
+import {
+  encodeHarnessDocument,
+  type HarnessDocument,
+} from '../../harness/infrastructure/harness-document.js';
+import { harnessRevisionsCollectionName } from '../../harness/infrastructure/mongo-harness-revisions.js';
+import { MongoActivationCommits } from '../../activation/infrastructure/mongo-activation-commits.js';
 import { MongoRunSuccessorSegments } from './mongo-run-successor-segments.js';
 import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { authorizedTaskCommandFingerprint, type TaskProjection } from '@devrandom/protocol';
-import { harnessTask } from '../../harness/test/harness-command-fixture.js';
+import {
+  authorizedTaskCommandFingerprint,
+  harnessCommandFingerprint,
+  type TaskProjection,
+} from '@devrandom/protocol';
+import {
+  baselineHarnessCommandFixture,
+  harnessTask,
+} from '../../harness/test/harness-command-fixture.js';
 import { taskCommandFixture } from '../../task/test/task-command-fixture.js';
 import { encodeTaskDocument, type TaskDocument } from '../../task/infrastructure/task-document.js';
 import { tasksCollectionName } from '../../task/infrastructure/mongo-tasks.js';
@@ -52,6 +65,7 @@ integration('same calibration Run Mongo continuation', () => {
       revision: taskCommand.revision,
       revisionSaid: taskCommand.revision.d,
     };
+    const harness = baselineHarnessCommandFixture(randomUUID(), 'claude-sonnet-4-5', task);
     const base = runFixture();
     const prior = sealedRunPredecessorFixture([], 'ContextLimitReached', {
       run: {
@@ -59,6 +73,11 @@ integration('same calibration Run Mongo continuation', () => {
         binding: {
           ...base.binding,
           taskRevisionSaid: task.revisionSaid,
+          initialHarnessRevisionSaid: harness.revision.d,
+          initialSpecialization: {
+            ...base.binding.initialSpecialization,
+            harnessRevisionSaid: harness.revision.d,
+          },
           repository: task.revision.repository,
           budget: task.revision.budgets,
         },
@@ -112,23 +131,32 @@ integration('same calibration Run Mongo continuation', () => {
       harnessLineageId: run.binding.harnessLineageId,
       activeRevisionSaid: run.binding.initialHarnessRevisionSaid,
     };
-    await db
-      .collection<{
-        _id: string;
-        ownerAid: string;
-        version: number;
-        taskRevisionSaid: string;
-        harnessLineageId: string;
-        activeRevisionSaid: string;
-      }>('activationPointers')
-      .insertOne({
-        _id: task.taskId,
-        ownerAid: task.ownerAid,
+    const harnessDocument = encodeHarnessDocument(
+      {
         version: 1,
-        taskRevisionSaid: task.revisionSaid,
-        harnessLineageId: task.harnessLineageId,
-        activeRevisionSaid: activation.activeRevisionSaid,
+        ownerAid: run.binding.ownerAid,
+        commandId: harness.commandId,
+        acceptedAt: run.binding.acceptedAt,
+        revision: harness.revision,
+      },
+      harnessCommandFingerprint(harness),
+    );
+    await db
+      .collection<HarnessDocument>(harnessRevisionsCollectionName)
+      .insertOne({
+        ...harnessDocument,
+        activation: {
+          ...run.binding.initialSpecialization,
+          acceptedAt: new Date(run.binding.initialSpecialization.acceptedAt),
+        },
       });
+    expect(
+      await new MongoActivationCommits(client, db).inspectCurrent({
+        ownerAid: run.binding.ownerAid,
+        taskId: run.binding.taskId,
+      }),
+    ).toEqual({ kind: 'Initial', pointer: activation });
+    expect(await db.collection('activationPointers').countDocuments()).toBe(0);
     const command = {
       version: 2 as const,
       kind: 'CalibrationContinuation' as const,
@@ -154,6 +182,58 @@ integration('same calibration Run Mongo continuation', () => {
         command: { ...command, expectedHarnessRevisionSaid: `E${'x'.repeat(43)}` },
       }),
     ).toEqual({ kind: 'Rejected' });
+    const pointer = {
+      _id: run.binding.taskId,
+      ownerAid: run.binding.ownerAid,
+      taskRevisionSaid: run.binding.taskRevisionSaid,
+      harnessLineageId: run.binding.harnessLineageId,
+      activeRevisionSaid: run.binding.initialHarnessRevisionSaid,
+      version: 1,
+    };
+    const pointers = db.collection<{
+      _id: string;
+      ownerAid: string;
+      taskRevisionSaid: string;
+      harnessLineageId: string;
+      activeRevisionSaid: string;
+      version: number;
+      pendingCommandId?: string;
+    }>('activationPointers');
+    for (const drift of [
+      { version: 2 },
+      { activeRevisionSaid: `E${'z'.repeat(43)}` },
+      { taskRevisionSaid: `E${'z'.repeat(43)}` },
+      { harnessLineageId: randomUUID() },
+      { pendingCommandId: randomUUID() },
+    ]) {
+      await pointers.insertOne({ ...pointer, ...drift });
+      expect(await writer.admit(input)).toEqual({ kind: 'Rejected' });
+      await pointers.deleteMany({});
+    }
+    const transitions = db.collection('activationTransitions');
+    await transitions.insertOne({ ownerAid: run.binding.ownerAid, taskId: run.binding.taskId });
+    expect(await writer.admit(input)).toEqual({ kind: 'Rejected' });
+    await transitions.deleteMany({});
+    const harnesses = db.collection<HarnessDocument>(harnessRevisionsCollectionName);
+    await harnesses.updateOne(
+      { _id: harness.revision.d },
+      { $set: { 'activation.kind': 'AwaitingRunAdmission' } },
+    );
+    expect(await writer.admit(input)).toEqual({ kind: 'Rejected' });
+    await harnesses.updateOne(
+      { _id: harness.revision.d },
+      { $set: { 'activation.kind': 'InitialSpecializationAccepted' } },
+    );
+    await harnesses.insertOne({
+      ...harnessDocument,
+      _id: `E${'z'.repeat(43)}`,
+      activation: {
+        ...run.binding.initialSpecialization,
+        acceptedAt: new Date(run.binding.initialSpecialization.acceptedAt),
+      },
+    });
+    expect(await writer.admit(input)).toEqual({ kind: 'Rejected' });
+    await harnesses.deleteOne({ _id: `E${'z'.repeat(43)}` });
     const admitted = await writer.admit(input);
     expect(admitted.kind).toBe('Admitted');
     if (admitted.kind !== 'Admitted') throw new Error('continuation failed');
@@ -172,6 +252,7 @@ integration('same calibration Run Mongo continuation', () => {
         segmentSaid: admitted.segment.d,
       }),
     ).toEqual({ kind: 'NotFound' });
+    expect(await db.collection('activationPointers').countDocuments()).toBe(0);
     expect(admitted.run.binding).toEqual(run.binding);
     expect(admitted.run.consumedBudget).toEqual(run.consumedBudget);
     expect(admitted.segment).toMatchObject({
