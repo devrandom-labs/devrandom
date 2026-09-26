@@ -1,4 +1,8 @@
 import {
+  signifyHarnessPublicationSignatures,
+  type HarnessPublicationSignatures,
+} from './publication-signature.js';
+import {
   promotionMandateSchema,
   promotionMandateV2Schema,
   promotionMandateV3Schema,
@@ -139,6 +143,7 @@ export interface VerifiedIssuerInfrastructure {
   readonly evidenceSealExchange: IssuerEvidenceSealExchange;
   readonly evaluationClosureSealExchange: IssuerEvaluationClosureSealExchange;
   readonly promotionExchanges: IssuerPromotionExchanges;
+  readonly publicationSignatures: HarnessPublicationSignatures;
   readonly activationReceiptExchange: IssuerActivationReceiptExchange;
   readonly readiness: VerifiedIssuerReadiness;
 }
@@ -632,6 +637,7 @@ export async function connectVerifiedIssuerInfrastructure(
     evidenceSealExchange: signifyIssuerEvidenceSealExchange(verified.client),
     evaluationClosureSealExchange: signifyIssuerEvaluationClosureSealExchange(verified.client),
     promotionExchanges: signifyIssuerPromotionExchanges(verified.client),
+    publicationSignatures: signifyHarnessPublicationSignatures(verified.client),
     activationReceiptExchange: signifyIssuerActivationReceiptExchange(verified.client),
     readiness: signifyIssuerReadiness(verified.client, verified.identity.issuerAid),
   };

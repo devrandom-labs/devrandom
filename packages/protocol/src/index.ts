@@ -49,3 +49,5 @@ export * from './work-access.js';
 export * from './run/continuation-predecessor.js';
 
 export * from './run/terminal-verification.js';
+export * from './publication/harness-package.js';
+export * from './publication/publication-http.js';

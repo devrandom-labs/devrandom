@@ -33,3 +33,4 @@ export * from './run/lease.js';
 export * from './run/run.js';
 export * from './run/qualification.js';
 export * from './run/settlement.js';
+export * from './publication/portable-behavior.js';

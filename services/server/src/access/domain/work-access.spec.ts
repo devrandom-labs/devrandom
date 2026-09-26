@@ -97,7 +97,9 @@ describe('Work Access domain', () => {
     if (granted.state.kind !== 'Granted') {
       throw new Error('expected a granted Work Access state');
     }
-    expect(granted.state.scopes).toHaveLength(16);
+    expect(granted.state.scopes).toHaveLength(17);
+    expect(granted.state.scopes).toContain('harness:publish');
+    expect(scopesForEligibility(['RunPrivateTask'])).not.toContain('harness:publish');
     const grantedState = granted.state;
     expect(() =>
       reconstructWorkAccessAttempt(granted.binding, {

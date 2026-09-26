@@ -1,3 +1,4 @@
+import { ServerPublicationHttp } from '../../publication/infrastructure/server-publication-http.js';
 import { ServerActivationPointer } from '../../promotion/infrastructure/server-activation-pointer.js';
 import { createHash } from 'node:crypto';
 
@@ -241,6 +242,10 @@ export class ServerWorkAccessHttp {
     );
   }
 
+  publication(): ServerPublicationHttp {
+    return new ServerPublicationHttp(this.#serverOrigin, this.#fetch, this.#bearer);
+  }
+
   activationPointer(): ServerActivationPointer {
     return new ServerActivationPointer(this.#serverOrigin, this.#bearer, this.#fetch);
   }
@@ -414,6 +419,12 @@ export class GrantedServerWorkHttp {
   context(inventory: EvaluationSourceInventory): ReturnType<ServerWorkAccessHttp['context']> {
     if (!this.contextReady()) throw new WorkAccessHttpFailure({ kind: 'request-invalid' });
     return this.#access.context(inventory);
+  }
+
+  publication(): ServerPublicationHttp {
+    if (this.grant.disposition.kind !== 'Active' || !this.grant.scopes.includes('harness:publish'))
+      throw new WorkAccessHttpFailure({ kind: 'request-invalid' });
+    return this.#access.publication();
   }
 
   activationPointer(): ServerActivationPointer {

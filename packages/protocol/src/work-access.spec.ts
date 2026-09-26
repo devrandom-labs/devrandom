@@ -22,6 +22,7 @@ const createBody = {
 describe('Work Access HTTP contract', () => {
   it('admits a dedicated activation commit grant scope', () => {
     expect(Value.Check(workAccessScopeSchema, 'activation:commit')).toBe(true);
+    expect(Value.Check(workAccessScopeSchema, 'harness:publish')).toBe(true);
     expect(Value.Check(workAccessScopeSchema, 'activation:sign')).toBe(false);
   });
   it('accepts only the closed precommitted-secret attempt command', () => {

@@ -23,3 +23,4 @@ export * from './signify-operation.js';
 export * from './user-identifier.js';
 export * from './user-credential-reception.js';
 export * from './user-oobi.js';
+export * from './publication-signature.js';

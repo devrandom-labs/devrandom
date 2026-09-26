@@ -127,6 +127,10 @@ function verifiedInfrastructure(
     promotionExchanges: {
       inspect: () => Promise.resolve({ kind: 'Pending' }),
     },
+    publicationSignatures: {
+      sign: () => Promise.resolve({ kind: 'Rejected' }),
+      verify: () => Promise.resolve('Rejected'),
+    },
     activationReceiptExchange: {
       sign: () => Promise.resolve({ kind: 'Pending' }),
       inspect: () => Promise.resolve({ kind: 'Pending' }),

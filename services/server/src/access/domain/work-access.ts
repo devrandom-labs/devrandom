@@ -349,7 +349,7 @@ export function scopesForEligibility(
     scopes.push('task:create', 'task:read');
   }
   if (claimSet.has('RunPrivateTask') && claimSet.has('PublishHarness')) {
-    scopes.push('activation:commit');
+    scopes.push('activation:commit', 'harness:publish');
   }
   return Object.freeze(scopes.sort());
 }
