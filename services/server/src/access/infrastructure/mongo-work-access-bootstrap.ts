@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { Db } from 'mongodb';
 import Type from 'typebox';
 import Value from 'typebox/value';
+import { workAccessScopes } from '@devrandom/protocol';
 
 import {
   encodeWorkAccessPolicy,
@@ -80,26 +81,10 @@ const challengeWords = {
 const scopes = {
   bsonType: 'array',
   minItems: 1,
-  maxItems: 15,
+  maxItems: workAccessScopes.length,
   uniqueItems: true,
   items: {
-    enum: [
-      'evaluation:admit',
-      'evaluation:append',
-      'evaluation:close',
-      'evaluation:prepare',
-      'evaluation:renew',
-      'evidence:append',
-      'evidence:read',
-      'evidence:seal',
-      'experience:retrieve',
-      'run:create',
-      'run:execute',
-      'run:prepare',
-      'run:read',
-      'task:create',
-      'task:read',
-    ],
+    enum: [...workAccessScopes],
   },
 } as const;
 const rejectionReason = {
@@ -285,6 +270,37 @@ const previousWorkAccessAttemptCollectionValidator = {
   },
 };
 
+// The already-issued grants remain valid; only a newly granted, eligible user can
+// receive activation:commit. This exact prior validator is safe to widen in place.
+const previousActivationScopeValidator = {
+  $jsonSchema: {
+    ...workAccessAttemptCollectionValidator.$jsonSchema,
+    properties: {
+      ...workAccessAttemptCollectionValidator.$jsonSchema.properties,
+      state: {
+        ...previousState,
+        oneOf: [
+          previousState.oneOf[0],
+          previousState.oneOf[1],
+          {
+            ...previousGrantState,
+            properties: {
+              ...previousGrantState.properties,
+              scopes: {
+                ...scopes,
+                maxItems: 15,
+                items: { enum: workAccessScopes.filter((scope) => scope !== 'activation:commit') },
+              },
+            },
+          },
+          previousState.oneOf[3],
+          previousState.oneOf[4],
+        ],
+      },
+    },
+  },
+};
+
 const workAccessPolicyDocumentSchema = Type.Object(
   {
     _id: Type.Literal('work-access-policy/1'),
@@ -453,7 +469,8 @@ export class MongoWorkAccessBootstrap implements WorkAccessStorageReadiness {
       if (
         options?.validationLevel === 'strict' &&
         options.validationAction === 'error' &&
-        isDeepStrictEqual(options.validator, previousWorkAccessAttemptCollectionValidator)
+        (isDeepStrictEqual(options.validator, previousWorkAccessAttemptCollectionValidator) ||
+          isDeepStrictEqual(options.validator, previousActivationScopeValidator))
       ) {
         await this.#database.command({
           collMod: workAccessAttemptsCollectionName,

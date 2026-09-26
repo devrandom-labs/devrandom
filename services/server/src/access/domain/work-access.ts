@@ -348,6 +348,9 @@ export function scopesForEligibility(
   if (claimSet.has('CreateTask')) {
     scopes.push('task:create', 'task:read');
   }
+  if (claimSet.has('RunPrivateTask') && claimSet.has('PublishHarness')) {
+    scopes.push('activation:commit');
+  }
   return Object.freeze(scopes.sort());
 }
 

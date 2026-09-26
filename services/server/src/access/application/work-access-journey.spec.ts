@@ -382,6 +382,7 @@ describe('Work Access application journey', () => {
           remainingRequests: 2_000,
         },
         scopes: [
+          'activation:commit',
           'evaluation:admit',
           'evaluation:append',
           'evaluation:close',

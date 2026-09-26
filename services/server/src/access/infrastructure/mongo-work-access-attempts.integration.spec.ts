@@ -493,8 +493,9 @@ describeWithMongo('Mongo Work Access Grant authorization', () => {
     }
   }, 30_000);
 
-  it('migrates only the prior strict grant validator and rejects unknown collection drift', async () => {
+  it('migrates only known prior grant validators and rejects unknown collection drift', async () => {
     const migrationDatabase = client.db(`${databaseName}_release_migration`);
+    const activationScopeDatabase = client.db(`${databaseName}_activation_scope_migration`);
     const driftDatabase = client.db(`${databaseName}_release_unknown_drift`);
     const currentState = workAccessAttemptCollectionValidator.$jsonSchema.properties.state;
     const currentGrant = currentState.oneOf[2];
@@ -530,6 +531,38 @@ describeWithMongo('Mongo Work Access Grant authorization', () => {
         },
       },
     };
+    const previousActivationScopeValidator = {
+      $jsonSchema: {
+        ...workAccessAttemptCollectionValidator.$jsonSchema,
+        properties: {
+          ...workAccessAttemptCollectionValidator.$jsonSchema.properties,
+          state: {
+            ...currentState,
+            oneOf: [
+              currentState.oneOf[0],
+              currentState.oneOf[1],
+              {
+                ...currentGrant,
+                properties: {
+                  ...currentGrant.properties,
+                  scopes: {
+                    ...currentGrant.properties.scopes,
+                    maxItems: 15,
+                    items: {
+                      enum: currentGrant.properties.scopes.items.enum.filter(
+                        (scope) => scope !== 'activation:commit',
+                      ),
+                    },
+                  },
+                },
+              },
+              currentState.oneOf[3],
+              currentState.oneOf[4],
+            ],
+          },
+        },
+      },
+    };
     try {
       await migrationDatabase.createCollection('workAccessAttempts', {
         validator: previousValidator,
@@ -545,6 +578,20 @@ describeWithMongo('Mongo Work Access Grant authorization', () => {
         .next();
       expect(migrated?.options?.validator).toEqual(workAccessAttemptCollectionValidator);
 
+      await activationScopeDatabase.createCollection('workAccessAttempts', {
+        validator: previousActivationScopeValidator,
+        validationLevel: 'strict',
+        validationAction: 'error',
+      });
+      const activationBootstrap = new MongoWorkAccessBootstrap(activationScopeDatabase);
+      await expect(activationBootstrap.verify()).rejects.toThrow();
+      await expect(activationBootstrap.bootstrap()).resolves.toBeUndefined();
+      await expect(activationBootstrap.verify()).resolves.toBeUndefined();
+      const migratedActivation = await activationScopeDatabase
+        .listCollections({ name: 'workAccessAttempts' }, { nameOnly: false })
+        .next();
+      expect(migratedActivation?.options?.validator).toEqual(workAccessAttemptCollectionValidator);
+
       const unknownValidator = { $jsonSchema: { bsonType: 'object' } } as const;
       await driftDatabase.createCollection('workAccessAttempts', {
         validator: unknownValidator,
@@ -558,6 +605,7 @@ describeWithMongo('Mongo Work Access Grant authorization', () => {
       expect(unchanged?.options?.validator).toEqual(unknownValidator);
     } finally {
       await migrationDatabase.dropDatabase();
+      await activationScopeDatabase.dropDatabase();
       await driftDatabase.dropDatabase();
     }
   }, 30_000);

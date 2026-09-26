@@ -1,6 +1,6 @@
 import Type from 'typebox';
 import Value from 'typebox/value';
-import type { WorkAccessScope } from '@devrandom/protocol';
+import { workAccessScopeSchema, workAccessScopes, type WorkAccessScope } from '@devrandom/protocol';
 
 import type { StoredWorkAccessAttempt } from '../application/work-access-attempts.js';
 import {
@@ -20,23 +20,7 @@ const words = Type.Array(Type.String({ minLength: 1, maxLength: 64 }), {
   minItems: 24,
   maxItems: 24,
 });
-const scope = Type.Union([
-  Type.Literal('evaluation:admit'),
-  Type.Literal('evaluation:append'),
-  Type.Literal('evaluation:close'),
-  Type.Literal('evaluation:prepare'),
-  Type.Literal('evaluation:renew'),
-  Type.Literal('evidence:append'),
-  Type.Literal('evidence:read'),
-  Type.Literal('evidence:seal'),
-  Type.Literal('experience:retrieve'),
-  Type.Literal('run:create'),
-  Type.Literal('run:execute'),
-  Type.Literal('run:prepare'),
-  Type.Literal('run:read'),
-  Type.Literal('task:create'),
-  Type.Literal('task:read'),
-]);
+const scope = workAccessScopeSchema;
 const rejectionReason = Type.Union([
   Type.Literal('ChallengeRecipientMismatch'),
   Type.Literal('ChallengeProofInvalid'),
@@ -83,7 +67,11 @@ const state = Type.Union([
     {
       kind: Type.Literal('Granted'),
       verifiedResponseSaid: keriIdentifier,
-      scopes: Type.Array(scope, { minItems: 1, maxItems: 15, uniqueItems: true }),
+      scopes: Type.Array(scope, {
+        minItems: 1,
+        maxItems: workAccessScopes.length,
+        uniqueItems: true,
+      }),
       policyFingerprint: fingerprint,
       grantedAt: Type.Unknown(),
       expiresAt: Type.Unknown(),

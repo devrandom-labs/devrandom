@@ -89,10 +89,15 @@ describe('Work Access domain', () => {
       'experience:retrieve',
       'run:read',
     ]);
+    expect(scopesForEligibility(['PublishHarness'])).not.toContain('activation:commit');
+    expect(scopesForEligibility(['RunPrivateTask'])).not.toContain('activation:commit');
+    expect(scopesForEligibility(['RunPrivateTask', 'PublishHarness'])).toContain(
+      'activation:commit',
+    );
     if (granted.state.kind !== 'Granted') {
       throw new Error('expected a granted Work Access state');
     }
-    expect(granted.state.scopes).toHaveLength(15);
+    expect(granted.state.scopes).toHaveLength(16);
     const grantedState = granted.state;
     expect(() =>
       reconstructWorkAccessAttempt(granted.binding, {

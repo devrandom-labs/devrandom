@@ -103,7 +103,7 @@ describe('Mongo Work Access document codec', () => {
     if (verification.kind !== 'VerificationStarted') throw new Error('expected verification');
     const grant = grantWorkAccessAttempt(
       verification.attempt,
-      ['CreateAgent', 'CreateTask', 'RunPrivateTask', 'ReceiveTaskResults'],
+      ['CreateAgent', 'CreateTask', 'RunPrivateTask', 'PublishHarness', 'ReceiveTaskResults'],
       '2026-09-24T17:01:00.000Z',
       '2026-09-24T17:31:00.000Z',
       workAccessPolicy,
@@ -119,6 +119,7 @@ describe('Mongo Work Access document codec', () => {
     });
     expect(decodeWorkAccessAttemptDocument(document).stored.attempt.state).toEqual(grant.state);
     if (document.state.kind !== 'Granted') throw new Error('expected granted document');
+    expect(document.state.scopes).toContain('activation:commit');
     const olderDocument = {
       ...document,
       state: {
