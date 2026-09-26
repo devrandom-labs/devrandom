@@ -12,6 +12,8 @@ import {
   evidenceTimelineQuerySchema,
   runParametersSchema,
   verifierReceiptReadingSchema,
+  terminalCalibrationReconciliationBodySchema,
+  type TerminalCalibrationReconciliationBody,
   type AppendEvidenceBatchBody,
   type EvidenceArtifact,
   type EvidenceSealReconciliationBody,
@@ -338,6 +340,38 @@ export class ServerEvidenceHttp implements HostedEvidence, HostedEvidenceSeals, 
       return { kind: 'ResponseInvalid' };
     }
     return { kind: 'Accepted', acknowledgement: acknowledgement.acknowledgement };
+  }
+
+  async reconcileTerminalCalibration(
+    runId: string,
+    body: TerminalCalibrationReconciliationBody,
+    signal?: AbortSignal,
+  ): Promise<HostedBatchAppend> {
+    if (
+      !Value.Check(terminalCalibrationReconciliationBodySchema, body) ||
+      body.body.batch.runId !== runId
+    )
+      return { kind: 'InputInvalid' };
+    const response = await this.#request(
+      `/api/runs/${encodeURIComponent(runId)}/evidence-terminal-reconciliation`,
+      {
+        method: 'POST',
+        headers: { authorization: this.#authorization, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    );
+    if (response.kind !== 'Received') return response.failure;
+    if (response.value.status !== 200 && response.value.status !== 201)
+      return rejected(response.value);
+    const decoded = decodeEvidenceBatchAcknowledgement(response.value.body, body.body.batch);
+    if (
+      decoded.kind !== 'Accepted' ||
+      decoded.acknowledgement.disposition.kind !==
+        (response.value.status === 201 ? 'Accepted' : 'AlreadyAccepted')
+    )
+      return { kind: 'ResponseInvalid' };
+    return { kind: 'Accepted', acknowledgement: decoded.acknowledgement };
   }
 
   async #request(
