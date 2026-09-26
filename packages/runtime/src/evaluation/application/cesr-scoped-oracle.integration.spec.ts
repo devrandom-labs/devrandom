@@ -88,47 +88,87 @@ it('replays every public oracle and independent protected composition through th
       `use cesr_receipt_service::{parse_receipt_stream, ReceiptError, ReceiptVersion, VerifiedReceipt};\n${conditions.map(rustTest).join('\n')}`,
     );
     const image = process.env.DEVRANDOM_EVAL_IMAGE;
-    const run = async () =>
-      image === undefined
-        ? execute('cargo', ['test', '--locked', '--test', 'oracle_replay'], {
-            cwd: directory,
-            maxBuffer: 1024 * 1024,
-          })
-        : execute(
-            'docker',
-            [
-              'run',
-              '--rm',
-              '--network=none',
-              '--read-only',
-              '--cap-drop=ALL',
-              '--security-opt=no-new-privileges',
-              '--user=65532:65532',
-              '--cpus=1',
-              '--memory=512m',
-              '--pids-limit=64',
-              '--mount',
-              `type=bind,source=${directory},target=/source,readonly`,
-              '--tmpfs',
-              '/tmp:rw,nosuid,nodev,size=134217728,mode=1777',
-              '--workdir=/source',
-              image,
-              'env',
-              'CARGO_NET_OFFLINE=true',
-              'CARGO_BUILD_JOBS=1',
-              'CARGO_HOME=/tmp/cargo',
-              'CARGO_TARGET_DIR=/tmp/target',
-              'cargo',
-              'test',
-              '--offline',
-              '--locked',
-              '--test',
-              'oracle_replay',
-            ],
-            { maxBuffer: 1024 * 1024, timeout: 120_000 },
-          );
+    const run = async () => {
+      if (image === undefined)
+        return execute('cargo', ['test', '--locked', '--test', 'oracle_replay'], {
+          cwd: directory,
+          maxBuffer: 1024 * 1024,
+        });
+      const docker = (args: readonly string[]) =>
+        execute('docker', args, { maxBuffer: 1024 * 1024, timeout: 120_000 });
+      const started = await docker([
+        'run',
+        '--detach',
+        '--rm',
+        '--network=none',
+        '--read-only',
+        '--cap-drop=ALL',
+        '--security-opt=no-new-privileges',
+        '--user=65532:65532',
+        '--cpus=1',
+        '--memory=512m',
+        '--pids-limit=64',
+        '--tmpfs',
+        '/tmp:rw,exec,nosuid,nodev,size=134217728,mode=1777',
+        '--entrypoint',
+        '/bin/sleep',
+        image,
+        '180',
+      ]);
+      const container = started.stdout.trim();
+      expect(container).toMatch(/^[a-f0-9]{64}$/u);
+      try {
+        // Stream source into the running scratch mount, as native compartments do.
+        await docker(['exec', '--user=0:0', container, 'mkdir', '/tmp/source']);
+        const archive = await execute('tar', ['-C', directory, '-cf', '-', '.'], {
+          encoding: 'buffer',
+          maxBuffer: 1024 * 1024,
+        });
+        const transfer = docker([
+          'exec',
+          '--interactive',
+          '--user=0:0',
+          container,
+          'tar',
+          '--no-same-owner',
+          '--no-same-permissions',
+          '-C',
+          '/tmp/source',
+          '-xf',
+          '-',
+        ]);
+        transfer.child.stdin?.end(archive.stdout);
+        await transfer;
+        await docker(['exec', '--user=0:0', container, 'chmod', '-R', 'a+rX,a-w', '/tmp/source']);
+        return await docker([
+          'exec',
+          '--workdir=/tmp/source',
+          container,
+          'env',
+          'CARGO_NET_OFFLINE=true',
+          'CARGO_BUILD_JOBS=1',
+          'CARGO_HOME=/tmp/cargo',
+          'CARGO_TARGET_DIR=/tmp/target',
+          'cargo',
+          'test',
+          '--offline',
+          '--locked',
+          '--test',
+          'oracle_replay',
+        ]);
+      } finally {
+        await docker(['rm', '--force', container]);
+      }
+    };
     if (image !== undefined) expect(image).toMatch(/^sha256:[a-f0-9]{64}$/u);
-    await expect(run()).rejects.toMatchObject({ code: 101 });
+    const flatFailure = await run().then(
+      () => {
+        throw new Error('Flat parser unexpectedly satisfied scoped contract');
+      },
+      (cause: unknown) => cause as { code: number; stdout: string },
+    );
+    expect(flatFailure.code).toBe(101);
+    expect(flatFailure.stdout).toContain('test case_14 ... FAILED');
     await writeFile(
       join(directory, 'src/lib.rs'),
       await readFile(resolve('tooling/fixtures/cesr-scoped-reference.rs')),
