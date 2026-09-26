@@ -1,7 +1,9 @@
 import { createEvidenceStream, type EvidenceStream, type Run } from '@devrandom/domain';
 
-export function initialEvidenceStream(run: Run): EvidenceStream | undefined {
-  if (run.lease.kind !== 'Held') {
+export function currentEvidenceStream(run: Run): EvidenceStream | undefined {
+  // A successor stream must be durably created with its remaining per-Run byte ceiling
+  // in the same transaction as the replacement lease. Never synthesize a fresh quota.
+  if (run.lease.kind !== 'Held' || run.currentExecution !== undefined) {
     return undefined;
   }
   const created = createEvidenceStream({

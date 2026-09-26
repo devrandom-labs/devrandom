@@ -26,8 +26,8 @@ describe('Mongo Evidence bootstrap contract', () => {
     expect(evidenceIndexDefinitions).toEqual([
       {
         collection: 'evidenceStreams',
-        name: 'evidence-stream-binding-run-unique',
-        key: { 'binding.runId': 1 },
+        name: 'evidence-stream-binding-run-incarnation-unique',
+        key: { 'binding.runId': 1, 'binding.incarnationId': 1 },
         unique: true,
       },
       {
@@ -38,14 +38,14 @@ describe('Mongo Evidence bootstrap contract', () => {
       },
       {
         collection: 'evidenceBatches',
-        name: 'evidence-batch-run-start-unique',
-        key: { runId: 1, startingSequence: 1 },
+        name: 'evidence-batch-stream-start-unique',
+        key: { evidenceStreamId: 1, startingSequence: 1 },
         unique: true,
       },
       {
         collection: 'evidenceEvents',
-        name: 'evidence-event-run-sequence-unique',
-        key: { runId: 1, sequence: 1 },
+        name: 'evidence-event-stream-sequence-unique',
+        key: { evidenceStreamId: 1, sequence: 1 },
         unique: true,
       },
       {

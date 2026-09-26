@@ -150,7 +150,8 @@ export async function acceptEvidenceBatch(
   const command = decoded.command;
   const run = context.run;
   if (
-    command.body.batch.evidenceStreamId !== run.binding.evidenceStreamId ||
+    command.body.batch.evidenceStreamId !==
+      (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) ||
     command.body.events.some((event) => !evidenceEventBelongsToRun(event, run))
   ) {
     return { kind: 'EvidenceBatchRejected', reason: 'EventBindingMismatch' };

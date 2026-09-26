@@ -38,6 +38,7 @@ export * from './promotion/selection-record.js';
 export * from './registration/registration-session.js';
 export * from './run/run-admission.js';
 export * from './run/run-http.js';
+export * from './run/successor-segment.js';
 export * from './run/run-purpose.js';
 export * from './server-readiness.js';
 export * from './task/task-command.js';

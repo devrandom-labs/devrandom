@@ -35,7 +35,7 @@ export async function settleBlockedRun(
       continuation:
         reason === 'HarnessCompatibilityFailure'
           ? { kind: 'LaterHarnessCompatibilityResolutionRequired' }
-          : reason === 'UserInterrupted'
+          : reason === 'UserInterrupted' || reason === 'CheckpointPause'
             ? { kind: 'LaterRuntimeRecoveryRequired' }
             : { kind: 'ExternalResolutionRequired', reason },
     },

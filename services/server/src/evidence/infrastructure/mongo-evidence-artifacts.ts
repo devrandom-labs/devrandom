@@ -32,7 +32,7 @@ import {
   decodeEvidenceUsageDocument,
   type EvidenceUsageDocument,
 } from './evidence-usage-document.js';
-import { initialEvidenceStream } from './evidence-stream-binding.js';
+import { currentEvidenceStream } from './evidence-stream-binding.js';
 
 function duplicateKey(error: unknown): error is MongoServerError {
   return error instanceof MongoServerError && error.code === 11_000;
@@ -104,12 +104,15 @@ export class MongoEvidenceArtifacts implements EvidenceArtifacts {
     }
     const run = decodeRunDocument(runDocument).run;
     const streamDocument = await this.#streams.findOne(
-      { _id: run.binding.evidenceStreamId, 'binding.ownerAid': input.ownerAid },
+      {
+        _id: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
+        'binding.ownerAid': input.ownerAid,
+      },
       { session },
     );
     const stream =
       streamDocument === null
-        ? initialEvidenceStream(run)
+        ? currentEvidenceStream(run)
         : decodeEvidenceStreamDocument(streamDocument);
     if (stream === undefined || stream.binding.runId !== input.runId) {
       return { kind: 'EvidenceArtifactRejected', reason: 'RunBindingMismatch' };
@@ -156,7 +159,7 @@ export class MongoEvidenceArtifacts implements EvidenceArtifacts {
       encodeEvidenceArtifactDocument({
         ownerAid: input.ownerAid,
         runId: input.runId,
-        evidenceStreamId: run.binding.evidenceStreamId,
+        evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
         artifact: input.artifact,
         bytes: input.bytes,
         acceptedAt: input.receivedAt,

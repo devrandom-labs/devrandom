@@ -135,7 +135,7 @@ integration('Mongo Evidence bootstrap', () => {
 
     try {
       await migration.bootstrap();
-      await streams.dropIndex('evidence-stream-binding-run-unique');
+      await streams.dropIndex('evidence-stream-binding-run-incarnation-unique');
       await streams.createIndex({ runId: 1 }, { name: 'evidence-stream-run-unique', unique: true });
       const first = stream(firstRunId);
       await streams.insertOne(first);
@@ -148,7 +148,7 @@ integration('Mongo Evidence bootstrap', () => {
         new EvidenceStorageDrift('EvidenceStreamIndexes'),
       );
       expect((await streams.listIndexes().toArray()).map(indexName)).not.toContain(
-        'evidence-stream-binding-run-unique',
+        'evidence-stream-binding-run-incarnation-unique',
       );
       await streams.dropIndex('unrecognized-stream-index');
 
@@ -160,8 +160,8 @@ integration('Mongo Evidence bootstrap', () => {
       expect(await streams.listIndexes().toArray()).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            name: 'evidence-stream-binding-run-unique',
-            key: { 'binding.runId': 1 },
+            name: 'evidence-stream-binding-run-incarnation-unique',
+            key: { 'binding.runId': 1, 'binding.incarnationId': 1 },
             unique: true,
           }),
         ]),
@@ -173,6 +173,9 @@ integration('Mongo Evidence bootstrap', () => {
       const second = stream(secondRunId);
       await streams.insertOne(second);
       await expect(streams.countDocuments()).resolves.toBe(2);
+      const successor = stream(firstRunId);
+      await streams.insertOne(successor);
+      await expect(streams.countDocuments({ 'binding.runId': firstRunId })).resolves.toBe(2);
       await expect(
         streams.insertOne({ ...stream(firstRunId), binding: { ...first.binding } }),
       ).rejects.toMatchObject({ code: 11_000 });

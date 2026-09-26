@@ -9,6 +9,9 @@ import {
   runCapabilityInvalidProblemSchema,
   runCapacityExceededProblemSchema,
   runConflictProblemSchema,
+  runContinuationRejectedProblemSchema,
+  runContinuationReceiptSchema,
+  runContinuationRequestSchema,
   runIncarnationParametersSchema,
   runLeaseAcquisitionBodySchema,
   runLeaseProjectionSchema,
@@ -27,6 +30,8 @@ import {
   workAccessGrantRevokedProblemSchema,
   workAccessGrantScopeRejectedProblemSchema,
   type RunProblem,
+  type RunContinuationReceipt,
+  type RunContinuationRequest,
   type WorkAccessScope,
 } from '@devrandom/protocol';
 import type { FastifyReply } from 'fastify';
@@ -72,6 +77,16 @@ export interface RunConversation {
 export interface RunRoutesConfiguration {
   readonly access: RunAccessAuthorizer;
   readonly conversation: RunConversation;
+  readonly continuation?: {
+    admit(input: {
+      readonly owner: AdmitRunInput['owner'];
+      readonly runId: string;
+      readonly command: RunContinuationRequest;
+    }): Promise<
+      | { readonly kind: 'Admitted' | 'Equivalent'; readonly receipt: RunContinuationReceipt }
+      | { readonly kind: 'RunNotFound' | 'Rejected' | 'Unavailable' }
+    >;
+  };
   now(): string;
   newCorrelationId(): string;
 }
@@ -623,6 +638,75 @@ export function runRoutes(configuration: RunRoutesConfiguration): FastifyPluginC
           runId: request.params.runId,
         });
         await sendInspectionOutcome(reply, outcome, configuration.newCorrelationId());
+      },
+    );
+
+    server.post(
+      '/api/runs/:runId/continuations',
+      {
+        bodyLimit: taskBudgetCeilings.ordinaryJsonRequestBodyBytes,
+        schema: {
+          operationId: 'admitRunContinuation',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: runParametersSchema,
+          body: runContinuationRequestSchema,
+          response: {
+            200: runContinuationReceiptSchema,
+            201: runContinuationReceiptSchema,
+            400: runRequestInvalidProblemSchema,
+            401: unauthorizedResponses,
+            403: forbiddenResponses,
+            404: runResourceNotFoundProblemSchema,
+            409: Type.Union([
+              workAccessGrantConcurrentUpdateProblemSchema,
+              runContinuationRejectedProblemSchema,
+            ]),
+            413: runBodyTooLargeProblemSchema,
+            429: workAccessGrantExhaustedProblemSchema,
+            503: runUnavailableProblemSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const owner = await authorize(
+          reply,
+          request.headers.authorization,
+          'run:execute',
+          configuration,
+        );
+        if (owner === undefined) return;
+        const outcome = await configuration.continuation?.admit({
+          owner,
+          runId: request.params.runId,
+          command: request.body,
+        });
+        const correlationId = configuration.newCorrelationId();
+        if (outcome?.kind === 'Admitted' || outcome?.kind === 'Equivalent') {
+          await reply.code(outcome.kind === 'Admitted' ? 201 : 200).send(outcome.receipt);
+        } else if (outcome?.kind === 'RunNotFound') {
+          await sendProblem(reply, {
+            type: 'https://devrandom.example/problems/run-resource-not-found',
+            title: 'Run resource was not found',
+            status: 404,
+            code: 'RunResourceNotFound',
+            resource: 'Run',
+            correlationId,
+          });
+        } else if (outcome?.kind === 'Rejected') {
+          await sendProblem(reply, {
+            ...conflictBase(correlationId),
+            reason: 'ContinuationRejected',
+          });
+        } else {
+          await sendProblem(reply, {
+            type: 'https://devrandom.example/problems/run-unavailable',
+            title: 'Run dependency is unavailable',
+            status: 503,
+            code: 'RunUnavailable',
+            correlationId,
+            dependency: 'HostedMongoDB',
+          });
+        }
       },
     );
 

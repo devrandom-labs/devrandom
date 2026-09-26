@@ -22,8 +22,8 @@ export const evidenceCollectionContracts = Object.freeze([
 export const evidenceIndexDefinitions = Object.freeze([
   {
     collection: evidenceCollectionNames.streams,
-    name: 'evidence-stream-binding-run-unique',
-    key: { 'binding.runId': 1 },
+    name: 'evidence-stream-binding-run-incarnation-unique',
+    key: { 'binding.runId': 1, 'binding.incarnationId': 1 },
     unique: true,
   },
   {
@@ -34,14 +34,14 @@ export const evidenceIndexDefinitions = Object.freeze([
   },
   {
     collection: evidenceCollectionNames.batches,
-    name: 'evidence-batch-run-start-unique',
-    key: { runId: 1, startingSequence: 1 },
+    name: 'evidence-batch-stream-start-unique',
+    key: { evidenceStreamId: 1, startingSequence: 1 },
     unique: true,
   },
   {
     collection: evidenceCollectionNames.events,
-    name: 'evidence-event-run-sequence-unique',
-    key: { runId: 1, sequence: 1 },
+    name: 'evidence-event-stream-sequence-unique',
+    key: { evidenceStreamId: 1, sequence: 1 },
     unique: true,
   },
   {
@@ -58,5 +58,27 @@ export const previousEvidenceStreamRunIndex = Object.freeze({
   key: { runId: 1 },
   unique: true,
 });
+
+/** Exact v2 single-incarnation indexes replaced atomically at storage bootstrap. */
+export const previousSingleIncarnationIndexes = Object.freeze([
+  {
+    collection: evidenceCollectionNames.streams,
+    name: 'evidence-stream-binding-run-unique',
+    key: { 'binding.runId': 1 },
+    unique: true,
+  },
+  {
+    collection: evidenceCollectionNames.batches,
+    name: 'evidence-batch-run-start-unique',
+    key: { runId: 1, startingSequence: 1 },
+    unique: true,
+  },
+  {
+    collection: evidenceCollectionNames.events,
+    name: 'evidence-event-run-sequence-unique',
+    key: { runId: 1, sequence: 1 },
+    unique: true,
+  },
+] as const);
 
 export const evidenceUsageDocumentId = 'evidence-usage/1' as const;

@@ -4,7 +4,8 @@ import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 
-import { projectRun } from '@devrandom/protocol';
+import { projectRun, runContinuationRequestSchema } from '@devrandom/protocol';
+import Value from 'typebox/value';
 
 import { runFixture } from '../test/run-fixture.js';
 import { runRoutes, type RunRoutesConfiguration } from './run-routes.js';
@@ -69,6 +70,38 @@ async function server(configurationInput: RunRoutesConfiguration) {
 }
 
 describe('Run HTTP routes', () => {
+  it('rejects replacement-incarnation admission without an acknowledged sealed checkpoint', async () => {
+    const run = runFixture();
+    const admit = vi.fn(() =>
+      Promise.resolve({ kind: 'Rejected' as const, reason: 'PredecessorNotSealed' as const }),
+    );
+    const instance = await server(Object.assign(configuration(), { continuation: { admit } }));
+    try {
+      const payload = {
+        version: 1,
+        expectedRunVersion: run.version,
+        predecessorCheckpointSaid: `E${'c'.repeat(43)}`,
+        predecessorSealSaid: `E${'s'.repeat(43)}`,
+        predecessorHeadSaid: `E${'h'.repeat(43)}`,
+        successorIncarnationId: randomUUID(),
+        successorStreamId: randomUUID(),
+        expectedActivePointerVersion: 2,
+        expectedActivationReceiptSaid: `E${'a'.repeat(43)}`,
+      };
+      expect(Value.Check(runContinuationRequestSchema, payload)).toBe(true);
+      const response = await instance.inject({
+        method: 'POST',
+        url: `/api/runs/${run.binding.runId}/continuations`,
+        headers: { authorization: `Bearer ${bearerSecret}` },
+        payload,
+      });
+      expect(admit).toHaveBeenCalledOnce();
+      expect(response.statusCode).toBe(409);
+    } finally {
+      await instance.close();
+    }
+  });
+
   it('inspects one owner-scoped authoritative Run through run:read', async () => {
     const authorize = vi.fn<RunRoutesConfiguration['access']['authorize']>(() =>
       Promise.resolve({ kind: 'RunAccessAuthorized', owner }),

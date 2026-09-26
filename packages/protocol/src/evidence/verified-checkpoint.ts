@@ -146,6 +146,7 @@ const blockedReasonSchema = Type.Union([
   Type.Literal('SecretDetected'),
   Type.Literal('LeaseLost'),
   Type.Literal('ProcessLost'),
+  Type.Literal('CheckpointPause'),
   Type.Literal('HarnessCompatibilityFailure'),
 ]);
 
@@ -594,7 +595,11 @@ function continuationMatches(checkpoint: VerifiedCheckpointDraft | VerifiedCheck
   if (state.phase.reason === 'HarnessCompatibilityFailure') {
     return continuation.kind === 'LaterHarnessCompatibilityResolutionRequired';
   }
-  if (state.phase.reason === 'UserInterrupted' || state.phase.reason === 'ProcessLost') {
+  if (
+    state.phase.reason === 'UserInterrupted' ||
+    state.phase.reason === 'ProcessLost' ||
+    state.phase.reason === 'CheckpointPause'
+  ) {
     return continuation.kind === 'LaterRuntimeRecoveryRequired';
   }
   return (

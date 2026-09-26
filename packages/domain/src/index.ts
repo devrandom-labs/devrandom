@@ -28,6 +28,7 @@ export {
 export * from './task/authority.js';
 export * from './task/task.js';
 export * from './run/execution.js';
+export * from './run/continuation.js';
 export * from './run/lease.js';
 export * from './run/run.js';
 export * from './run/qualification.js';

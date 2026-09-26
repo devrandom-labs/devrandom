@@ -24,6 +24,7 @@ import {
   evidenceIndexDefinitions,
   evidenceUsageDocumentId,
   previousEvidenceStreamRunIndex,
+  previousSingleIncarnationIndexes,
   type EvidenceCollectionName,
 } from './evidence-storage-contract.js';
 import {
@@ -456,36 +457,39 @@ export class MongoEvidenceBootstrap {
     if (actual === undefined) {
       throw new EvidenceStorageDrift(indexResource(name));
     }
-    if (name === evidenceCollectionNames.streams) {
-      const previous = actual.find((index) => index.name === previousEvidenceStreamRunIndex.name);
-      if (previous !== undefined) {
-        const currentDefinition = evidenceIndexDefinitions.find(
-          (definition) => definition.collection === evidenceCollectionNames.streams,
-        );
-        if (currentDefinition === undefined) throw new EvidenceStorageDrift(indexResource(name));
-        const current = actual.find((index) => index.name === currentDefinition.name);
-        if (
-          !sameIndex(previous, previousEvidenceStreamRunIndex) ||
-          (current !== undefined && !sameIndex(current, currentDefinition)) ||
-          actual.some(
-            (index) =>
-              index.name !== '_id_' &&
-              index.name !== previousEvidenceStreamRunIndex.name &&
-              index.name !== currentDefinition.name,
-          )
-        ) {
-          throw new EvidenceStorageDrift(indexResource(name));
-        }
-        if (current === undefined) {
-          await collection.createIndex(currentDefinition.key, {
-            name: currentDefinition.name,
-            unique: currentDefinition.unique,
-          });
-        }
-        await collection.dropIndex(previousEvidenceStreamRunIndex.name);
-        actual = decodeObservedIndexes(await collection.listIndexes().toArray());
-        if (actual === undefined) throw new EvidenceStorageDrift(indexResource(name));
-      }
+    const legacyDefinitions = [
+      ...previousSingleIncarnationIndexes.filter((definition) => definition.collection === name),
+      ...(name === evidenceCollectionNames.streams ? [previousEvidenceStreamRunIndex] : []),
+    ];
+    const legacy = actual.filter((index) =>
+      legacyDefinitions.some((definition) => definition.name === index.name),
+    );
+    if (legacy.length > 0) {
+      const [currentDefinition] = definitionsFor(name);
+      if (currentDefinition === undefined) throw new EvidenceStorageDrift(indexResource(name));
+      const currentIndex = actual.find((index) => index.name === currentDefinition.name);
+      if (
+        legacy.some((index) => {
+          const expected = legacyDefinitions.find((definition) => definition.name === index.name);
+          return expected === undefined || !sameIndex(index, expected);
+        }) ||
+        (currentIndex !== undefined && !sameIndex(currentIndex, currentDefinition)) ||
+        actual.some(
+          (index) =>
+            index.name !== '_id_' &&
+            index.name !== currentDefinition.name &&
+            !legacyDefinitions.some((definition) => definition.name === index.name),
+        )
+      )
+        throw new EvidenceStorageDrift(indexResource(name));
+      if (currentIndex === undefined)
+        await collection.createIndex(currentDefinition.key, {
+          name: currentDefinition.name,
+          ...('unique' in currentDefinition ? { unique: currentDefinition.unique } : {}),
+        });
+      for (const index of legacy) await collection.dropIndex(index.name);
+      actual = decodeObservedIndexes(await collection.listIndexes().toArray());
+      if (actual === undefined) throw new EvidenceStorageDrift(indexResource(name));
     }
     for (const definition of definitionsFor(name)) {
       const existing = actual.find((index) => index.name === definition.name);

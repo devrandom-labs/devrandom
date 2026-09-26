@@ -125,7 +125,10 @@ export class MongoEvidenceSeals implements EvidenceSeals {
     const decodedRun = decodeRunDocument(runDocument);
     const currentRun = decodedRun.run;
     const streamDocument = await this.#streams.findOne(
-      { _id: currentRun.binding.evidenceStreamId, 'binding.ownerAid': input.ownerAid },
+      {
+        _id: currentRun.currentExecution?.evidenceStreamId ?? currentRun.binding.evidenceStreamId,
+        'binding.ownerAid': input.ownerAid,
+      },
       { session },
     );
     if (streamDocument === null) {

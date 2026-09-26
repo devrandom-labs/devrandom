@@ -81,11 +81,14 @@ export async function reconcileEvidenceSeal(
     version: 1,
     kind: 'EvidenceStreamSeal',
     runId: context.run.binding.runId,
-    evidenceStreamId: context.run.binding.evidenceStreamId,
+    evidenceStreamId:
+      context.run.currentExecution?.evidenceStreamId ?? context.run.binding.evidenceStreamId,
     eventCount: cursor.acceptedThrough + 1,
     finalSequence: cursor.acceptedThrough,
     chainHeadSaid: cursor.chainHeadSaid,
-    harnessRevisionSaid: context.run.binding.initialHarnessRevisionSaid,
+    harnessRevisionSaid:
+      context.run.currentExecution?.harnessRevisionSaid ??
+      context.run.binding.initialHarnessRevisionSaid,
     taskMandateSaid: context.run.binding.taskMandateSaid,
   };
   const inspected = await dependencies.exchanges.inspect({

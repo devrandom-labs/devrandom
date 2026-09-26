@@ -66,7 +66,7 @@ import {
   decodeEvidenceUsageDocument,
   type EvidenceUsageDocument,
 } from './evidence-usage-document.js';
-import { initialEvidenceStream } from './evidence-stream-binding.js';
+import { currentEvidenceStream } from './evidence-stream-binding.js';
 
 function duplicateKey(error: unknown): error is MongoServerError {
   return error instanceof MongoServerError && error.code === 11_000;
@@ -218,7 +218,8 @@ export class MongoEvidenceBatches implements EvidenceBatches {
       return { kind: 'EvidenceCursorConcurrentUpdate' };
     }
     if (
-      input.body.batch.evidenceStreamId !== run.binding.evidenceStreamId ||
+      input.body.batch.evidenceStreamId !==
+        (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) ||
       input.body.events.some((event) => !evidenceEventBelongsToRun(event, run))
     ) {
       return { kind: 'EvidenceBatchRejected', reason: 'EventBindingMismatch' };
@@ -254,12 +255,15 @@ export class MongoEvidenceBatches implements EvidenceBatches {
       return { kind: 'EvidenceBatchRejected', reason: 'EventBindingMismatch' };
     }
     const streamDocument = await this.#streams.findOne(
-      { _id: run.binding.evidenceStreamId, 'binding.ownerAid': input.ownerAid },
+      {
+        _id: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
+        'binding.ownerAid': input.ownerAid,
+      },
       { session },
     );
     const stream =
       streamDocument === null
-        ? initialEvidenceStream(run)
+        ? currentEvidenceStream(run)
         : decodeEvidenceStreamDocument(streamDocument);
     if (stream === undefined || stream.binding.runId !== run.binding.runId) {
       return { kind: 'EvidenceBatchRejected', reason: 'RunBindingMismatch' };
@@ -371,7 +375,8 @@ export class MongoEvidenceBatches implements EvidenceBatches {
       return (
         artifact.ownerAid === ownerAid &&
         artifact.runId === run.binding.runId &&
-        artifact.evidenceStreamId === run.binding.evidenceStreamId
+        artifact.evidenceStreamId ===
+          (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId)
       );
     });
   }
@@ -387,6 +392,7 @@ export class MongoEvidenceBatches implements EvidenceBatches {
         {
           ownerAid: run.binding.ownerAid,
           runId: run.binding.runId,
+          evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
           sequence: { $lte: checkpoint.evidence.finalSequence },
         },
         { session },

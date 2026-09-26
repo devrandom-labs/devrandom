@@ -47,6 +47,7 @@ const blockedReasonSchema = Type.Union([
   Type.Literal('SecretDetected'),
   Type.Literal('LeaseLost'),
   Type.Literal('ProcessLost'),
+  Type.Literal('CheckpointPause'),
   Type.Literal('HarnessCompatibilityFailure'),
 ]);
 
@@ -140,6 +141,7 @@ export const runLeaseSchema = Type.Union([
       incarnationId: uuidV4Schema,
       acquiredAt: timestampSchema,
       expiresAt: timestampSchema,
+      segmentSaid: Type.Optional(saidSchema),
       lastChange: Type.Union([
         Type.Object(
           { kind: Type.Literal('Acquired'), fromRunVersion: safeIntegerSchema },
@@ -147,6 +149,14 @@ export const runLeaseSchema = Type.Union([
         ),
         Type.Object(
           { kind: Type.Literal('Renewed'), fromRunVersion: safeIntegerSchema },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            kind: Type.Literal('Replaced'),
+            fromRunVersion: safeIntegerSchema,
+            segmentSaid: saidSchema,
+          },
           { additionalProperties: false },
         ),
       ]),
@@ -181,6 +191,16 @@ export const runProjectionSchema = Type.Object(
     lifecycle: runLifecycleSchema,
     submissionVerification: submissionVerificationSchema,
     lease: runLeaseSchema,
+    currentExecution: Type.Optional(
+      Type.Object(
+        {
+          segmentSaid: saidSchema,
+          harnessRevisionSaid: saidSchema,
+          evidenceStreamId: uuidV4Schema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
     activation: Type.Object(
       {
         kind: Type.Literal('InitialSpecializationAccepted'),
@@ -222,6 +242,7 @@ export function projectRun(run: Run): RunProjection {
     lifecycle: run.lifecycle,
     submissionVerification: run.submissionVerification,
     lease: run.lease,
+    ...(run.currentExecution === undefined ? {} : { currentExecution: run.currentExecution }),
     activation: binding.initialSpecialization,
     acceptedAt: binding.acceptedAt,
   };
@@ -261,7 +282,17 @@ export function decodeRunProjection(input: unknown): RunProjectionDecoding {
       !runLifecycleRetainsBudgetExcess(input.lifecycle)) ||
     (input.lease.kind === 'Held' &&
       (input.lease.lastChange.fromRunVersion >= input.runVersion ||
-        !runLeaseTimesAreValid(input.lease.acquiredAt, input.lease.expiresAt)))
+        !runLeaseTimesAreValid(input.lease.acquiredAt, input.lease.expiresAt))) ||
+    (input.currentExecution !== undefined &&
+      (input.lease.kind !== 'Held' ||
+        input.lease.segmentSaid !== input.currentExecution.segmentSaid ||
+        input.currentExecution.harnessRevisionSaid === input.harnessRevisionSaid ||
+        input.currentExecution.evidenceStreamId === input.evidenceStreamId)) ||
+    (input.lease.kind === 'Held' &&
+      (input.currentExecution === undefined) !== (input.lease.segmentSaid === undefined)) ||
+    (input.lease.kind === 'Held' &&
+      input.lease.lastChange.kind === 'Replaced' &&
+      input.lease.lastChange.segmentSaid !== input.lease.segmentSaid)
   ) {
     return { kind: 'Rejected' };
   }
@@ -297,6 +328,7 @@ export function decodeRunProjection(input: unknown): RunProjectionDecoding {
       submissionVerification: input.submissionVerification,
       lease: input.lease,
       consumedBudget: input.budget.consumed,
+      ...(input.currentExecution === undefined ? {} : { currentExecution: input.currentExecution }),
     },
   };
 }
@@ -476,6 +508,11 @@ function runConflict(reason: string) {
   };
 }
 
+export const runContinuationRejectedProblemSchema = Type.Object(
+  runConflict('ContinuationRejected'),
+  { additionalProperties: false },
+);
+
 export const runConflictProblemSchema = Type.Union([
   Type.Object(runConflict('CommandConflict'), { additionalProperties: false }),
   Type.Object(runConflict('InitialHarnessIncumbentConflict'), {
@@ -510,6 +547,7 @@ export const runConflictProblemSchema = Type.Union([
     { ...runConflict('LaterResumeRequired'), expiredAt: timestampSchema },
     { additionalProperties: false },
   ),
+  runContinuationRejectedProblemSchema,
 ]);
 export const runBodyTooLargeProblemSchema = Type.Object(
   problem('RunBodyTooLarge', 413, 'Run request body is too large', 'run-body-too-large'),

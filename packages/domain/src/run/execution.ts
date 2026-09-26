@@ -25,6 +25,7 @@ export type RunExecutionStart =
   | { readonly kind: 'LeaseExpired'; readonly expiredAt: string }
   | { readonly kind: 'WorktreeBindingConflict' }
   | { readonly kind: 'EvidenceStreamConflict' }
+  | { readonly kind: 'SuccessorSegmentConflict' }
   | { readonly kind: 'EvidenceNotGenesis' };
 
 function repositoryMatches(left: RunRepository, right: RunRepository): boolean {
@@ -56,7 +57,16 @@ export function startRunExecution(run: Run, readiness: RunExecutionReadiness): R
   if (!repositoryMatches(run.binding.repository, readiness.worktree.repository)) {
     return { kind: 'WorktreeBindingConflict' };
   }
-  if (run.binding.evidenceStreamId !== readiness.evidence.streamId) {
+  if (
+    run.currentExecution !== undefined &&
+    run.lease.segmentSaid !== run.currentExecution.segmentSaid
+  ) {
+    return { kind: 'SuccessorSegmentConflict' };
+  }
+  if (
+    (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) !==
+    readiness.evidence.streamId
+  ) {
     return { kind: 'EvidenceStreamConflict' };
   }
   if (readiness.evidence.kind !== 'Genesis') {

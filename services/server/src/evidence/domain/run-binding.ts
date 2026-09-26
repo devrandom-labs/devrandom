@@ -15,7 +15,8 @@ export function evidenceEventBelongsToRun(event: EvidenceEvent, run: Run): boole
     event.taskId === run.binding.taskId &&
     event.taskRevisionSaid === run.binding.taskRevisionSaid &&
     event.runId === run.binding.runId &&
-    event.harnessRevisionSaid === run.binding.initialHarnessRevisionSaid &&
+    event.harnessRevisionSaid ===
+      (run.currentExecution?.harnessRevisionSaid ?? run.binding.initialHarnessRevisionSaid) &&
     event.personalAgentAid === run.binding.personalAgentAid &&
     event.taskMandateSaid === run.binding.taskMandateSaid &&
     run.lease.kind === 'Held' &&
@@ -36,7 +37,8 @@ export function evidenceCheckpointBelongsToRun(checkpoint: VerifiedCheckpoint, r
     checkpoint.runId === run.binding.runId &&
     run.lease.kind === 'Held' &&
     checkpoint.incarnationId === run.lease.incarnationId &&
-    checkpoint.harnessRevisionSaid === run.binding.initialHarnessRevisionSaid &&
+    checkpoint.harnessRevisionSaid ===
+      (run.currentExecution?.harnessRevisionSaid ?? run.binding.initialHarnessRevisionSaid) &&
     checkpoint.harnessLineageId === run.binding.harnessLineageId &&
     checkpoint.personalAgentAid === run.binding.personalAgentAid &&
     checkpoint.governorAid === run.binding.governorAid &&

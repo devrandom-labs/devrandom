@@ -8,7 +8,7 @@ import {
   decodeEvidenceStreamDocument,
   type EvidenceStreamDocument,
 } from './evidence-stream-document.js';
-import { initialEvidenceStream } from './evidence-stream-binding.js';
+import { currentEvidenceStream } from './evidence-stream-binding.js';
 
 export class MongoEvidenceSealContexts implements EvidenceSealContexts {
   readonly #runs: Collection<RunDocument>;
@@ -27,11 +27,11 @@ export class MongoEvidenceSealContexts implements EvidenceSealContexts {
       }
       const run = decodeRunDocument(runDocument).run;
       const document = await this.#streams.findOne({
-        _id: run.binding.evidenceStreamId,
+        _id: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
         'binding.ownerAid': input.ownerAid,
       });
       const stream =
-        document === null ? initialEvidenceStream(run) : decodeEvidenceStreamDocument(document);
+        document === null ? currentEvidenceStream(run) : decodeEvidenceStreamDocument(document);
       return stream === undefined || stream.binding.runId !== run.binding.runId
         ? ({ kind: 'DependencyUnavailable', dependency: 'HostedMongoDB' } as const)
         : ({ kind: 'EvidenceSealContextFound', run, stream } as const);

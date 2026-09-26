@@ -93,6 +93,7 @@ export type RunBlockedReason =
   | 'SecretDetected'
   | 'LeaseLost'
   | 'ProcessLost'
+  | 'CheckpointPause'
   | 'HarnessCompatibilityFailure';
 
 export type RunActivePhase =
@@ -151,9 +152,15 @@ export type RunLease =
       readonly incarnationId: string;
       readonly acquiredAt: string;
       readonly expiresAt: string;
+      readonly segmentSaid?: string;
       readonly lastChange:
         | { readonly kind: 'Acquired'; readonly fromRunVersion: number }
-        | { readonly kind: 'Renewed'; readonly fromRunVersion: number };
+        | { readonly kind: 'Renewed'; readonly fromRunVersion: number }
+        | {
+            readonly kind: 'Replaced';
+            readonly fromRunVersion: number;
+            readonly segmentSaid: string;
+          };
     };
 
 export interface Run {
@@ -163,6 +170,12 @@ export interface Run {
   readonly submissionVerification: SubmissionVerification;
   readonly lease: RunLease;
   readonly consumedBudget: TaskBudgets;
+  /** Present only after a verified same-Run successor admission; the initial binding stays immutable. */
+  readonly currentExecution?: {
+    readonly segmentSaid: string;
+    readonly harnessRevisionSaid: string;
+    readonly evidenceStreamId: string;
+  };
 }
 
 export function runStateIsCoherent(

@@ -193,7 +193,8 @@ function checkpointMatchesRun(run: Run, checkpoint: SealedRunCheckpoint): boolea
     checkpoint.taskId === run.binding.taskId &&
     checkpoint.taskRevisionSaid === run.binding.taskRevisionSaid &&
     checkpoint.runId === run.binding.runId &&
-    checkpoint.harnessRevisionSaid === run.binding.initialHarnessRevisionSaid
+    checkpoint.harnessRevisionSaid ===
+      (run.currentExecution?.harnessRevisionSaid ?? run.binding.initialHarnessRevisionSaid)
   );
 }
 
@@ -205,7 +206,8 @@ function runStartedMatches(run: Run, provenance: AcceptedRunStartedProvenance): 
     provenance.taskId === run.binding.taskId &&
     provenance.taskRevisionSaid === run.binding.taskRevisionSaid &&
     provenance.runId === run.binding.runId &&
-    provenance.harnessRevisionSaid === run.binding.initialHarnessRevisionSaid &&
+    provenance.harnessRevisionSaid ===
+      (run.currentExecution?.harnessRevisionSaid ?? run.binding.initialHarnessRevisionSaid) &&
     provenance.personalAgentAid === run.binding.personalAgentAid &&
     provenance.taskMandateSaid === run.binding.taskMandateSaid
   );

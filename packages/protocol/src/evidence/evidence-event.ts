@@ -81,6 +81,7 @@ const runBlockedReasonSchema = Type.Union([
   Type.Literal('SecretDetected'),
   Type.Literal('LeaseLost'),
   Type.Literal('ProcessLost'),
+  Type.Literal('CheckpointPause'),
   Type.Literal('HarnessCompatibilityFailure'),
 ]);
 
