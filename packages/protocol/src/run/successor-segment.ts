@@ -14,7 +14,7 @@ const instant = Type.String({
 });
 const position = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 
-export const runContinuationRequestSchema = Type.Object(
+const retainedRunContinuationRequestSchema = Type.Object(
   {
     version: Type.Literal(1),
     expectedRunVersion: position,
@@ -28,6 +28,25 @@ export const runContinuationRequestSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+
+export const calibrationRunContinuationRequestSchema = Type.Object(
+  {
+    version: Type.Literal(2),
+    kind: Type.Literal('CalibrationContinuation'),
+    expectedRunVersion: position,
+    predecessorCheckpointSaid: said,
+    predecessorSealSaid: said,
+    predecessorHeadSaid: said,
+    successorIncarnationId: uuid,
+    successorStreamId: uuid,
+    expectedHarnessRevisionSaid: said,
+  },
+  { additionalProperties: false },
+);
+export const runContinuationRequestSchema = Type.Union([
+  retainedRunContinuationRequestSchema,
+  calibrationRunContinuationRequestSchema,
+]);
 
 const segmentBody = {
   version: Type.Literal(1),
@@ -62,13 +81,29 @@ const segmentBody = {
   admittedAt: instant,
 };
 
-export const runSuccessorSegmentInputSchema = Type.Object(segmentBody, {
-  additionalProperties: false,
-});
-export const runSuccessorSegmentSchema = Type.Object(
+export const retainedRunSuccessorSegmentSchema = Type.Object(
   { d: said, ...segmentBody },
   { additionalProperties: false },
 );
+const retainedSegmentInputSchema = Type.Object(segmentBody, { additionalProperties: false });
+const commonSegmentBody = Type.Omit(retainedSegmentInputSchema, ['activation']).properties;
+const calibrationSegmentBody = {
+  ...commonSegmentBody,
+  version: Type.Literal(2),
+  kind: Type.Literal('CalibrationContinuationSegment'),
+  baseline: Type.Object(
+    { pointerVersion: Type.Literal(1), harnessRevisionSaid: said },
+    { additionalProperties: false },
+  ),
+};
+export const runSuccessorSegmentInputSchema = Type.Union([
+  retainedSegmentInputSchema,
+  Type.Object(calibrationSegmentBody, { additionalProperties: false }),
+]);
+export const runSuccessorSegmentSchema = Type.Union([
+  retainedRunSuccessorSegmentSchema,
+  Type.Object({ d: said, ...calibrationSegmentBody }, { additionalProperties: false }),
+]);
 export const runContinuationReceiptSchema = Type.Object(
   {
     version: Type.Literal(1),
@@ -79,6 +114,12 @@ export const runContinuationReceiptSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export type RetainedRunContinuationRequest = Type.Static<
+  typeof retainedRunContinuationRequestSchema
+>;
+export type CalibrationRunContinuationRequest = Type.Static<
+  typeof calibrationRunContinuationRequestSchema
+>;
 export type RunContinuationRequest = Type.Static<typeof runContinuationRequestSchema>;
 export type RunSuccessorSegmentInput = Type.Static<typeof runSuccessorSegmentInputSchema>;
 export type RunSuccessorSegment = Type.Static<typeof runSuccessorSegmentSchema>;
@@ -95,7 +136,9 @@ export function prepareRunSuccessorSegment(
     !Number.isFinite(admittedAt.valueOf()) ||
     admittedAt.toISOString() !== input.admittedAt ||
     input.predecessor.incarnationId === input.successor.incarnationId ||
-    input.predecessor.evidenceStreamId === input.successor.evidenceStreamId
+    input.predecessor.evidenceStreamId === input.successor.evidenceStreamId ||
+    (input.version === 2 &&
+      input.baseline.harnessRevisionSaid !== input.successor.harnessRevisionSaid)
   )
     return { kind: 'Rejected' };
   try {

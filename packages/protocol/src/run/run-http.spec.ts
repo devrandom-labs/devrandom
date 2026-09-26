@@ -252,3 +252,44 @@ describe('Run HTTP contract', () => {
     ).toBe(false);
   });
 });
+
+it('decodes a same-H1 calibration incarnation without allowing a retained Run to claim it', () => {
+  const segmentSaid = said('s');
+  const continued = {
+    ...projection,
+    activation: {
+      ...projection.activation,
+      runId: projection.runId,
+      acceptedAt: projection.acceptedAt,
+    },
+    runVersion: 2,
+    purpose: {
+      kind: 'PreparedCompatibilityCalibration' as const,
+      campaignId: '11111111-1111-4111-8111-111111111111',
+      ordinal: 1 as const,
+    },
+    currentExecution: {
+      segmentSaid,
+      harnessRevisionSaid: projection.harnessRevisionSaid,
+      evidenceStreamId: '22222222-2222-4222-8222-222222222222',
+    },
+    lease: {
+      kind: 'Held' as const,
+      incarnationId: '33333333-3333-4333-8333-333333333333',
+      acquiredAt: '2026-09-24T20:00:00.000Z',
+      expiresAt: '2026-09-24T20:00:45.000Z',
+      segmentSaid,
+      lastChange: { kind: 'Replaced' as const, fromRunVersion: 1, segmentSaid },
+    },
+  };
+  expect(decodeRunProjection(continued).kind).toBe('Accepted');
+  expect(decodeRunProjection({ ...continued, purpose: { kind: 'Retained' } }).kind).toBe(
+    'Rejected',
+  );
+  expect(
+    decodeRunProjection({
+      ...continued,
+      currentExecution: { ...continued.currentExecution, harnessRevisionSaid: said('z') },
+    }).kind,
+  ).toBe('Rejected');
+});
