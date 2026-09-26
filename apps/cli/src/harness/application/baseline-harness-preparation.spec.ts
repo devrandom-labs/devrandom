@@ -1,4 +1,4 @@
-import { ProtectedCredentials } from '@devrandom/domain';
+import { ProtectedCredentials, type TaskToolCapability } from '@devrandom/domain';
 import {
   identifyHarnessInstruction,
   identifyHarnessToolCommand,
@@ -429,8 +429,8 @@ describe('baseline Harness preparation', () => {
         authority: {
           personalAgentAid: harnessPersonalAgentAid,
           taskMandateSaid: harnessTaskMandateSaid,
-          allowedCapabilities: task.revision.requestedCapabilities.filter(
-            (capability) => capability !== 'ReadTaskMemory',
+          allowedCapabilities: [...task.revision.requestedCapabilities].filter(
+            (capability): capability is TaskToolCapability => capability !== 'ReadTaskMemory',
           ),
           mandateBudgets: task.revision.budgets,
         },
@@ -447,8 +447,8 @@ describe('baseline Harness preparation', () => {
       expect(admitted[0]?.revision.authority).toEqual({
         personalAgentAid: harnessPersonalAgentAid,
         taskMandateSaid: harnessTaskMandateSaid,
-        allowedCapabilities: task.revision.requestedCapabilities.filter(
-          (capability) => capability !== 'ReadTaskMemory',
+        allowedCapabilities: [...task.revision.requestedCapabilities].filter(
+          (capability): capability is TaskToolCapability => capability !== 'ReadTaskMemory',
         ),
       });
       expect(admitted[0]?.revision.budgetCeilings.server).toEqual({
