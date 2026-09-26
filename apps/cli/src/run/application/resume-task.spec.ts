@@ -66,9 +66,29 @@ const at = '2026-09-24T20:00:01.000Z';
 
 function fixture(
   extraBeforeCheckpoint: readonly EvidenceEventDetail[] = [],
-  reason: 'CheckpointPause' | 'HarnessCompatibilityFailure' = 'CheckpointPause',
+  reason:
+    'CheckpointPause' | 'HarnessCompatibilityFailure' | 'ContextLimitReached' = 'CheckpointPause',
 ) {
-  const initial = runFixture();
+  const original = runFixture();
+  const initial =
+    reason === 'ContextLimitReached'
+      ? {
+          ...original,
+          binding: {
+            ...original.binding,
+            initialSpecialization: {
+              ...original.binding.initialSpecialization,
+              runId: original.binding.runId,
+              acceptedAt: original.binding.acceptedAt,
+            },
+            purpose: {
+              kind: 'PreparedCompatibilityCalibration' as const,
+              campaignId: runId,
+              ordinal: 1 as const,
+            },
+          },
+        }
+      : original;
   const leased = acquireFirstRunLease(initial, {
     incarnationId,
     expectedRunVersion: initial.version,
@@ -138,12 +158,15 @@ function fixture(
         phase: { kind: 'Blocked', reason },
         verification: { kind: 'NotSubmitted' },
       },
-      continuation: {
-        kind:
-          reason === 'HarnessCompatibilityFailure'
-            ? 'LaterHarnessCompatibilityResolutionRequired'
-            : 'LaterRuntimeRecoveryRequired',
-      },
+      continuation:
+        reason === 'ContextLimitReached'
+          ? { kind: 'ExternalResolutionRequired', reason }
+          : {
+              kind:
+                reason === 'HarnessCompatibilityFailure'
+                  ? 'LaterHarnessCompatibilityResolutionRequired'
+                  : 'LaterRuntimeRecoveryRequired',
+            },
     },
     [],
   );
@@ -198,8 +221,8 @@ function fixture(
   };
 }
 
-function preparation() {
-  const f = fixture([], 'HarnessCompatibilityFailure');
+function preparation(calibration = false) {
+  const f = fixture([], calibration ? 'ContextLimitReached' : 'HarnessCompatibilityFailure');
   const task = {
     taskId: f.run.binding.taskId,
     revisionSaid: f.run.binding.taskRevisionSaid,
@@ -208,16 +231,25 @@ function preparation() {
     lifecycle: { kind: 'Open' },
     revision: { completionConditions: [] },
   } as unknown as TaskProjection;
-  const activation = {
-    kind: 'Committed',
-    disposition: 'Activated',
-    taskId: task.taskId,
-    taskRevisionSaid: task.revisionSaid,
-    harnessLineageId: task.harnessLineageId,
-    pointerVersion: 2,
-    activeRevisionSaid: 'E' + 'z'.repeat(43),
-    decisionReceiptSaid: 'E' + 'r'.repeat(43),
-  } as ActiveHarnessPointer;
+  const activation = calibration
+    ? ({
+        kind: 'Initial',
+        pointerVersion: 1,
+        taskId: task.taskId,
+        taskRevisionSaid: task.revisionSaid,
+        harnessLineageId: task.harnessLineageId,
+        activeRevisionSaid: f.run.binding.initialHarnessRevisionSaid,
+      } as ActiveHarnessPointer)
+    : ({
+        kind: 'Committed',
+        disposition: 'Activated',
+        taskId: task.taskId,
+        taskRevisionSaid: task.revisionSaid,
+        harnessLineageId: task.harnessLineageId,
+        pointerVersion: 2,
+        activeRevisionSaid: 'E' + 'z'.repeat(43),
+        decisionReceiptSaid: 'E' + 'r'.repeat(43),
+      } as ActiveHarnessPointer);
   const stream = {
     runId: f.run.binding.runId,
     evidenceStreamId: f.run.binding.evidenceStreamId,
@@ -315,6 +347,7 @@ describe('same Run resumption caller boundary', () => {
         },
         hosted: {
           admitContinuation: (_runId, command) => {
+            if (command.version !== 1) throw Error('retained fixture');
             const segment = prepareRunSuccessorSegment({
               kind: 'RunSuccessorSegment',
               version: 1,
@@ -426,4 +459,52 @@ it('retains the authenticated predecessor for an admission reply lost across pro
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+it('requests a same-H1 calibration incarnation only after exact sealed checkpoint and current authority', async () => {
+  const input = preparation(true);
+  let observed: unknown;
+  const outcome = await resumeTask(
+    input,
+    {
+      authority: { verify: () => Promise.resolve({ kind: 'Current' }) },
+      repository: {
+        capture: () =>
+          Promise.resolve({
+            kind: 'Captured',
+            changedWorktreeBytes: 0,
+            repository:
+              input.predecessor.checkpoint.version === 1
+                ? input.predecessor.checkpoint.repository
+                : ({} as never),
+            artifacts: [],
+          }),
+      },
+      commands: {
+        acquire: ({ command }) => {
+          observed = command;
+          return Promise.resolve({
+            kind: 'Recorded',
+            command: {
+              ...command,
+              successorIncarnationId: '10000000-0000-4000-8000-000000000001',
+              successorStreamId: '10000000-0000-4000-8000-000000000002',
+            },
+          });
+        },
+        recordReceipt: () => Promise.resolve({ kind: 'Recorded' }),
+      },
+      hosted: { admitContinuation: () => Promise.resolve({ kind: 'ServerUnavailable' }) },
+      now: () => '2026-09-24T20:01:00.000Z',
+      monotonicNow: () => 1,
+    },
+    new AbortController().signal,
+  );
+  expect(outcome).toEqual({ kind: 'AdmissionRejected' });
+  expect(observed).toMatchObject({
+    version: 2,
+    kind: 'CalibrationContinuation',
+    expectedHarnessRevisionSaid: input.run.binding.initialHarnessRevisionSaid,
+    predecessorCheckpointSaid: input.predecessor.checkpoint.d,
+  });
+  expect(outcome).toEqual({ kind: 'AdmissionRejected' });
 });

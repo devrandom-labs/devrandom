@@ -367,7 +367,8 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
           const compatibility = new PreparedCompatibilityClassifier();
           const sourceCustody = new RunEffectQuiescence();
           const successor =
-            running.currentExecution === undefined
+            running.currentExecution === undefined ||
+            running.binding.purpose.kind === 'PreparedCompatibilityCalibration'
               ? undefined
               : options.successorSettlement?.provision({
                   sourceCustody,
@@ -383,6 +384,7 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
                 });
           if (
             running.currentExecution !== undefined &&
+            running.binding.purpose.kind === 'Retained' &&
             successor === undefined &&
             options.pauseAfterCheckpoint !== true
           )

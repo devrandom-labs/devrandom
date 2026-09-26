@@ -23,6 +23,7 @@ import type { HostedRunStatuses, HostedRunTimelines } from '../application/task-
 import { SqliteEvidenceOutboxes } from '../infrastructure/sqlite-evidence-outbox.js';
 import { GitWorktreeChanges } from '../infrastructure/git-worktree-changes.js';
 import { RunContinuationFile } from '../infrastructure/run-continuation-file.js';
+import type { RunPredecessorCustody } from '../application/run-predecessor-custody.js';
 import type { AdmittedRunExecutionCustody } from './baseline-run-supervisor.js';
 import {
   LinuxRunSupervisorComposition,
@@ -39,7 +40,10 @@ export interface TaskResumptionInput {
   readonly authority: {
     verify(run: Run): Promise<{ readonly kind: 'Current' | 'Rejected' | 'Unavailable' }>;
   };
-  successorBehavior(context: ContinuationContext): SuccessorRunBehavior;
+  successorBehavior(
+    context: ContinuationContext,
+    custody: RunPredecessorCustody,
+  ): SuccessorRunBehavior | undefined;
 }
 export type SupervisedTaskResumption =
   | Exclude<TaskResumption, { readonly kind: 'Admitted' }>
@@ -129,8 +133,25 @@ export class TaskResumptionComposition {
         preparation.protectedCredentials,
       ).readPredecessor({ run, stateRoot: this.#options.stateRoot, stream, events });
       if (read.kind !== 'Read') return { kind: 'PredecessorRejected' };
-      const context = continuationContext(preparation.task, read.custody);
+      const context: ContinuationContext | undefined =
+        run.binding.purpose.kind === 'PreparedCompatibilityCalibration'
+          ? {
+              text: '',
+              sourceEventSaids: read.custody.events.map((event) => event.d),
+              includedEventSaids: read.custody.events
+                .filter(
+                  (event) =>
+                    event.event.kind === 'ModelMessageCompleted' ||
+                    event.event.kind === 'EffectCompleted',
+                )
+                .map((event) => event.d),
+              addressableEventSaids: read.custody.events.map((event) => event.d),
+              addressableArtifactSaids: read.custody.artifacts.map(({ artifact }) => artifact.d),
+            }
+          : continuationContext(preparation.task, read.custody);
       if (context === undefined) return { kind: 'PredecessorRejected' };
+      const behavior = input.successorBehavior(context, read.custody);
+      if (behavior === undefined) return { kind: 'PredecessorRejected' };
       const directory = join(this.#options.stateRoot, 'runs', input.runId, 'worktree');
       const status = await lstat(directory);
       if (
@@ -166,7 +187,7 @@ export class TaskResumptionComposition {
       if (admitted.run.lease.kind !== 'Held') return { kind: 'AdmissionRejected' };
       const supervision = await new LinuxRunSupervisorComposition({
         ...this.#options,
-        successorBehavior: input.successorBehavior(context),
+        successorBehavior: behavior,
         ...(read.custody.checkpoint.version === 1
           ? { pausePredecessorRepository: read.custody.checkpoint.repository }
           : {}),

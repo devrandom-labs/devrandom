@@ -1,3 +1,4 @@
+import { resumeLocalCalibration } from './local-calibration-resumption.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -65,6 +66,12 @@ export async function resumeLocalTask(
     input.signal.throwIfAborted();
     if (input.task.ownerAid !== input.hosted.user.principal.aid)
       return { kind: 'Blocked', gate: 'Authority' };
+    const existing = await input.hosted.runs.inspect(input.runId);
+    if (
+      existing.kind === 'Found' &&
+      existing.run.purpose.kind === 'PreparedCompatibilityCalibration'
+    )
+      return await resumeLocalCalibration(input);
     const observed = await input.hosted.activationPointer().inspect(input.task.taskId);
     if (
       observed.kind !== 'Observed' ||

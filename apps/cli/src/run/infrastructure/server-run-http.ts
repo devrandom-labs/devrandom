@@ -250,8 +250,12 @@ export class ServerRunHttp implements HostedRuns, HostedRunStatuses {
         segment.segment.predecessor.checkpointSaid !== command.predecessorCheckpointSaid ||
         segment.segment.predecessor.sealExchangeSaid !== command.predecessorSealSaid ||
         segment.segment.predecessor.chainHeadSaid !== command.predecessorHeadSaid ||
-        segment.segment.activation.pointerVersion !== command.expectedActivePointerVersion ||
-        segment.segment.activation.decisionReceiptSaid !== command.expectedActivationReceiptSaid
+        (command.version === 1
+          ? segment.segment.version !== 1 ||
+            segment.segment.activation.pointerVersion !== command.expectedActivePointerVersion ||
+            segment.segment.activation.decisionReceiptSaid !== command.expectedActivationReceiptSaid
+          : segment.segment.version !== 2 ||
+            segment.segment.baseline.harnessRevisionSaid !== command.expectedHarnessRevisionSaid)
       )
         return { kind: 'ResponseInvalid' };
       return { kind: expected, receipt };

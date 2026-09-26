@@ -13,6 +13,9 @@ it('rejects an initial pointer before any mandate or executor effect', async () 
     task: { ownerAid: 'owner', taskId: 'task' },
     hosted: {
       user: { principal: { aid: 'owner' } },
+      runs: {
+        inspect: () => Promise.resolve({ kind: 'Found', run: { purpose: { kind: 'Retained' } } }),
+      },
       activationPointer: () => ({
         inspect: () => Promise.resolve({ kind: 'Observed', pointer: { kind: 'Initial' } }),
       }),

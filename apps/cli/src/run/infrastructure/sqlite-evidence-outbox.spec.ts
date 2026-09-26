@@ -1314,63 +1314,98 @@ describe('SQLite evidence outbox', () => {
   });
 });
 
-it('opens a distinct successor stream without modifying its sealed predecessor custody', async () => {
-  const original = runFixture();
-  const root = await stateRoot();
-  const outboxes = new SqliteEvidenceOutboxes(() => '2026-09-24T20:10:00.000Z');
-  const initial = outboxes.open({ run: original, stateRoot: root });
-  if (initial.kind !== 'Opened') throw new Error(initial.kind);
-  expect(
-    initial.recorder.record({
-      occurredAt: '2026-09-24T20:00:02.000Z',
+it.each(['Retained', 'PreparedCompatibilityCalibration'] as const)(
+  'opens a distinct %s successor stream without modifying its predecessor custody',
+  async (purpose) => {
+    const initialRun = runFixture();
+    const original: Run =
+      purpose === 'Retained'
+        ? initialRun
+        : {
+            ...initialRun,
+            binding: {
+              ...initialRun.binding,
+              purpose: {
+                kind: 'PreparedCompatibilityCalibration',
+                campaignId: '1cc482f1-98e9-4454-8e4c-5566cb47ce3d',
+                ordinal: 1,
+              },
+            },
+          };
+    const root = await stateRoot();
+    const outboxes = new SqliteEvidenceOutboxes(() => '2026-09-24T20:10:00.000Z');
+    const initial = outboxes.open({ run: original, stateRoot: root });
+    if (initial.kind !== 'Opened') throw new Error(initial.kind);
+    expect(
+      initial.recorder.record({
+        occurredAt: '2026-09-24T20:00:02.000Z',
+        producer: { kind: 'RunSupervisor' },
+        event: { kind: 'RunStarted', fromRunVersion: original.version },
+      }).kind,
+    ).toBe('Recorded');
+    initial.recorder.close();
+    if (original.lease.kind !== 'Held') throw new Error('lease');
+    const successor: Run = {
+      ...original,
+      currentExecution: {
+        segmentSaid: said('s'),
+        harnessRevisionSaid:
+          purpose === 'Retained' ? said('h') : original.binding.initialHarnessRevisionSaid,
+        evidenceStreamId: '972736fe-fec5-49fb-81c9-ff12ab63dd5d',
+      },
+      lease: {
+        ...original.lease,
+        incarnationId: 'f970be8f-44c4-4297-8cf5-55fa660457d5',
+        segmentSaid: said('s'),
+      },
+    };
+    if (
+      purpose === 'PreparedCompatibilityCalibration' &&
+      successor.currentExecution !== undefined
+    ) {
+      expect(
+        outboxes.open({
+          run: {
+            ...successor,
+            currentExecution: { ...successor.currentExecution, harnessRevisionSaid: said('x') },
+          },
+          stateRoot: root,
+        }).kind,
+      ).toBe('LocalStateCorruption');
+    }
+    const opened = outboxes.open({ run: successor, stateRoot: root });
+    expect(opened.kind).toBe('Opened');
+    if (opened.kind !== 'Opened') return;
+    const recorded = opened.recorder.record({
+      occurredAt: '2026-09-24T20:10:00.000Z',
       producer: { kind: 'RunSupervisor' },
-      event: { kind: 'RunStarted', fromRunVersion: original.version },
-    }).kind,
-  ).toBe('Recorded');
-  initial.recorder.close();
-  if (original.lease.kind !== 'Held') throw new Error('lease');
-  const successor: Run = {
-    ...original,
-    currentExecution: {
-      segmentSaid: said('s'),
-      harnessRevisionSaid: said('h'),
-      evidenceStreamId: '972736fe-fec5-49fb-81c9-ff12ab63dd5d',
-    },
-    lease: {
-      ...original.lease,
-      incarnationId: 'f970be8f-44c4-4297-8cf5-55fa660457d5',
-      segmentSaid: said('s'),
-    },
-  };
-  const opened = outboxes.open({ run: successor, stateRoot: root });
-  expect(opened.kind).toBe('Opened');
-  if (opened.kind !== 'Opened') return;
-  const recorded = opened.recorder.record({
-    occurredAt: '2026-09-24T20:10:00.000Z',
-    producer: { kind: 'RunSupervisor' },
-    event: { kind: 'RunStarted', fromRunVersion: successor.version },
-  });
-  expect(recorded).toMatchObject({
-    kind: 'Recorded',
-    event: {
-      sequence: 0,
-      harnessRevisionSaid: said('h'),
-      incarnationId: successor.lease.kind === 'Held' ? successor.lease.incarnationId : '',
-    },
-  });
-  expect(opened.recorder.page()).toMatchObject({
-    kind: 'Page',
-    page: { batch: { evidenceStreamId: successor.currentExecution?.evidenceStreamId } },
-  });
-  opened.recorder.close();
-  const originalDb = new DatabaseSync(join(root, 'runs', original.binding.runId, 'outbox.sqlite'), {
-    readOnly: true,
-  });
-  try {
-    expect(originalDb.prepare('SELECT count(*) AS count FROM evidence_events').get()?.count).toBe(
-      1,
+      event: { kind: 'RunStarted', fromRunVersion: successor.version },
+    });
+    expect(recorded).toMatchObject({
+      kind: 'Recorded',
+      event: {
+        sequence: 0,
+        harnessRevisionSaid: successor.currentExecution?.harnessRevisionSaid,
+        incarnationId: successor.lease.kind === 'Held' ? successor.lease.incarnationId : '',
+      },
+    });
+    expect(opened.recorder.page()).toMatchObject({
+      kind: 'Page',
+      page: { batch: { evidenceStreamId: successor.currentExecution?.evidenceStreamId } },
+    });
+    opened.recorder.close();
+    const originalDb = new DatabaseSync(
+      join(root, 'runs', original.binding.runId, 'outbox.sqlite'),
+      {
+        readOnly: true,
+      },
     );
-  } finally {
-    originalDb.close();
-  }
-});
+    try {
+      expect(originalDb.prepare('SELECT count(*) AS count FROM evidence_events').get()?.count).toBe(
+        1,
+      );
+    } finally {
+      originalDb.close();
+    }
+  },
+);

@@ -1766,7 +1766,9 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
     const runDirectory = join(runsDirectory, opening.run.binding.runId);
     if (
       opening.run.currentExecution !== undefined &&
-      (opening.run.binding.purpose.kind !== 'Retained' ||
+      ((opening.run.binding.purpose.kind === 'PreparedCompatibilityCalibration' &&
+        opening.run.currentExecution.harnessRevisionSaid !==
+          opening.run.binding.initialHarnessRevisionSaid) ||
         opening.run.lease.segmentSaid !== opening.run.currentExecution.segmentSaid)
     )
       return { kind: 'LocalStateCorruption' };
