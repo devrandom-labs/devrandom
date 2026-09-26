@@ -11,9 +11,13 @@ import {
   type EvaluationDebit,
   type EvaluationReservation,
   type TaskBudgets,
+  type Run,
 } from '@devrandom/domain';
 import {
   decodeEvaluationClosure,
+  decodeRunSuccessorSegment,
+  verifyContinuationPredecessor,
+  type RunSuccessorSegment,
   evidenceArtifactReferences,
   evaluationAdmissionCommandSchema,
   prepareEvidenceArtifact,
@@ -34,12 +38,17 @@ import {
 } from '../../evidence/infrastructure/evidence-event-document.js';
 import {
   evidenceEventBelongsToRun,
+  evidenceCheckpointBelongsToRun,
   privacyCheckpointMarkersMatch,
 } from '../../evidence/domain/run-binding.js';
 import {
   decodeEvidenceStreamDocument,
   type EvidenceStreamDocument,
 } from '../../evidence/infrastructure/evidence-stream-document.js';
+import {
+  runSuccessorSegmentsCollectionName,
+  type RunSuccessorSegmentDocument,
+} from '../../run/infrastructure/mongo-run-continuations.js';
 import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
 import { decodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
 import { decodeTaskDocument, type TaskDocument } from '../../task/infrastructure/task-document.js';
@@ -110,6 +119,7 @@ function artifactSaid(value: object): string | undefined {
 
 /** Reads all Task spend; the admission writer must repeat this inside its reservation transaction. */
 export class MongoTaskResidualAllowance {
+  readonly #segments: Collection<RunSuccessorSegmentDocument>;
   readonly #tasks: Collection<TaskDocument>;
   readonly #runs: Collection<RunDocument>;
   readonly #streams: Collection<EvidenceStreamDocument>;
@@ -119,6 +129,7 @@ export class MongoTaskResidualAllowance {
   readonly #evaluations: Collection<EvaluationSpendDocument>;
 
   constructor(database: Db) {
+    this.#segments = database.collection(runSuccessorSegmentsCollectionName);
     this.#tasks = database.collection(tasksCollectionName);
     this.#runs = database.collection(runsCollectionName);
     this.#streams = database.collection(evidenceCollectionNames.streams);
@@ -126,6 +137,118 @@ export class MongoTaskResidualAllowance {
     this.#events = database.collection(evidenceCollectionNames.events);
     this.#artifacts = database.collection(evidenceCollectionNames.artifacts);
     this.#evaluations = database.collection(evaluationCollectionNames.evaluations);
+  }
+
+  async #incarnations(
+    run: Run,
+    session?: ClientSession,
+  ): Promise<
+    readonly { readonly run: Run; readonly predecessor?: RunSuccessorSegment }[] | undefined
+  > {
+    const documents = await this.#segments
+      .find(
+        { ownerAid: run.binding.ownerAid, runId: run.binding.runId },
+        session === undefined ? {} : { session },
+      )
+      .toArray();
+    if (documents.length === 0) return run.currentExecution === undefined ? [{ run }] : undefined;
+    if (
+      run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
+      run.lease.kind !== 'Held'
+    )
+      return undefined;
+    const segments: RunSuccessorSegment[] = [];
+    for (const document of documents) {
+      const decoded = decodeRunSuccessorSegment(document.segment);
+      if (decoded.kind !== 'Accepted') return undefined;
+      const segment = decoded.segment;
+      if (
+        segment.version !== 2 ||
+        document._id !== segment.d ||
+        document.ownerAid !== run.binding.ownerAid ||
+        document.runId !== run.binding.runId ||
+        document.acceptedAt.toISOString() !== segment.admittedAt ||
+        segment.ownerAid !== run.binding.ownerAid ||
+        segment.runId !== run.binding.runId ||
+        segment.taskId !== run.binding.taskId ||
+        segment.taskRevisionSaid !== run.binding.taskRevisionSaid ||
+        segment.personalAgentAid !== run.binding.personalAgentAid ||
+        segment.taskMandateSaid !== run.binding.taskMandateSaid ||
+        segment.baseline.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+        segment.successor.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid
+      )
+        return undefined;
+      segments.push(segment);
+    }
+    const targets: { run: Run; predecessor?: RunSuccessorSegment }[] = [];
+    const streams = new Set([run.binding.evidenceStreamId]);
+    const incarnations = new Set<string>();
+    let streamId = run.binding.evidenceStreamId;
+    let previous: RunSuccessorSegment | undefined;
+    while (segments.length > 0) {
+      const matches = segments.filter(
+        (segment) => segment.predecessor.evidenceStreamId === streamId,
+      );
+      const segment = matches[0];
+      if (
+        matches.length !== 1 ||
+        segment === undefined ||
+        streams.has(segment.successor.evidenceStreamId) ||
+        incarnations.has(segment.successor.incarnationId) ||
+        segment.predecessor.incarnationId === segment.successor.incarnationId ||
+        (previous !== undefined &&
+          (segment.predecessor.incarnationId !== previous.successor.incarnationId ||
+            segment.fromRunVersion <= previous.fromRunVersion ||
+            segment.admittedAt < previous.admittedAt))
+      )
+        return undefined;
+      const original = { ...run };
+      Reflect.deleteProperty(original, 'currentExecution');
+      // Read-only verification projection: the committed segment identifies the old
+      // incarnation; verifyContinuationPredecessor authenticates its sealed prefix.
+      // This projection is never persisted or used to authorize execution.
+      const historical: Run = {
+        ...original,
+        version: segment.fromRunVersion,
+        consumedBudget: segment.consumedBudget,
+        lease: { ...run.lease, incarnationId: segment.predecessor.incarnationId },
+        lifecycle: {
+          kind: 'Active',
+          phase: {
+            kind: 'Blocked',
+            reason: 'ContextLimitReached',
+            checkpointSaid: segment.predecessor.checkpointSaid,
+          },
+        },
+        ...(previous === undefined
+          ? {}
+          : {
+              currentExecution: {
+                segmentSaid: previous.d,
+                evidenceStreamId: streamId,
+                harnessRevisionSaid: previous.successor.harnessRevisionSaid,
+              },
+            }),
+      };
+      targets.push({ run: historical, predecessor: segment });
+      streams.add(segment.successor.evidenceStreamId);
+      incarnations.add(segment.predecessor.incarnationId);
+      incarnations.add(segment.successor.incarnationId);
+      streamId = segment.successor.evidenceStreamId;
+      previous = segment;
+      segments.splice(segments.indexOf(segment), 1);
+    }
+    if (
+      previous === undefined ||
+      run.currentExecution?.segmentSaid !== previous.d ||
+      run.currentExecution.evidenceStreamId !== streamId ||
+      run.currentExecution.harnessRevisionSaid !== previous.successor.harnessRevisionSaid ||
+      run.lease.incarnationId !== previous.successor.incarnationId ||
+      run.version <= previous.fromRunVersion
+    )
+      return undefined;
+    targets.push({ run });
+    return targets;
   }
 
   async inspect(
@@ -189,142 +312,199 @@ export class MongoTaskResidualAllowance {
           run.binding.taskRevisionSaid !== input.taskRevisionSaid
         )
           return { kind: 'Blocked', reason: 'RunProofInvalid' };
-        const checkpointSaid =
-          run.lifecycle.kind === 'Ended'
-            ? run.lifecycle.outcome.checkpointSaid
-            : run.lifecycle.phase.kind === 'Blocked'
-              ? run.lifecycle.phase.checkpointSaid
-              : undefined;
-        if (checkpointSaid === undefined) return { kind: 'Blocked', reason: 'UnresolvedRunSpend' };
-        const streamDocument = await this.#streams.findOne(
-          {
-            _id: run.binding.evidenceStreamId,
-            'binding.ownerAid': input.ownerAid,
-          },
-          options,
-        );
-        const checkpointDocument = await this.#checkpoints.findOne(
-          {
-            _id: checkpointSaid,
-            ownerAid: input.ownerAid,
-            runId: run.binding.runId,
-          },
-          options,
-        );
-        if (streamDocument === null || checkpointDocument === null)
-          return { kind: 'Blocked', reason: 'RunProofMissing' };
-        try {
-          const stream = decodeEvidenceStreamDocument(streamDocument);
-          const checkpoint = decodeEvidenceCheckpointDocument(
-            checkpointDocument,
-            task.revision.completionConditions.map((condition) => condition.id),
-          ).checkpoint;
-          if (
-            stream.binding.runId !== run.binding.runId ||
-            stream.binding.ownerAid !== input.ownerAid ||
-            stream.binding.taskId !== input.taskId ||
-            stream.binding.taskRevisionSaid !== input.taskRevisionSaid ||
-            stream.seal.kind !== 'Sealed' ||
-            stream.provisional.kind !== 'Checkpointed' ||
-            stream.provisional.checkpointSaid !== checkpointSaid ||
-            !isDeepStrictEqual(stream.provisional.lifecycle, run.lifecycle) ||
-            checkpoint.runId !== run.binding.runId ||
-            checkpoint.taskRevisionSaid !== input.taskRevisionSaid ||
-            checkpointDocument.ownerAid !== input.ownerAid ||
-            checkpointDocument.evidenceStreamId !== run.binding.evidenceStreamId ||
-            !isDeepStrictEqual(checkpoint.budget.consumed, run.consumedBudget) ||
-            taskBudgetNames.some(
-              (name) =>
-                checkpoint.budget.remaining[name] !==
-                Math.max(0, run.binding.budget[name] - run.consumedBudget[name]),
-            ) ||
-            stream.cursor.kind !== 'Continued'
-          )
-            return { kind: 'Blocked', reason: 'RunProofInvalid' };
-          const eventDocuments = await this.#events
-            .find(
-              {
-                ownerAid: input.ownerAid,
-                runId: run.binding.runId,
-                evidenceStreamId: run.binding.evidenceStreamId,
-                sequence: { $lte: stream.cursor.acceptedThrough },
-              },
-              options,
-            )
-            .sort({ sequence: 1 })
-            .toArray();
-          if (eventDocuments.length !== stream.cursor.acceptedThrough + 1)
-            return { kind: 'Blocked', reason: 'RunProofInvalid' };
-          const events = eventDocuments.map((document) => {
-            const accepted = decodeEvidenceEventDocument(document);
+        const currentRun = run;
+        const targets = await this.#incarnations(currentRun, session);
+        if (targets === undefined) return { kind: 'Blocked', reason: 'RunProofInvalid' };
+        const authorizedStreams: string[] = [];
+        let previousBudget = { ...currentRun.consumedBudget };
+        for (const name of taskBudgetNames) previousBudget[name] = 0;
+        for (const target of targets) {
+          const run = target.run;
+          const streamId = run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId;
+          authorizedStreams.push(streamId);
+          const checkpointSaid =
+            run.lifecycle.kind === 'Ended'
+              ? run.lifecycle.outcome.checkpointSaid
+              : run.lifecycle.phase.kind === 'Blocked'
+                ? run.lifecycle.phase.checkpointSaid
+                : undefined;
+          if (checkpointSaid === undefined)
+            return { kind: 'Blocked', reason: 'UnresolvedRunSpend' };
+          const streamDocument = await this.#streams.findOne(
+            {
+              _id: streamId,
+              'binding.ownerAid': input.ownerAid,
+            },
+            options,
+          );
+          const checkpointDocument = await this.#checkpoints.findOne(
+            {
+              _id: checkpointSaid,
+              ownerAid: input.ownerAid,
+              runId: run.binding.runId,
+            },
+            options,
+          );
+          if (streamDocument === null || checkpointDocument === null)
+            return { kind: 'Blocked', reason: 'RunProofMissing' };
+          try {
+            const stream = decodeEvidenceStreamDocument(streamDocument);
+            const checkpoint = decodeEvidenceCheckpointDocument(
+              checkpointDocument,
+              task.revision.completionConditions.map((condition) => condition.id),
+            ).checkpoint;
             if (
-              accepted.ownerAid !== input.ownerAid ||
-              accepted.evidenceStreamId !== run.binding.evidenceStreamId ||
-              !evidenceEventBelongsToRun(accepted.event, run)
-            )
-              throw new Error('Run event custody mismatch');
-            return accepted.event;
-          });
-          for (let sequence = 0; sequence < events.length; sequence++) {
-            const event = events[sequence];
-            if (
-              event === undefined ||
-              event.sequence !== sequence ||
-              (sequence === 0
-                ? event.predecessor.kind !== 'Genesis'
-                : event.predecessor.kind !== 'Previous' ||
-                  event.predecessor.eventSaid !== events[sequence - 1]?.d)
+              !evidenceCheckpointBelongsToRun(checkpoint, run) ||
+              stream.binding.streamId !== streamId ||
+              stream.binding.incarnationId !== checkpoint.incarnationId ||
+              stream.binding.personalAgentAid !== run.binding.personalAgentAid ||
+              stream.binding.taskMandateSaid !== run.binding.taskMandateSaid ||
+              stream.binding.harnessRevisionSaid !== checkpoint.harnessRevisionSaid ||
+              checkpoint.taskId !== run.binding.taskId ||
+              checkpoint.personalAgentAid !== run.binding.personalAgentAid ||
+              checkpoint.taskMandateSaid !== run.binding.taskMandateSaid ||
+              !isDeepStrictEqual(checkpoint.purpose, run.binding.purpose) ||
+              stream.binding.runId !== run.binding.runId ||
+              stream.binding.ownerAid !== input.ownerAid ||
+              stream.binding.taskId !== input.taskId ||
+              stream.binding.taskRevisionSaid !== input.taskRevisionSaid ||
+              stream.seal.kind !== 'Sealed' ||
+              stream.provisional.kind !== 'Checkpointed' ||
+              stream.provisional.checkpointSaid !== checkpointSaid ||
+              !isDeepStrictEqual(stream.provisional.lifecycle, run.lifecycle) ||
+              checkpoint.runId !== run.binding.runId ||
+              checkpoint.taskRevisionSaid !== input.taskRevisionSaid ||
+              checkpointDocument.ownerAid !== input.ownerAid ||
+              checkpointDocument.evidenceStreamId !== streamId ||
+              !isDeepStrictEqual(checkpoint.budget.consumed, run.consumedBudget) ||
+              taskBudgetNames.some(
+                (name) =>
+                  checkpoint.budget.remaining[name] !==
+                  Math.max(0, run.binding.budget[name] - run.consumedBudget[name]),
+              ) ||
+              stream.cursor.kind !== 'Continued'
             )
               return { kind: 'Blocked', reason: 'RunProofInvalid' };
-          }
-          const checkpointEvent = events[checkpoint.evidence.finalSequence];
-          if (
-            checkpoint.evidence.eventCount !== checkpoint.evidence.finalSequence + 1 ||
-            checkpointEvent?.d !== checkpoint.evidence.chainHeadSaid ||
-            checkpointEvent.incarnationId !== checkpoint.incarnationId ||
-            events.at(-1)?.d !== stream.cursor.chainHeadSaid ||
-            !privacyCheckpointMarkersMatch(
-              checkpoint,
-              events.slice(0, checkpoint.evidence.finalSequence + 1),
-            )
-          )
-            return { kind: 'Blocked', reason: 'RunProofInvalid' };
-          const references = new Set<string>([
-            ...events.flatMap((event) => evidenceArtifactReferences(event.event)),
-            ...checkpoint.outputArtifactSaids,
-            ...checkpoint.verifierReceipts.flatMap((receipt) =>
-              receipt.outcome.kind === 'Accepted' || receipt.outcome.kind === 'Rejected'
-                ? receipt.outcome.outputArtifactSaids
-                : [],
-            ),
-          ]);
-          if (references.size > 0) {
-            const artifacts = await this.#artifacts
+            const eventDocuments = await this.#events
               .find(
                 {
                   ownerAid: input.ownerAid,
                   runId: run.binding.runId,
-                  evidenceStreamId: run.binding.evidenceStreamId,
-                  'artifact.d': { $in: [...references] },
+                  evidenceStreamId: streamId,
+                  sequence: { $lte: stream.cursor.acceptedThrough },
                 },
                 options,
               )
+              .sort({ sequence: 1 })
               .toArray();
-            if (artifacts.length !== references.size)
-              return { kind: 'Blocked', reason: 'RunProofMissing' };
-            for (const document of artifacts) {
-              const artifact = decodeEvidenceArtifactDocument(document);
+            if (eventDocuments.length !== stream.cursor.acceptedThrough + 1)
+              return { kind: 'Blocked', reason: 'RunProofInvalid' };
+            const events = eventDocuments.map((document) => {
+              const accepted = decodeEvidenceEventDocument(document);
               if (
-                artifact.ownerAid !== input.ownerAid ||
-                artifact.runId !== run.binding.runId ||
-                artifact.evidenceStreamId !== run.binding.evidenceStreamId ||
-                !references.has(artifact.artifact.d)
+                accepted.ownerAid !== input.ownerAid ||
+                accepted.evidenceStreamId !== streamId ||
+                (target.predecessor === undefined &&
+                  !evidenceEventBelongsToRun(accepted.event, run))
+              )
+                throw new Error('Run event custody mismatch');
+              return accepted.event;
+            });
+            for (let sequence = 0; sequence < events.length; sequence++) {
+              const event = events[sequence];
+              if (
+                event === undefined ||
+                event.sequence !== sequence ||
+                (sequence === 0
+                  ? event.predecessor.kind !== 'Genesis'
+                  : event.predecessor.kind !== 'Previous' ||
+                    event.predecessor.eventSaid !== events[sequence - 1]?.d)
               )
                 return { kind: 'Blocked', reason: 'RunProofInvalid' };
             }
+            if (
+              target.predecessor !== undefined &&
+              (target.predecessor.predecessor.finalSequence !== stream.cursor.acceptedThrough ||
+                events.some((event) => event.recordedAt > (target.predecessor?.admittedAt ?? '')) ||
+                stream.seal.sealedAt > target.predecessor.admittedAt ||
+                verifyContinuationPredecessor({
+                  run,
+                  stream,
+                  checkpoint,
+                  events,
+                  sealExchangeSaid: target.predecessor.predecessor.sealExchangeSaid,
+                  chainHeadSaid: target.predecessor.predecessor.chainHeadSaid,
+                  completionConditionIds: task.revision.completionConditions.map(
+                    (condition) => condition.id,
+                  ),
+                }) !== 'Verified')
+            )
+              return { kind: 'Blocked', reason: 'RunProofInvalid' };
+            if (currentRun.currentExecution !== undefined) {
+              const replayed = { ...previousBudget };
+              for (const event of events) {
+                if (event.event.kind !== 'BudgetDebited') continue;
+                const debit = event.event;
+                const consumed = replayed[debit.budget] + debit.amount;
+                if (!Number.isSafeInteger(consumed) || consumed !== debit.consumed)
+                  return { kind: 'Blocked', reason: 'RunProofInvalid' };
+                replayed[debit.budget] = consumed;
+              }
+              if (!isDeepStrictEqual(replayed, checkpoint.budget.consumed))
+                return { kind: 'Blocked', reason: 'RunProofInvalid' };
+              previousBudget = replayed;
+            }
+            const checkpointEvent = events[checkpoint.evidence.finalSequence];
+            if (
+              checkpoint.evidence.eventCount !== checkpoint.evidence.finalSequence + 1 ||
+              checkpointEvent?.d !== checkpoint.evidence.chainHeadSaid ||
+              checkpointEvent.incarnationId !== checkpoint.incarnationId ||
+              events.at(-1)?.d !== stream.cursor.chainHeadSaid ||
+              !privacyCheckpointMarkersMatch(
+                checkpoint,
+                events.slice(0, checkpoint.evidence.finalSequence + 1),
+              )
+            )
+              return { kind: 'Blocked', reason: 'RunProofInvalid' };
+            const references = new Set<string>([
+              ...events.flatMap((event) => evidenceArtifactReferences(event.event)),
+              ...checkpoint.outputArtifactSaids,
+              ...checkpoint.verifierReceipts.flatMap((receipt) =>
+                receipt.outcome.kind === 'Accepted' || receipt.outcome.kind === 'Rejected'
+                  ? receipt.outcome.outputArtifactSaids
+                  : [],
+              ),
+            ]);
+            if (references.size > 0) {
+              const artifacts = await this.#artifacts
+                .find(
+                  {
+                    ownerAid: input.ownerAid,
+                    runId: run.binding.runId,
+                    evidenceStreamId: { $in: authorizedStreams },
+                    'artifact.d': { $in: [...references] },
+                  },
+                  options,
+                )
+                .toArray();
+              if (
+                new Set(artifacts.map((document) => document.artifact.d)).size !== references.size
+              )
+                return { kind: 'Blocked', reason: 'RunProofMissing' };
+              for (const document of artifacts) {
+                const artifact = decodeEvidenceArtifactDocument(document);
+                if (
+                  artifact.ownerAid !== input.ownerAid ||
+                  artifact.runId !== run.binding.runId ||
+                  !authorizedStreams.includes(artifact.evidenceStreamId) ||
+                  !references.has(artifact.artifact.d)
+                )
+                  return { kind: 'Blocked', reason: 'RunProofInvalid' };
+              }
+            }
+          } catch {
+            return { kind: 'Blocked', reason: 'RunProofInvalid' };
           }
-        } catch {
-          return { kind: 'Blocked', reason: 'RunProofInvalid' };
         }
         debits.push({
           sourceId: run.binding.runId,

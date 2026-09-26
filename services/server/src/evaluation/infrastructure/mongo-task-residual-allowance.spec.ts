@@ -5,6 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   acceptEvidenceBatch,
+  continueCalibrationRun,
+  type Run,
   createEvidenceStream,
   evaluationConsumables,
   sealEvidenceStream,
@@ -12,6 +14,8 @@ import {
 } from '@devrandom/domain';
 import {
   prepareEvaluationClosure,
+  prepareRunSuccessorSegment,
+  type EvidenceEvent,
   prepareEvidenceArtifact,
   prepareEvidenceEvent,
   preparePublicVerifierReceipt,
@@ -47,6 +51,11 @@ import {
   MongoEvaluationReservations,
   type EvaluationDocument,
 } from './mongo-evaluation-reservations.js';
+import { sealedRunPredecessorFixture } from '../../run/test/sealed-run-predecessor-fixture.js';
+import {
+  runSuccessorSegmentsCollectionName,
+  type RunSuccessorSegmentDocument,
+} from '../../run/infrastructure/mongo-run-continuations.js';
 import { MongoTaskResidualAllowance } from './mongo-task-residual-allowance.js';
 
 const taskId = '4df838a8-5109-49fd-bdad-805880a3ecee';
@@ -373,6 +382,294 @@ function sealedRunProof() {
   };
 }
 
+function continuedCalibrationProof(
+  options: {
+    readonly consumed?: number;
+    readonly debitConsumed?: number;
+    readonly confirmed?: boolean;
+  } = {},
+) {
+  const original = runFixture();
+  const base = {
+    ...original,
+    consumedBudget: { ...original.consumedBudget, providerRequests: 2 },
+    binding: { ...original.binding, ownerAid: taskOwnerAid, taskId, taskRevisionSaid },
+  };
+  const raw = new TextEncoder().encode('original calibration raw observation');
+  const artifact = prepareEvidenceArtifact(raw, 'text/plain; charset=utf-8');
+  if (artifact.kind !== 'Prepared') throw new Error('artifact fixture');
+  const predecessor = sealedRunPredecessorFixture(
+    [
+      { kind: 'BudgetDebited', budget: 'providerRequests', amount: 2, consumed: 2 },
+      { kind: 'Observation', source: 'Repository', artifactSaid: artifact.artifact.d },
+    ],
+    'ContextLimitReached',
+    {
+      run: base,
+      leaseAt: '2026-09-24T20:00:00.000Z',
+      at: '2026-09-24T20:00:01.000Z',
+      completionConditionIds: ['public-check'],
+    },
+  );
+  const admittedAt = '2026-09-24T20:10:00.000Z';
+  const successor = {
+    incarnationId: randomUUID(),
+    evidenceStreamId: randomUUID(),
+    harnessRevisionSaid: base.binding.initialHarnessRevisionSaid,
+  };
+  const prepared = prepareRunSuccessorSegment({
+    version: 2,
+    kind: 'CalibrationContinuationSegment',
+    runId: base.binding.runId,
+    taskId,
+    taskRevisionSaid,
+    ownerAid: taskOwnerAid,
+    personalAgentAid: base.binding.personalAgentAid,
+    taskMandateSaid: base.binding.taskMandateSaid,
+    fromRunVersion: predecessor.run.version,
+    predecessor: {
+      incarnationId: predecessor.checkpoint.incarnationId,
+      evidenceStreamId: base.binding.evidenceStreamId,
+      checkpointSaid: predecessor.checkpoint.d,
+      sealExchangeSaid: predecessor.sealExchangeSaid,
+      finalSequence: predecessor.stream.cursor.acceptedThrough,
+      chainHeadSaid: predecessor.chainHeadSaid,
+    },
+    successor,
+    baseline: { pointerVersion: 1, harnessRevisionSaid: base.binding.initialHarnessRevisionSaid },
+    consumedBudget: predecessor.run.consumedBudget,
+    admittedAt,
+  });
+  if (prepared.kind !== 'Prepared') throw new Error('segment fixture rejected');
+  const segment = prepared.segment;
+  const continued = continueCalibrationRun(predecessor.run, {
+    expectedRunVersion: predecessor.run.version,
+    serverTime: admittedAt,
+    predecessor: segment.predecessor,
+    successor: { ...successor, segmentSaid: segment.d },
+    baseline: { pointerVersion: 1, harnessRevisionSaid: base.binding.initialHarnessRevisionSaid },
+    effects: 'Settled',
+  });
+  if (continued.kind !== 'Admitted') throw new Error('continuation fixture rejected');
+  const events: EvidenceEvent[] = [];
+  const firstEvent = predecessor.events[0];
+  if (firstEvent === undefined) throw new Error('first event');
+  const eventDraft = { ...firstEvent };
+  Reflect.deleteProperty(eventDraft, 'd');
+  if (predecessor.checkpoint.version !== 1) throw new Error('expected ordinary predecessor');
+  const checkpointDraft = { ...predecessor.checkpoint };
+  Reflect.deleteProperty(checkpointDraft, 'd');
+  function add(event: EvidenceEvent['event']) {
+    const prepared = prepareEvidenceEvent({
+      ...eventDraft,
+      incarnationId: successor.incarnationId,
+      occurredAt: admittedAt,
+      recordedAt: admittedAt,
+      sequence: events.length,
+      predecessor:
+        events.length === 0
+          ? { kind: 'Genesis' }
+          : { kind: 'Previous', eventSaid: events.at(-1)?.d ?? '' },
+      event,
+    });
+    if (prepared.kind !== 'Prepared') throw new Error('successor event fixture');
+    events.push(prepared.event);
+  }
+  add({ kind: 'RunStarted', fromRunVersion: continued.run.version });
+  add({
+    kind: 'BudgetDebited',
+    budget: 'providerRequests',
+    amount: 2,
+    consumed: options.debitConsumed ?? 4,
+  });
+  const consumedBudget = {
+    ...continued.run.consumedBudget,
+    providerRequests: options.consumed ?? 4,
+  };
+  const category = {
+    version: 1 as const,
+    taskId,
+    taskRevisionSaid,
+    harnessRevisionSaid: base.binding.initialHarnessRevisionSaid,
+    currentCommandSaid: `E${'c'.repeat(43)}`,
+    tamperCommandSaid: `E${'t'.repeat(43)}`,
+    legacyCommandSaid: `E${'l'.repeat(43)}`,
+    legacyObservedExitCode: 101 as const,
+  };
+  const rejected = preparePublicVerifierReceipt({
+    version: 1,
+    completionConditionId: 'public-check',
+    commandSaid: category.legacyCommandSaid,
+    recordedAt: admittedAt,
+    outcome: {
+      kind: 'Rejected',
+      reason: { kind: 'UnexpectedExitCode', expected: 0, observed: 101 },
+      elapsedMilliseconds: 10,
+      outputArtifactSaids: [artifact.artifact.d],
+    },
+  });
+  if (rejected.kind !== 'Prepared') throw new Error('rejected receipt fixture');
+  const checkpoint = prepareVerifiedCheckpoint(
+    {
+      ...checkpointDraft,
+      ...(options.confirmed
+        ? {
+            verifierReceipts: [rejected.receipt],
+            runState: {
+              kind: 'Ended' as const,
+              outcome: { kind: 'CalibrationConfirmed' as const, category },
+              verification: { kind: 'Rejected' as const },
+            },
+            continuation: { kind: 'NoContinuation' as const },
+          }
+        : {}),
+      incarnationId: successor.incarnationId,
+      evidence: {
+        eventCount: events.length,
+        finalSequence: events.length - 1,
+        chainHeadSaid: events.at(-1)?.d ?? '',
+      },
+      budget: {
+        consumed: consumedBudget,
+        remaining: {
+          ...base.binding.budget,
+          providerRequests: base.binding.budget.providerRequests - consumedBudget.providerRequests,
+        },
+      },
+    },
+    ['public-check'],
+  );
+  if (checkpoint.kind !== 'Prepared') throw new Error('successor checkpoint fixture');
+  if (options.confirmed) {
+    add({ kind: 'CheckpointVerified', checkpointSaid: checkpoint.checkpoint.d });
+    add({
+      kind: 'RunCalibrationRecorded',
+      checkpointSaid: checkpoint.checkpoint.d,
+      disposition: { kind: 'Confirmed', category },
+    });
+    add({ kind: 'CheckpointAccepted', checkpointSaid: checkpoint.checkpoint.d });
+  } else
+    add({
+      kind: 'RunBlocked',
+      reason: 'ContextLimitReached',
+      checkpointSaid: checkpoint.checkpoint.d,
+    });
+  const run: Run = {
+    ...continued.run,
+    consumedBudget,
+    ...(options.confirmed ? { submissionVerification: { kind: 'Rejected' as const } } : {}),
+    lifecycle: options.confirmed
+      ? {
+          kind: 'Ended',
+          outcome: {
+            kind: 'CalibrationConfirmed',
+            category,
+            checkpointSaid: checkpoint.checkpoint.d,
+          },
+        }
+      : {
+          kind: 'Active',
+          phase: {
+            kind: 'Blocked',
+            reason: 'ContextLimitReached',
+            checkpointSaid: checkpoint.checkpoint.d,
+          },
+        },
+  };
+  const stream = {
+    ...predecessor.stream,
+    binding: {
+      ...predecessor.stream.binding,
+      streamId: successor.evidenceStreamId,
+      incarnationId: successor.incarnationId,
+    },
+    cursor: {
+      kind: 'Continued' as const,
+      acceptedThrough: events.length - 1,
+      chainHeadSaid: events.at(-1)?.d ?? '',
+    },
+    provisional: {
+      ...predecessor.stream.provisional,
+      checkpointSaid: checkpoint.checkpoint.d,
+      lifecycle: run.lifecycle,
+      submissionVerification: run.submissionVerification,
+    },
+    seal: { kind: 'Sealed' as const, exchangeSaid: `E${'q'.repeat(43)}`, sealedAt: admittedAt },
+  };
+  return {
+    task: taskDocument(),
+    artifacts: [
+      encodeEvidenceArtifactDocument({
+        ownerAid: taskOwnerAid,
+        runId: run.binding.runId,
+        evidenceStreamId: base.binding.evidenceStreamId,
+        artifact: artifact.artifact,
+        bytes: raw,
+        acceptedAt: admittedAt,
+      }),
+    ],
+    runs: [encodeRunDocument(run, runCommandFingerprint)],
+    segments: [
+      {
+        _id: segment.d,
+        ownerAid: taskOwnerAid,
+        runId: run.binding.runId,
+        segment,
+        acceptedAt: new Date(admittedAt),
+      },
+    ],
+    streams: [predecessor.stream, stream].map(encodeEvidenceStreamDocument),
+    checkpoints: [
+      [predecessor.checkpoint, base.binding.evidenceStreamId],
+      [checkpoint.checkpoint, successor.evidenceStreamId],
+    ].map(([value, streamId]) => {
+      if (typeof value === 'string' || typeof streamId !== 'string' || value === undefined)
+        throw new Error('checkpoint fixture');
+      return encodeEvidenceCheckpointDocument(
+        {
+          ownerAid: taskOwnerAid,
+          evidenceStreamId: streamId,
+          batchSaid: `E${'j'.repeat(43)}`,
+          checkpoint: value,
+          receivedAt: admittedAt,
+        },
+        ['public-check'],
+      );
+    }),
+    events: [
+      ...predecessor.events.map((event) => ({ event, streamId: base.binding.evidenceStreamId })),
+      ...events.map((event) => ({ event, streamId: successor.evidenceStreamId })),
+    ].map(({ event, streamId }) =>
+      encodeEvidenceEventDocument({
+        ownerAid: taskOwnerAid,
+        evidenceStreamId: streamId,
+        batchSaid: `E${'j'.repeat(43)}`,
+        event,
+        receivedAt: admittedAt,
+      }),
+    ),
+  };
+}
+
+function matches(
+  value: unknown,
+  query: { readonly _id?: unknown; readonly evidenceStreamId?: unknown },
+): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  return (['_id', 'evidenceStreamId'] as const).every((key) => {
+    const expected = query[key];
+    return (
+      !(key in query) ||
+      (typeof expected === 'object' &&
+      expected !== null &&
+      '$in' in expected &&
+      Array.isArray(expected.$in)
+        ? expected.$in.includes(Reflect.get(value, key))
+        : Reflect.get(value, key) === expected)
+    );
+  });
+}
+
 function database(input: {
   task?: unknown;
   runs?: unknown[];
@@ -381,8 +678,10 @@ function database(input: {
   checkpoints?: unknown[];
   events?: unknown[];
   artifacts?: unknown[];
+  segments?: unknown[];
 }): Db {
   const collections = new Map<string, unknown[]>([
+    [runSuccessorSegmentsCollectionName, input.segments ?? []],
     ['tasks', input.task === undefined ? [] : [input.task]],
     ['runs', input.runs ?? []],
     [evaluationCollectionNames.evaluations, input.evaluations ?? []],
@@ -394,10 +693,19 @@ function database(input: {
   return {
     collection(name: string) {
       return {
-        findOne: () => Promise.resolve((collections.get(name) ?? [])[0] ?? null),
-        find: () => ({
-          sort: () => ({ toArray: () => Promise.resolve(collections.get(name) ?? []) }),
-          toArray: () => Promise.resolve(collections.get(name) ?? []),
+        findOne: (query: { readonly _id?: unknown; readonly evidenceStreamId?: unknown }) =>
+          Promise.resolve(
+            (collections.get(name) ?? []).find((value) => matches(value, query)) ?? null,
+          ),
+        find: (query: { readonly _id?: unknown; readonly evidenceStreamId?: unknown }) => ({
+          sort: () => ({
+            toArray: () =>
+              Promise.resolve(
+                (collections.get(name) ?? []).filter((value) => matches(value, query)),
+              ),
+          }),
+          toArray: () =>
+            Promise.resolve((collections.get(name) ?? []).filter((value) => matches(value, query))),
         }),
       };
     },
@@ -412,6 +720,43 @@ const request = {
 };
 
 describe('current Task residual allowance', () => {
+  it('counts a same-Run calibration continuation once and rejects a missing predecessor seal', async () => {
+    const proof = continuedCalibrationProof();
+    expect(await new MongoTaskResidualAllowance(database(proof)).inspect(request)).toMatchObject({
+      kind: 'Available',
+      remaining: { providerRequests: 26 },
+    });
+    expect(
+      await new MongoTaskResidualAllowance(
+        database({ ...proof, streams: proof.streams.slice(1) }),
+      ).inspect(request),
+    ).toMatchObject({ kind: 'Blocked' });
+  });
+
+  it('counts a terminal confirmed successor including prior-stream raw verifier evidence exactly once', async () => {
+    const proof = continuedCalibrationProof({ confirmed: true });
+    expect(await new MongoTaskResidualAllowance(database(proof)).inspect(request)).toMatchObject({
+      kind: 'Available',
+      remaining: { providerRequests: 26 },
+    });
+  });
+
+  it('rejects a substituted segment, replayed cumulative debit, or decreasing checkpoint budget', async () => {
+    const proof = continuedCalibrationProof();
+    const segment = proof.segments[0];
+    if (segment === undefined) throw new Error('segment missing');
+    for (const invalid of [
+      { ...proof, segments: [{ ...segment, ownerAid: `E${'z'.repeat(43)}` }] },
+      { ...proof, segments: [] },
+      { ...proof, artifacts: [] },
+      continuedCalibrationProof({ debitConsumed: 2 }),
+      continuedCalibrationProof({ consumed: 1 }),
+    ])
+      expect(
+        await new MongoTaskResidualAllowance(database(invalid)).inspect(request),
+      ).toMatchObject({ kind: 'Blocked' });
+  });
+
   it('uses the exact Task and verified mandate ceilings, then holds active Evaluation reservations', async () => {
     expect(
       await new MongoTaskResidualAllowance(database({ task: taskDocument() })).inspect(request),
@@ -577,7 +922,43 @@ withMongo('Mongo current Task residual allowance', () => {
     await client.close();
   });
 
+  it('accounts for a terminal confirmed successor as one cumulative Run debit in real Mongo', async () => {
+    await database.dropDatabase();
+    const proof = continuedCalibrationProof({ confirmed: true });
+    await database.collection<TaskDocument>(tasksCollectionName).insertOne(proof.task);
+    await database.collection<RunDocument>(runsCollectionName).insertMany(proof.runs);
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .insertMany(proof.streams);
+    await database
+      .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+      .insertMany(proof.checkpoints);
+    await database
+      .collection<EvidenceEventDocument>(evidenceCollectionNames.events)
+      .insertMany(proof.events);
+    await database
+      .collection<RunSuccessorSegmentDocument>(runSuccessorSegmentsCollectionName)
+      .insertMany(proof.segments);
+    await database
+      .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
+      .insertMany(proof.artifacts);
+    expect(await new MongoTaskResidualAllowance(database).inspect(request)).toMatchObject({
+      kind: 'Available',
+      remaining: { providerRequests: 26 },
+    });
+    const predecessor = proof.streams[0];
+    if (predecessor === undefined) throw new Error('stream missing');
+    await database
+      .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+      .updateOne({ _id: predecessor._id }, { $set: { seal: { kind: 'Open' } } });
+    expect(await new MongoTaskResidualAllowance(database).inspect(request)).toMatchObject({
+      kind: 'Blocked',
+      reason: 'RunProofInvalid',
+    });
+  });
+
   it('reads the exact Task, all Task reservations, and does not count another Task or owner', async () => {
+    await database.dropDatabase();
     await database.collection<TaskDocument>(tasksCollectionName).insertOne(taskDocument());
     await database
       .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)

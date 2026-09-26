@@ -1,4 +1,9 @@
-import { acquireFirstRunLease, createEvidenceStream, type Run } from '@devrandom/domain';
+import {
+  acquireFirstRunLease,
+  createEvidenceStream,
+  taskBudgetNames,
+  type Run,
+} from '@devrandom/domain';
 import {
   prepareEvidenceEvent,
   prepareVerifiedCheckpoint,
@@ -76,6 +81,8 @@ export function sealedRunPredecessorFixture(
   for (const detail of extraBeforeCheckpoint) add(detail);
   const head = events.at(-1);
   if (head === undefined) throw new Error('head fixture');
+  const remaining = { ...initial.binding.budget };
+  for (const name of taskBudgetNames) remaining[name] -= leased.run.consumedBudget[name];
   const preparedCheckpoint = prepareVerifiedCheckpoint(
     {
       version: 1,
@@ -113,7 +120,7 @@ export function sealedRunPredecessorFixture(
         finalSequence: head.sequence,
         chainHeadSaid: head.d,
       },
-      budget: { consumed: leased.run.consumedBudget, remaining: initial.binding.budget },
+      budget: { consumed: leased.run.consumedBudget, remaining },
       runState: {
         kind: 'Active',
         phase: { kind: 'Blocked', reason },
