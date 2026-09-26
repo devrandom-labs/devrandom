@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { EvaluationVerifierBundleInput } from '@devrandom/protocol';
+import { cesrPublicConditions, type CesrPublicContract } from '@devrandom/runtime';
 
 const run = promisify(execFile);
 const sourceFiles = [
@@ -20,81 +21,18 @@ const sourceFiles = [
   ],
 ] as const;
 
-type Conditions = EvaluationVerifierBundleInput['publicConditions'];
-type Expected = Conditions[number]['expected'];
-const first = 'EABCDefghijk0123456789-_ABCDEFGHIJKLMNOPQRST';
-const second = 'EABCDefghijk0123456789-_ABCDEFGHIJKLMNOPQRSU';
-
-function condition(id: string, stimulus: string, expected: Expected): Conditions[number] {
-  return { id, stimulusBase64Url: Buffer.from(stimulus).toString('base64url'), expected };
-}
-
-function rejected(
-  error: 'AnyRejection' | 'InvalidFrame' | 'InvalidPayload' | 'UnsupportedVersion',
-) {
-  return { kind: 'Rejected', error } as const;
-}
-
-/** The 14 original public assertions, including their explicit negative error classes. */
-function disclosedConditions(): Conditions {
-  return [
-    condition('cesr-current-direct-unmarked', `-AAN-_AAACAA${first}-AAL${first}`, {
-      kind: 'Parsed',
-      receipts: [
-        { version: 'Current', payload: first },
-        { version: 'Current', payload: first },
-      ],
-    }),
-    condition('cesr-tamper-count-mismatch', `-AAM-_AAACAA${first}`, rejected('AnyRejection')),
-    condition(
-      'cesr-tamper-truncated-payload',
-      `-AAN-_AAACAA${first.slice(0, 40)}`,
-      rejected('AnyRejection'),
-    ),
-    condition('cesr-tamper-extra-bytes', `-AAN-_AAACAA${first}!`, rejected('AnyRejection')),
-    condition('cesr-tamper-unsupported-version', `-AAN-_AAADAA${first}`, rejected('AnyRejection')),
-    condition(
-      'cesr-tamper-invalid-payload',
-      `-AAL${first.replace('E', '!')}`,
-      rejected('AnyRejection'),
-    ),
-    condition('cesr-tamper-empty-group', '-AAA', rejected('AnyRejection')),
-    condition('cesr-tamper-marker-without-payload', '-AAC-_AAABAA', rejected('AnyRejection')),
-    condition('cesr-tamper-malformed-first-group', `-AAA-AAL${first}`, rejected('AnyRejection')),
-    condition(
-      'cesr-legacy-two-payloads-then-default',
-      `-AAY-_AAABAA${first}${second}-AAL${first}`,
-      {
-        kind: 'Parsed',
-        receipts: [
-          { version: 'Legacy', payload: first },
-          { version: 'Legacy', payload: second },
-          { version: 'Current', payload: first },
-        ],
-      },
-    ),
-    condition(
-      'cesr-legacy-partial-second-payload',
-      `-AAY-_AAABAA${first}${second.slice(0, 40)}`,
-      rejected('InvalidFrame'),
-    ),
-    condition(
-      'cesr-legacy-bad-group-count',
-      `-AAX-_AAABAA${first}${second}`,
-      rejected('AnyRejection'),
-    ),
-    condition(
-      'cesr-legacy-unsupported-marker',
-      `-AAY-_AAADAA${first}${second}`,
-      rejected('UnsupportedVersion'),
-    ),
-    condition(
-      'cesr-legacy-invalid-second-payload',
-      `-AAY-_AAABAA${first}${second.replace('E', '!')}`,
-      rejected('InvalidPayload'),
-    ),
-  ];
-}
+const scopedSourceFiles = [
+  ['AGENTS.md', '022ee28e79bb51edd35ffffe4ddcbbd61176da66b7c3917fa5980a65103a3482'],
+  [
+    'tests/current_representation.rs',
+    '36c3eb7b8e38a91e0573651cd49cf105788286c4b2ae063b47f3b962567b0866',
+  ],
+  ['tests/tamper_rejection.rs', '163cdc3480d59d53c76bfd012fabf195c357595ced8b151c91e36ae6da8a064f'],
+  [
+    'tests/legacy_compatibility.rs',
+    '7bce2b8775894886b4301ac04f27d0772db8639a377158dd536fb0a0689e63b1',
+  ],
+] as const;
 
 export type CesrPublicCatalogueReview =
   | {
@@ -127,15 +65,28 @@ export class VerifiedCesrPublicCatalogue {
         options,
       );
       if (changes.length !== 0) return { kind: 'SourceMismatch' };
-      for (const [path, expectedDigest] of sourceFiles) {
-        const file = join(directory, path);
-        if (!(await lstat(file)).isFile()) return { kind: 'SourceMismatch' };
-        const digest = createHash('sha256')
-          .update(await readFile(file))
-          .digest('hex');
-        if (digest !== expectedDigest) return { kind: 'SourceMismatch' };
+      for (const [contract, files] of [
+        ['FlatGroups', sourceFiles],
+        ['ScopedGroups', scopedSourceFiles],
+      ] as const satisfies readonly (readonly [
+        CesrPublicContract,
+        readonly (readonly [string, string])[],
+      ])[]) {
+        let matches = true;
+        for (const [path, expectedDigest] of files) {
+          const file = join(directory, path);
+          if (!(await lstat(file)).isFile()) return { kind: 'SourceMismatch' };
+          const digest = createHash('sha256')
+            .update(await readFile(file))
+            .digest('hex');
+          if (digest !== expectedDigest) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) return { kind: 'Reviewed', publicConditions: cesrPublicConditions(contract) };
       }
-      return { kind: 'Reviewed', publicConditions: disclosedConditions() };
+      return { kind: 'SourceMismatch' };
     } catch {
       return { kind: 'Unavailable' };
     }

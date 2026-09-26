@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterEach, expect, it } from 'vitest';
 
@@ -13,10 +13,16 @@ afterEach(() => {
   for (const directory of temporary.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function checkedSource(): { directory: string; commit: string; tree: string } {
+function checkedSource(fresh = false): { directory: string; commit: string; tree: string } {
   const directory = mkdtempSync(join(tmpdir(), 'devrandom-cesr-public-'));
   temporary.push(directory);
-  cpSync(new URL('./fixtures/cesr-public/', import.meta.url), directory, { recursive: true });
+  cpSync(
+    fresh
+      ? resolve('fixtures/cesr-scoped-receipt-service')
+      : new URL('./fixtures/cesr-public/', import.meta.url),
+    directory,
+    { recursive: true },
+  );
   const git = (...arguments_: string[]) =>
     execFileSync('git', arguments_, {
       cwd: directory,
@@ -89,6 +95,41 @@ it('refuses a dirty public test and a substituted Git tree', async () => {
       sourceDirectory: source.directory,
       sourceGitCommit: source.commit,
       sourceGitTree: source.tree,
+    }),
+  ).toEqual({ kind: 'SourceMismatch' });
+});
+
+it('reviews the fresh disclosed contract independently and refuses a committed substitution', async () => {
+  const source = checkedSource(true);
+  const catalogue = new VerifiedCesrPublicCatalogue();
+  const input = {
+    sourceDirectory: source.directory,
+    sourceGitCommit: source.commit,
+    sourceGitTree: source.tree,
+  };
+  const reviewed = await catalogue.review(input);
+  expect(reviewed.kind).toBe('Reviewed');
+  if (reviewed.kind !== 'Reviewed') return;
+  expect(reviewed.publicConditions.length).toBe(31);
+  expect(
+    reviewed.publicConditions.some((condition) => condition.id === 'cesr-scoped-large-boundary'),
+  ).toBe(true);
+  writeFileSync(join(source.directory, 'AGENTS.md'), 'A different hidden contract');
+  execFileSync('git', ['add', 'AGENTS.md'], { cwd: source.directory });
+  execFileSync('git', ['commit', '-qm', 'Substitute disclosed contract'], {
+    cwd: source.directory,
+  });
+  expect(
+    await catalogue.review({
+      ...input,
+      sourceGitCommit: execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: source.directory,
+        encoding: 'utf8',
+      }).trim(),
+      sourceGitTree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], {
+        cwd: source.directory,
+        encoding: 'utf8',
+      }).trim(),
     }),
   ).toEqual({ kind: 'SourceMismatch' });
 });

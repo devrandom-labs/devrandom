@@ -94,15 +94,30 @@ export async function materializeCesrReceiptFixture(
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.meta.url)) {
   const destination = process.argv[2];
-  if (destination === undefined || process.argv.length !== 3) {
-    process.stderr.write('Usage: materialize-cesr-fixture <new-directory>\n');
+  const profile = process.argv[3] ?? 'flat-groups';
+  if (
+    destination === undefined ||
+    process.argv.length > 4 ||
+    !['flat-groups', 'scoped-groups'].includes(profile)
+  ) {
+    process.stderr.write(
+      'Usage: materialize-cesr-fixture <new-directory> [flat-groups|scoped-groups]\n',
+    );
     process.exitCode = 2;
   } else {
     const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     try {
       const materialized = await materializeCesrReceiptFixture({
-        templateRoot: resolve(repositoryRoot, 'fixtures', 'cesr-receipt-service'),
-        taskTemplate: resolve(repositoryRoot, 'fixtures', 'cesr-compat.task.json'),
+        templateRoot: resolve(
+          repositoryRoot,
+          'fixtures',
+          profile === 'flat-groups' ? 'cesr-receipt-service' : 'cesr-scoped-receipt-service',
+        ),
+        taskTemplate: resolve(
+          repositoryRoot,
+          'fixtures',
+          profile === 'flat-groups' ? 'cesr-compat.task.json' : 'cesr-scoped-compat.task.json',
+        ),
         destination,
       });
       process.stdout.write(`${JSON.stringify(materialized)}\n`);

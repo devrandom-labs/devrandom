@@ -10,7 +10,7 @@ import {
   prepareEvolutionHypothesis,
   prepareSuccessorHarnessRevision,
 } from '@devrandom/protocol';
-import { AesGcmProtectedCaseCustody } from '@devrandom/runtime';
+import { AesGcmProtectedCaseCustody, cesrPublicConditions } from '@devrandom/runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { EvaluationManifestCommandFile } from '../infrastructure/evaluation-manifest-command-file.js';
@@ -242,13 +242,7 @@ async function ports() {
       review: () =>
         Promise.resolve({
           kind: 'Reviewed',
-          publicConditions: [
-            {
-              id: 'cesr-current',
-              stimulusBase64Url: Buffer.from('-AAA').toString('base64url'),
-              expected: { kind: 'Rejected', error: 'AnyRejection' },
-            },
-          ],
+          publicConditions: cesrPublicConditions('FlatGroups'),
         }),
     },
     cases: {

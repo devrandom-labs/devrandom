@@ -1,0 +1,20 @@
+[package]
+name = "cesr-receipt-service"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "cesr-current"
+path = "tests/current_representation.rs"
+
+[[test]]
+name = "cesr-tamper"
+path = "tests/tamper_rejection.rs"
+
+[[test]]
+name = "cesr-legacy"
+path = "tests/legacy_compatibility.rs"

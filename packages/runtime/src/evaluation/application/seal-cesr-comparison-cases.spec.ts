@@ -3,35 +3,13 @@ import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import { AesGcmProtectedCaseCustody } from '../infrastructure/aes-gcm-protected-case-custody.js';
+import { cesrPublicConditions } from './cesr-public-contract.js';
 import { sealCesrComparisonCases } from './seal-cesr-comparison-cases.js';
 
 const said = (character: string): string => `E${character.repeat(43)}`;
 const evaluationId = '81d7f67f-d2f9-4fae-87cc-ac827de6f0d1';
 const taskId = 'bbb13317-1c5e-4472-842e-692da01386cf';
-const payload = said('x');
-const publicConditions = [
-  {
-    id: 'cesr-current',
-    stimulusBase64Url: Buffer.from(`-AAL${payload}`).toString('base64url'),
-    expected: { kind: 'Parsed' as const, receipts: [{ version: 'Current' as const, payload }] },
-  },
-  {
-    id: 'cesr-tamper',
-    stimulusBase64Url: Buffer.from('-AAA').toString('base64url'),
-    expected: { kind: 'Rejected' as const, error: 'AnyRejection' as const },
-  },
-  {
-    id: 'cesr-legacy',
-    stimulusBase64Url: Buffer.from(`-AAY-_AAABAA${payload}${payload}`).toString('base64url'),
-    expected: {
-      kind: 'Parsed' as const,
-      receipts: [
-        { version: 'Legacy' as const, payload },
-        { version: 'Legacy' as const, payload },
-      ],
-    },
-  },
-];
+const publicConditions = cesrPublicConditions('FlatGroups');
 
 function input() {
   return {
@@ -140,4 +118,72 @@ describe('CESR protected comparison case preparation', () => {
       }),
     ).toEqual({ kind: 'Incomplete', reason: 'Entropy' });
   });
+});
+
+it('rejects partial or tampered fresh contracts before entropy or custody', async () => {
+  const conditions = cesrPublicConditions('ScopedGroups');
+  let draws = 0;
+  const ports = {
+    custody: new AesGcmProtectedCaseCustody(randomBytes(32)),
+    drawPayload: () => Buffer.alloc(32, ++draws),
+  };
+  expect(
+    await sealCesrComparisonCases({ ...input(), publicConditions: conditions.slice(0, -1) }, ports),
+  ).toEqual({ kind: 'Incomplete', reason: 'Catalogue' });
+  const tampered = conditions.map((condition, index) =>
+    index === 14
+      ? { ...condition, stimulusBase64Url: Buffer.from('-AAA').toString('base64url') }
+      : condition,
+  );
+  expect(await sealCesrComparisonCases({ ...input(), publicConditions: tampered }, ports)).toEqual({
+    kind: 'Incomplete',
+    reason: 'Catalogue',
+  });
+  expect(draws).toBe(0);
+});
+
+it('seals the fresh contract as nested large trial and distinct terminal compositions', async () => {
+  const custody = new AesGcmProtectedCaseCustody(randomBytes(32));
+  let draws = 0;
+  const prepared = await sealCesrComparisonCases(
+    { ...input(), publicConditions: cesrPublicConditions('ScopedGroups') },
+    { custody, drawPayload: () => Buffer.alloc(32, ++draws) },
+  );
+  expect(prepared.kind).toBe('Prepared');
+  if (prepared.kind !== 'Prepared') return;
+  for (const [segment, spec] of [
+    [0, prepared.bundle.protectedCase],
+    [1, prepared.bundle.terminalCase],
+  ] as const) {
+    const stimulus = await custody.open({
+      evaluationId,
+      objectSaid: spec.objectSaid,
+      artifact: spec.stimulus,
+      purpose: segment === 0 ? 'TrialHoldout' : 'TerminalCase',
+      segment,
+    });
+    const expected = await custody.open({
+      evaluationId,
+      objectSaid: spec.objectSaid,
+      artifact: spec.expected,
+      purpose: 'OracleObservation',
+      segment,
+    });
+    expect(stimulus.kind).toBe('Opened');
+    expect(expected.kind).toBe('Opened');
+    if (stimulus.kind !== 'Opened' || expected.kind !== 'Opened') return;
+    const text = new TextDecoder().decode(stimulus.plaintext);
+    expect(text).toContain('--A');
+    expect(text).toContain('-_AAABAA');
+    expect(text.length).toBeGreaterThan(4095 * 4);
+    const observation = JSON.parse(new TextDecoder().decode(expected.plaintext)) as {
+      kind: string;
+      receipts: { version: string; payload: string }[];
+    };
+    expect(observation.kind).toBe('Parsed');
+    expect(observation.receipts.some((receipt) => receipt.version === 'Legacy')).toBe(true);
+    expect(observation.receipts.some((receipt) => receipt.version === 'Current')).toBe(true);
+    stimulus.plaintext.fill(0);
+    expected.plaintext.fill(0);
+  }
 });

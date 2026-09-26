@@ -132,7 +132,8 @@ function validPublicConditions(input: EvaluationVerifierBundleInput): boolean {
     )
       return false;
     try {
-      if (!new TextDecoder('utf-8', { fatal: true }).decode(bytes).startsWith('-A')) return false;
+      const stimulus = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (!['-A', '--A', '-_'].some((prefix) => stimulus.startsWith(prefix))) return false;
     } catch {
       return false;
     }

@@ -186,3 +186,35 @@ it('retains only exact canonical parent bundle bytes for M custody', () => {
     ),
   ).toEqual({ kind: 'Rejected' });
 });
+
+it('binds disclosed large-group and negative version-marker stimuli without admitting arbitrary streams', () => {
+  const input = bundleInput();
+  for (const stimulus of [`--AAAAAL${payload}`, `-_AAABAA-AAL${payload}`]) {
+    expect(
+      prepareEvaluationVerifierBundle({
+        ...input,
+        publicConditions: [
+          {
+            id: 'scoped-case',
+            stimulusBase64Url: Buffer.from(stimulus).toString('base64url'),
+            expected: { kind: 'Rejected', error: 'AnyRejection' },
+          },
+        ],
+      }).kind,
+    ).toBe('Prepared');
+  }
+  for (const stimulus of ['-B00', 'not-CESR', '--B00000', '-0A00000']) {
+    expect(
+      prepareEvaluationVerifierBundle({
+        ...input,
+        publicConditions: [
+          {
+            id: 'scoped-case',
+            stimulusBase64Url: Buffer.from(stimulus).toString('base64url'),
+            expected: { kind: 'Rejected', error: 'AnyRejection' },
+          },
+        ],
+      }).kind,
+    ).toBe('Rejected');
+  }
+});

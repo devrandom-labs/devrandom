@@ -176,6 +176,7 @@ export * from './evaluation/application/prepare-comparison-measurements.js';
 export * from './evaluation/application/prepare-evaluation-budget-coverage.js';
 export * from './evaluation/application/prepare-measured-trial-observation.js';
 export * from './evaluation/application/seal-cesr-comparison-cases.js';
+export * from './evaluation/application/cesr-public-contract.js';
 export * from './evaluation/application/c2-workflow-transition.js';
 export * from './evaluation/application/c3-context-selection.js';
 export type * from './evaluation/application/current-evaluation-proposal-capacity.js';
