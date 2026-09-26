@@ -11,6 +11,7 @@ import type { EvidenceReadRoutesConfiguration } from '../../evidence/route/evide
 import {
   retrieveExperience,
   type AnalogousExperience,
+  type ExperienceSourceAdmission,
 } from '../../experience/application/retrieve-experience.js';
 import {
   readExperienceQueryReceipt,
@@ -59,6 +60,7 @@ export function composeHostedEvaluation(input: {
   readonly issuerAid: IssuerAid;
   readonly closureExchanges: IssuerEvaluationClosureSealExchange;
   readonly experience?: AnalogousExperience;
+  readonly experienceSources?: ExperienceSourceAdmission;
   readonly experienceReceipts?: ExperienceQueryReceiptReading;
 }): HostedEvaluationComposition {
   const access = workAccessHostedEvaluationAuthorizer(input.attempts);
@@ -77,7 +79,13 @@ export function composeHostedEvaluation(input: {
     issuerAid: input.issuerAid,
   });
   const reading = new MongoEvidenceReading(input.database);
-  const eligibility = new CurrentEvaluationEligibility(input.database, sources);
+  const eligibility = new CurrentEvaluationEligibility(
+    input.database,
+    sources,
+    undefined,
+    undefined,
+    input.experienceSources,
+  );
   const evaluations = input.database.collection<EvaluationDocument>(
     evaluationCollectionNames.evaluations,
   );

@@ -1,5 +1,6 @@
 import type { Collection, Db } from 'mongodb';
 
+import type { ExperienceSourceAdmission } from '../../experience/application/retrieve-experience.js';
 import type { EvaluationEligibility } from '../application/admit-evaluation.js';
 import {
   evaluationCollectionNames,
@@ -18,6 +19,7 @@ export class CurrentEvaluationEligibility implements EvaluationEligibility {
   readonly #preparations: Collection<EvaluationPreparationDocument>;
   readonly #qualification: FailureQualificationReading;
   readonly #residual: Pick<MongoTaskResidualAllowance, 'inspect'>;
+  readonly #experience: ExperienceSourceAdmission | undefined;
 
   constructor(
     database: Db,
@@ -26,11 +28,13 @@ export class CurrentEvaluationEligibility implements EvaluationEligibility {
     residual: Pick<MongoTaskResidualAllowance, 'inspect'> = new MongoTaskResidualAllowance(
       database,
     ),
+    experience?: ExperienceSourceAdmission,
   ) {
     this.#sources = sources;
     this.#preparations = database.collection(evaluationCollectionNames.preparations);
     this.#qualification = qualification;
     this.#residual = residual;
+    this.#experience = experience;
   }
 
   async inspect(
@@ -86,6 +90,19 @@ export class CurrentEvaluationEligibility implements EvaluationEligibility {
       });
       if (residual.kind === 'Unavailable') return { kind: 'Unavailable' };
       if (residual.kind === 'Blocked') return { kind: 'Blocked', gate: 'Budget' };
+      if (this.#experience !== undefined) {
+        for (const episode of preparation.sourceInventory.sources) {
+          const indexed = await this.#experience.admitSource({
+            ownerAid,
+            inventory: preparation.sourceInventory,
+            episodeSaid: episode.episodeSaid,
+            rawEvidenceSaid: episode.rawEvidenceSaid,
+            scope: source.scope,
+          });
+          if (indexed === 'Denied') return { kind: 'Blocked', gate: 'Source' };
+          if (indexed === 'Unavailable') return { kind: 'Unavailable' };
+        }
+      }
       return {
         kind: 'Eligible',
         remaining: residual.remaining,

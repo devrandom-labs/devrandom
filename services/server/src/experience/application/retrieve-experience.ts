@@ -1,5 +1,5 @@
 import type { EvolutionSourceScope } from '@devrandom/domain';
-import { experienceQuerySchema } from '@devrandom/protocol';
+import { experienceQuerySchema, type EvaluationSourceInventory } from '@devrandom/protocol';
 import type Type from 'typebox';
 import Value from 'typebox/value';
 
@@ -35,6 +35,17 @@ export interface AnalogousExperience {
     readonly query: ExperienceQuery;
     readonly scope: EvolutionSourceScope;
   }): Promise<ExperienceRetrievalOutcome>;
+}
+
+/** Current, raw-authorized episodes must be indexed before a comparison reserves Task budget. */
+export interface ExperienceSourceAdmission {
+  admitSource(input: {
+    readonly ownerAid: string;
+    readonly inventory: EvaluationSourceInventory;
+    readonly episodeSaid: string;
+    readonly rawEvidenceSaid: string;
+    readonly scope: EvolutionSourceScope;
+  }): Promise<'Admitted' | 'AlreadyAdmitted' | 'Denied' | 'Unavailable'>;
 }
 
 export async function retrieveExperience(
