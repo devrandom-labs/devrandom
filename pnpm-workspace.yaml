@@ -54,12 +54,15 @@ minimumReleaseAgeStrict: true
 allowBuilds:
   '@google/genai': false
   esbuild: true
+  onnxruntime-node: false
   protobufjs: false
+  sharp: false
 
 catalog:
   '@earendil-works/pi-ai': 0.87.1
   '@earendil-works/pi-coding-agent': 0.87.1
   '@fastify/type-provider-typebox': 6.1.0
+  '@huggingface/transformers': 3.8.1
   '@oazapfts/runtime': 1.2.0
   '@playwright/test': 1.63.0
   '@rtk-query/codegen-openapi': 2.2.0

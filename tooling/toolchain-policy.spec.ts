@@ -52,7 +52,7 @@ describe('toolchain policy', () => {
     expect(flake).toContain('assert pnpm.version == "12.3.4";');
     expect(flake).toContain('assert colima.version == "0.10.3";');
     expect(workspace).toContain(
-      "allowBuilds:\n  '@google/genai': false\n  esbuild: true\n  protobufjs: false",
+      "allowBuilds:\n  '@google/genai': false\n  esbuild: true\n  onnxruntime-node: false\n  protobufjs: false\n  sharp: false",
     );
     expect(workspace).toContain('pmOnFail: ignore');
     expect(workspace).toContain('minimumReleaseAgeStrict: true');

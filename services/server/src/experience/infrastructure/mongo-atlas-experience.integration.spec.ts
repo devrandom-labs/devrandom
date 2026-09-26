@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
@@ -32,8 +35,13 @@ import { retrieveExperience } from '../application/retrieve-experience.js';
 import { experienceRoutes } from '../route/experience-routes.js';
 import { MongoAtlasExperience, experienceCollectionNames } from './mongo-atlas-experience.js';
 import { MongoExperienceQueryReceipts } from './mongo-query-receipt-reading.js';
+import {
+  HuggingFaceExperienceEmbedding,
+  pinnedAtlasExperienceProfile,
+} from './huggingface-experience-embedding.js';
 
 const atlasUri = process.env.DEVRANDOM_ATLAS_URI;
+const semanticAtlas = process.env.DEVRANDOM_SEMANTIC_ATLAS_TEST === '1';
 const describeAtlas = atlasUri === undefined ? describe.skip : describe;
 const said = (letter: string): string => `E${letter.repeat(43)}`;
 const ownerAid = said('o');
@@ -48,7 +56,7 @@ const runId = randomUUID();
 const streamId = randomUUID();
 const incumbentId = randomUUID();
 const acceptedAt = '2026-09-26T05:00:00.000Z';
-const profile = {
+const fixtureProfile = {
   indexName: 'prd03-experience-mechanism-v1',
   modelId: 'fixture-vector-3',
   modelVersion: 'mechanism-only',
@@ -56,6 +64,8 @@ const profile = {
   minimumScore: 0.01,
   maximumEmbeddingChargeMicroUsd: 0,
 };
+const profile = semanticAtlas ? pinnedAtlasExperienceProfile : fixtureProfile;
+const modelCacheDirectory = join(tmpdir(), `devrandom-semantic-atlas-${randomUUID()}`);
 const scope = {
   ownerAid,
   taskId,
@@ -110,7 +120,7 @@ function executionProfile() {
   return prepared.profile;
 }
 
-describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedding only)', () => {
+describeAtlas('PRD03 server Experience adapter on real Atlas ENN', () => {
   const client = new MongoClient(atlasUri ?? 'mongodb://127.0.0.1:27017', {
     serverSelectionTimeoutMS: 10_000,
     socketTimeoutMS: 30_000,
@@ -122,10 +132,12 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
     profile,
     preparationsDatabase: database,
     reading,
-    embedding: {
-      embed: () =>
-        Promise.resolve({ kind: 'Embedded' as const, vector: [1, 0, 0], chargedMicroUsd: 0 }),
-    },
+    embedding: semanticAtlas
+      ? new HuggingFaceExperienceEmbedding({ cacheDirectory: modelCacheDirectory })
+      : {
+          embed: () =>
+            Promise.resolve({ kind: 'Embedded' as const, vector: [1, 0, 0], chargedMicroUsd: 0 }),
+        },
   });
   const queryReceipts = new MongoExperienceQueryReceipts(database, {
     profile,
@@ -260,6 +272,7 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
       await database.dropDatabase();
     } finally {
       await client.close();
+      if (semanticAtlas) await rm(modelCacheDirectory, { recursive: true, force: true });
     }
   });
 
@@ -293,11 +306,11 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
       failureQuery: 'legacy receipt parser rejected exit code 101',
       maximumResults: 3,
     };
-    const fetchQuery = () =>
+    const fetchQuery = (failureQuery = query.failureQuery) =>
       fetch(`${address}/api/experience/query`, {
         method: 'POST',
         headers: { authorization: `Bearer ${'a'.repeat(43)}`, 'content-type': 'application/json' },
-        body: JSON.stringify(query),
+        body: JSON.stringify({ ...query, failureQuery }),
       });
     try {
       let response: Response | undefined;
@@ -317,6 +330,12 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
       expect(body.sources).toHaveLength(1);
       expect(body.sources[0]).toMatchObject({ episodeSaid, rawEvidenceSaid: rawArtifactSaid });
       expect(body.sources[0]?.score).toBeTypeOf('number');
+      if (semanticAtlas) {
+        expect(body.sources[0]?.score).toBeGreaterThanOrEqual(profile.minimumScore);
+        process.stdout.write(
+          `${JSON.stringify({ kind: 'SemanticAtlasExperience', modelVersion: profile.modelVersion, dimensions: profile.dimensions, score: body.sources[0]?.score, episodeSaid, queryReceiptSaid: body.queryReceiptSaid })}\n`,
+        );
+      }
       expect(body.queryReceiptSaid).toMatch(/^E[A-Za-z0-9_-]{43}$/);
       const receipt = await database
         .collection<QueryReceiptDocument>(experienceCollectionNames.queryReceipts)
@@ -370,6 +389,11 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN (fixture embedd
           },
         }),
       ).resolves.toMatchObject({ kind: 'Read', bytes: rawBytes, sourceSaid: episodeSaid });
+      if (semanticAtlas) {
+        const irrelevant = await fetchQuery('Bananas are yellow fruit grown in tropical climates');
+        expect(irrelevant.status).toBe(422);
+        expect(await irrelevant.json()).toMatchObject({ code: 'ExperienceIrrelevant' });
+      }
       await database
         .collection<EvidenceArtifactDocument>(evidenceCollectionNames.artifacts)
         .deleteOne({ _id: evidenceArtifactDocumentId(runId, rawArtifactSaid) });
