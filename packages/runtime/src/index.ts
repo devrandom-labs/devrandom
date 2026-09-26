@@ -181,3 +181,19 @@ export { GitC2WorkflowTreatmentCustody } from './evaluation/infrastructure/git-c
 export { ProvisionalSubmissionAuthorization } from './evaluation/infrastructure/provisional-submission-authorization.js';
 export { AcceptedProposalCapacity } from './evaluation/infrastructure/accepted-proposal-capacity.js';
 export * from './harness/application/materialize-successor.js';
+export {
+  authorizePromotion,
+  type PromotionAuthorization,
+  type PromotionAuthorizationDependencies,
+  type PromotionAuthorizationInput,
+} from './promotion/application/authorize-promotion.js';
+export type {
+  AgentPromotionSigning,
+  CommittedRevisionRouting,
+  ExactPromotionAuthority,
+  GovernorPromotionSigning,
+  HostedActivationCommit,
+  PromotionCommands,
+  PromotionEvidenceReading,
+  VerifiedPromotionEvidence,
+} from './promotion/application/promotion-conversations.js';
