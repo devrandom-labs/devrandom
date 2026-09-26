@@ -82,6 +82,7 @@ function closureClaim() {
     evidenceStreamId: randomUUID(),
     originRunId: randomUUID(),
     manifestSaid: said('m'),
+    evidenceIndexSaid: said('i'),
     acceptedEventCount: 39,
     acceptedHeadSaid: said('h'),
     observationSaids: Array.from({ length: 18 }, (_, index) =>

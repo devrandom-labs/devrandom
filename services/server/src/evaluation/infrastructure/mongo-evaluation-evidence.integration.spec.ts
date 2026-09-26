@@ -510,6 +510,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
       evidenceStreamId: streamId,
       originRunId,
       manifestSaid: said('M'),
+      evidenceIndexSaid: said('I'),
       acceptedEventCount: 1,
       acceptedHeadSaid: state.chainHeadSaid,
       observationSaids: Array.from({ length: 18 }, (_, index) =>
@@ -791,6 +792,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
       evidenceStreamId: streamId,
       originRunId,
       manifestSaid: said('M'),
+      evidenceIndexSaid: said('I'),
       acceptedEventCount: current.acceptedThroughSequence + 1,
       acceptedHeadSaid: current.chainHeadSaid,
       observationSaids: Array.from({ length: 18 }, (_, index) => at(index)),

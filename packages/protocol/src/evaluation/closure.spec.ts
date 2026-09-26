@@ -10,6 +10,7 @@ const input = {
   evidenceStreamId: id('2'),
   originRunId: id('3'),
   manifestSaid: said('m'),
+  evidenceIndexSaid: said('i'),
   acceptedEventCount: 42,
   acceptedHeadSaid: said('h'),
   observationSaids: Array.from({ length: 18 }, (_, index) => said(String.fromCharCode(65 + index))),
@@ -46,6 +47,10 @@ describe('evidence-only evaluation closure', () => {
       prepareEvaluationClosure({ ...input, measurementSaids: Array(15).fill(said('a')) }),
     ).toEqual({ kind: 'Rejected', reason: 'RequiredSetIncomplete' });
     expect(prepareEvaluationClosure({ ...input, activeRevisionSaid: said('q') })).toEqual({
+      kind: 'Rejected',
+      reason: 'SchemaInvalid',
+    });
+    expect(prepareEvaluationClosure({ ...input, evidenceIndexSaid: undefined })).toEqual({
       kind: 'Rejected',
       reason: 'SchemaInvalid',
     });

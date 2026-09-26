@@ -12,6 +12,7 @@ export const evaluationClosureInputSchema = Type.Object(
     evidenceStreamId: uuid,
     originRunId: uuid,
     manifestSaid: said,
+    evidenceIndexSaid: said,
     acceptedEventCount: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
     acceptedHeadSaid: said,
     observationSaids: Type.Array(said, { minItems: 18, maxItems: 18, uniqueItems: true }),

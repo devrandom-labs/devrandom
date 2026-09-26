@@ -411,6 +411,7 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
       evidenceStreamId,
       originRunId,
       manifestSaid: said('M'),
+      evidenceIndexSaid: said('I'),
       acceptedEventCount: 1,
       acceptedHeadSaid: said('h'),
       observationSaids: Array.from({ length: 18 }, (_, index) =>

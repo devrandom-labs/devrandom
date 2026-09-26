@@ -80,6 +80,7 @@ function verifiedEvidence(controlSuccesses = 0): VerifiedPromotionEvidence {
     evidenceStreamId: '71d7f67f-d2f9-4fae-87cc-ac827de6f0d1',
     originRunId: manifest.manifest.originRunId,
     manifestSaid: manifest.manifest.d,
+    evidenceIndexSaid: said('I'),
     acceptedEventCount: 42,
     acceptedHeadSaid: said('q'),
     observationSaids: Array.from({ length: 18 }, (_, index) =>

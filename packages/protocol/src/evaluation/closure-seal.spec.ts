@@ -17,6 +17,7 @@ const claim = {
   evidenceStreamId: id('2'),
   originRunId: id('3'),
   manifestSaid: said('m'),
+  evidenceIndexSaid: said('i'),
   acceptedEventCount: 40,
   acceptedHeadSaid: said('h'),
   observationSaids: Array.from({ length: 18 }, (_, index) => said(String.fromCharCode(97 + index))),

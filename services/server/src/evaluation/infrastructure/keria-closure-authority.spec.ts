@@ -21,6 +21,7 @@ const prepared = prepareEvaluationClosure({
   evidenceStreamId: 'ed39e873-5af1-414b-ae48-3712544921c1',
   originRunId: '97b2da54-a908-4ddc-a7cc-7da0170694a7',
   manifestSaid: said('M'),
+  evidenceIndexSaid: said('I'),
   acceptedEventCount: 39,
   acceptedHeadSaid: said('h'),
   observationSaids: Array.from({ length: 18 }, (_, index) => said(String.fromCharCode(65 + index))),

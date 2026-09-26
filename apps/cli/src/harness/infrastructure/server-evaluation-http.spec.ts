@@ -331,6 +331,7 @@ it('sends a prepared closure without creating a local seal and verifies the comm
     evidenceStreamId: id('6'),
     originRunId: command.originRunId,
     manifestSaid: said('M'),
+    evidenceIndexSaid: said('I'),
     acceptedEventCount: 1,
     acceptedHeadSaid: said('h'),
     observationSaids: Array.from({ length: 18 }, (_, index) =>

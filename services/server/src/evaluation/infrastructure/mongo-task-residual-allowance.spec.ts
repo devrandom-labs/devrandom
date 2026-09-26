@@ -144,6 +144,7 @@ function closedEvaluation(consumed = amount(3)) {
     evidenceStreamId: held.evidenceStreamId,
     originRunId: held.command.originRunId,
     manifestSaid: `E${'m'.repeat(43)}`,
+    evidenceIndexSaid: `E${'i'.repeat(43)}`,
     acceptedEventCount: 42,
     acceptedHeadSaid: `E${'q'.repeat(43)}`,
     observationSaids: Array.from(
