@@ -109,9 +109,9 @@ export class VerifiedFailureCampaign implements RunQualification {
         input.evidence,
       );
       if (history.kind !== 'Verified') return { kind: 'Blocked' };
-      if (history.predecessorIncarnationId !== undefined) {
-        if (incarnationIds.has(history.predecessorIncarnationId)) return { kind: 'Blocked' };
-        incarnationIds.add(history.predecessorIncarnationId);
+      for (const incarnation of history.predecessorIncarnationIds) {
+        if (incarnationIds.has(incarnation)) return { kind: 'Blocked' };
+        incarnationIds.add(incarnation);
       }
       const scope =
         history.predecessorEvents.length === 0
@@ -245,7 +245,15 @@ export class VerifiedFailureCampaign implements RunQualification {
       incarnationIds.add(incarnationId);
       let predecessorProfile: string | undefined;
       let predecessorWorkerBegan = false;
+      let predecessorIncarnation: string | undefined;
       for (const event of history.predecessorEvents) {
+        if (predecessorIncarnation !== event.incarnationId) {
+          if (predecessorIncarnation !== undefined && predecessorProfile !== profileArtifactSaid)
+            return { kind: 'Blocked' };
+          predecessorIncarnation = event.incarnationId;
+          predecessorProfile = undefined;
+          predecessorWorkerBegan = false;
+        }
         artifactSaids.push(...evidenceArtifactReferences(event.event));
         if (event.event.kind === 'RunExecutionProfileBound') {
           if (

@@ -4,11 +4,13 @@ import {
   decodeRunSuccessorSegment,
   type EvidenceEvent,
   type RunProjection,
+  type RunSuccessorSegment,
+  type EvidenceStreamProjection,
 } from '@devrandom/protocol';
 import type { HostedRunStatuses, HostedRunTimelines } from './task-run-observation.js';
 
 /** Verify the complete original incarnation behind one exact same-H1 continuation. */
-export async function readCalibrationContinuationHistory(
+async function readCalibrationContinuationLink(
   run: RunProjection,
   runs: HostedRunStatuses,
   evidence: HostedRunTimelines,
@@ -19,6 +21,8 @@ export async function readCalibrationContinuationHistory(
       readonly incarnationId?: string;
       readonly predecessorIncarnationId?: string;
       readonly predecessorEvents: readonly EvidenceEvent[];
+      readonly segment?: RunSuccessorSegment;
+      readonly stream?: EvidenceStreamProjection;
     }
   | { readonly kind: 'Rejected' }
 > {
@@ -48,7 +52,6 @@ export async function readCalibrationContinuationHistory(
     segment.successor.harnessRevisionSaid !== run.harnessRevisionSaid ||
     segment.successor.evidenceStreamId !== run.currentExecution.evidenceStreamId ||
     segment.successor.incarnationId !== run.lease.incarnationId ||
-    segment.predecessor.evidenceStreamId !== run.evidenceStreamId ||
     segment.fromRunVersion >= run.runVersion ||
     Object.entries(segment.consumedBudget).some(([key, value]) => {
       const consumed: unknown = Reflect.get(run.budget.consumed, key);
@@ -81,6 +84,7 @@ export async function readCalibrationContinuationHistory(
   let page = first.page;
   let blocked = false;
   let accepted = false;
+  let processLost = false;
   for (let pages = 0; ; pages += 1) {
     if (pages >= 64 || !isDeepStrictEqual(stream, page.stream)) return { kind: 'Rejected' };
     for (const { event } of page.events) {
@@ -104,10 +108,11 @@ export async function readCalibrationContinuationHistory(
       if (event.event.kind === 'RunBlocked') {
         if (
           blocked ||
-          event.event.reason !== 'ContextLimitReached' ||
+          (event.event.reason !== 'ContextLimitReached' && event.event.reason !== 'ProcessLost') ||
           event.event.checkpointSaid !== segment.predecessor.checkpointSaid
         )
           return { kind: 'Rejected' };
+        processLost = event.event.reason === 'ProcessLost';
         blocked = true;
       }
       if (
@@ -128,6 +133,18 @@ export async function readCalibrationContinuationHistory(
     page = next.page;
   }
   if (
+    (processLost &&
+      events.some(({ event }) =>
+        [
+          'ModelRequest',
+          'ModelMessageCompleted',
+          'ToolProposed',
+          'ToolAuthorized',
+          'EffectCompleted',
+          'EffectFailed',
+        ].includes(event.kind),
+      )) ||
+    stream.seal.sealedAt > segment.admittedAt ||
     !blocked ||
     !accepted ||
     events.length !== stream.seal.eventCount ||
@@ -140,5 +157,94 @@ export async function readCalibrationContinuationHistory(
     incarnationId: segment.successor.incarnationId,
     predecessorIncarnationId: segment.predecessor.incarnationId,
     predecessorEvents: events,
+    segment,
+    stream,
+  };
+}
+
+/** Walk immutable segment references; every incarnation is verified independently. */
+export async function readCalibrationContinuationHistory(
+  run: RunProjection,
+  runs: HostedRunStatuses,
+  evidence: HostedRunTimelines,
+): Promise<
+  | {
+      readonly kind: 'Verified';
+      readonly evidenceStreamId: string;
+      readonly incarnationId?: string;
+      readonly predecessorIncarnationId?: string;
+      readonly predecessorIncarnationIds: readonly string[];
+      readonly predecessorEvents: readonly EvidenceEvent[];
+      readonly predecessors: readonly {
+        readonly segment: RunSuccessorSegment;
+        readonly stream: EvidenceStreamProjection;
+        readonly events: readonly EvidenceEvent[];
+      }[];
+    }
+  | { readonly kind: 'Rejected' }
+> {
+  const predecessors: {
+    segment: RunSuccessorSegment;
+    stream: EvidenceStreamProjection;
+    events: readonly EvidenceEvent[];
+  }[] = [];
+  const seen = new Set<string>();
+  const incarnations = new Set<string>();
+  if (run.lease.kind === 'Held') incarnations.add(run.lease.incarnationId);
+  let current = run;
+  let laterAdmission: string | undefined;
+  for (let depth = 0; current.currentExecution !== undefined; depth++) {
+    if (depth >= 64 || seen.has(current.currentExecution.segmentSaid)) return { kind: 'Rejected' };
+    seen.add(current.currentExecution.segmentSaid);
+    const read = await readCalibrationContinuationLink(current, runs, evidence);
+    if (
+      read.kind !== 'Verified' ||
+      read.segment === undefined ||
+      read.stream === undefined ||
+      current.lease.kind !== 'Held'
+    )
+      return { kind: 'Rejected' };
+    const segment = read.segment;
+    if (laterAdmission !== undefined && segment.admittedAt > laterAdmission)
+      return { kind: 'Rejected' };
+    laterAdmission = segment.admittedAt;
+    if (incarnations.has(segment.predecessor.incarnationId)) return { kind: 'Rejected' };
+    incarnations.add(segment.predecessor.incarnationId);
+    predecessors.unshift({ segment, stream: read.stream, events: read.predecessorEvents });
+    const previous = segment.predecessor.segmentSaid;
+    if (segment.predecessor.evidenceStreamId === run.evidenceStreamId) {
+      if (previous !== undefined) return { kind: 'Rejected' };
+      break;
+    }
+    if (previous === undefined) return { kind: 'Rejected' };
+    current = {
+      ...current,
+      runVersion: segment.fromRunVersion,
+      budget: { ...current.budget, consumed: segment.consumedBudget },
+      currentExecution: {
+        segmentSaid: previous,
+        evidenceStreamId: segment.predecessor.evidenceStreamId,
+        harnessRevisionSaid: run.harnessRevisionSaid,
+      },
+      lease: {
+        ...current.lease,
+        incarnationId: segment.predecessor.incarnationId,
+        segmentSaid: previous,
+      },
+    };
+  }
+  const first = predecessors[0];
+  return {
+    kind: 'Verified',
+    evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.evidenceStreamId,
+    ...(run.currentExecution === undefined || run.lease.kind !== 'Held'
+      ? {}
+      : { incarnationId: run.lease.incarnationId }),
+    ...(first === undefined
+      ? {}
+      : { predecessorIncarnationId: first.segment.predecessor.incarnationId }),
+    predecessorIncarnationIds: predecessors.map((item) => item.segment.predecessor.incarnationId),
+    predecessorEvents: predecessors.flatMap((item) => item.events),
+    predecessors,
   };
 }

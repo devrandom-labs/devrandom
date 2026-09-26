@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+import { readCalibrationContinuationHistory } from '../application/calibration-continuation-history.js';
 import { lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -157,24 +159,87 @@ export class TaskResumptionComposition {
         preparation.protectedCredentials,
       ).readPredecessor({ run, stateRoot: this.#options.stateRoot, stream, events });
       if (read.kind !== 'Read') return { kind: 'PredecessorRejected' };
+      let transcriptCustody = read.custody;
+      if (
+        run.binding.purpose.kind === 'PreparedCompatibilityCalibration' &&
+        run.currentExecution !== undefined
+      ) {
+        const history = await readCalibrationContinuationHistory(
+          projectRun(run),
+          input.runs,
+          input.evidence,
+        );
+        if (history.kind !== 'Verified') return { kind: 'PredecessorRejected' };
+        const earlier: RunPredecessorCustody[] = [];
+        for (const item of history.predecessors) {
+          const retained = await commands.readPredecessor(input.runId, item.segment.fromRunVersion);
+          if (
+            retained === undefined ||
+            !isDeepStrictEqual(retained.stream, item.stream) ||
+            !isDeepStrictEqual(retained.events, item.events)
+          )
+            return { kind: 'PredecessorRejected' };
+          const previous = decodeRunProjection(retained.run);
+          if (
+            previous.kind !== 'Accepted' ||
+            previous.run.lease.kind !== 'Held' ||
+            !isDeepStrictEqual(previous.run.binding, run.binding) ||
+            previous.run.version !== item.segment.fromRunVersion ||
+            previous.run.lease.incarnationId !== item.segment.predecessor.incarnationId ||
+            previous.run.currentExecution?.segmentSaid !== item.segment.predecessor.segmentSaid ||
+            !isDeepStrictEqual(previous.run.consumedBudget, item.segment.consumedBudget)
+          )
+            return { kind: 'PredecessorRejected' };
+          const raw = new SqliteEvidenceOutboxes(
+            () => this.#options.now(),
+            preparation.protectedCredentials,
+          ).readPredecessor({
+            run: previous.run,
+            stateRoot: this.#options.stateRoot,
+            stream: item.stream,
+            events: item.events,
+          });
+          if (
+            raw.kind !== 'Read' ||
+            raw.custody.checkpoint.d !== item.segment.predecessor.checkpointSaid
+          )
+            return { kind: 'PredecessorRejected' };
+          earlier.push(raw.custody);
+        }
+        const artifacts = new Map<string, RunPredecessorCustody['artifacts'][number]>();
+        for (const custody of [...earlier, read.custody])
+          for (const artifact of custody.artifacts) {
+            const existing = artifacts.get(artifact.artifact.d);
+            if (existing !== undefined && !isDeepStrictEqual(existing, artifact))
+              return { kind: 'PredecessorRejected' };
+            artifacts.set(artifact.artifact.d, artifact);
+          }
+        transcriptCustody = {
+          ...read.custody,
+          events: [...earlier.flatMap((custody) => custody.events), ...read.custody.events],
+          artifacts: [...artifacts.values()],
+        };
+      }
       const context: ContinuationContext | undefined =
         run.binding.purpose.kind === 'PreparedCompatibilityCalibration'
           ? {
               text: '',
-              sourceEventSaids: read.custody.events.map((event) => event.d),
-              includedEventSaids: read.custody.events
+              sourceEventSaids: transcriptCustody.events.map((event) => event.d),
+              includedEventSaids: transcriptCustody.events
                 .filter(
                   (event) =>
                     event.event.kind === 'ModelMessageCompleted' ||
                     event.event.kind === 'EffectCompleted',
                 )
                 .map((event) => event.d),
-              addressableEventSaids: read.custody.events.map((event) => event.d),
-              addressableArtifactSaids: read.custody.artifacts.map(({ artifact }) => artifact.d),
+              addressableEventSaids: transcriptCustody.events.map((event) => event.d),
+              addressableArtifactSaids: transcriptCustody.artifacts.map(
+                ({ artifact }) => artifact.d,
+              ),
             }
-          : continuationContext(preparation.task, read.custody);
+          : continuationContext(preparation.task, transcriptCustody);
       if (context === undefined) return { kind: 'PredecessorRejected' };
-      const behavior = input.successorBehavior(context, read.custody);
+      const behavior = input.successorBehavior(context, transcriptCustody);
       if (behavior === undefined) return { kind: 'PredecessorRejected' };
       const directory = join(this.#options.stateRoot, 'runs', input.runId, 'worktree');
       const status = await lstat(directory);

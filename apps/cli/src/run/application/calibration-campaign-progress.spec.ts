@@ -541,6 +541,123 @@ it('counts one sealed same-H1 continuation only after verifying its original acc
     nextOrdinal: 2,
     confirmed: 1,
   });
+  // A startup-only intermediate incarnation still retains the original campaign proof.
+  const intermediateEvents: EvidenceEvent[] = [];
+  for (const item of predecessorPage.events) {
+    const { d: oldSaid, ...body } = item.event;
+    expect(oldSaid).toBeTruthy();
+    const next = prepareEvidenceEvent({
+      ...body,
+      incarnationId: id('8'),
+      predecessor:
+        intermediateEvents.length === 0
+          ? { kind: 'Genesis' }
+          : { kind: 'Previous', eventSaid: required(intermediateEvents.at(-1)).d },
+      event:
+        body.event.kind === 'RunBlocked' ? { ...body.event, reason: 'ProcessLost' } : body.event,
+    });
+    if (next.kind !== 'Prepared') throw new Error('intermediate');
+    intermediateEvents.push(next.event);
+  }
+  const intermediateHead = required(intermediateEvents.at(-1)).d;
+  const intermediatePage: EvidenceTimelinePage = {
+    ...predecessorPage,
+    stream: {
+      ...predecessorPage.stream,
+      evidenceStreamId: id('7'),
+      cursor: {
+        kind: 'Accepted',
+        acceptedThroughSequence: 2,
+        eventCount: 3,
+        chainHeadSaid: intermediateHead,
+      },
+      seal: {
+        kind: 'Sealed',
+        sealExchangeSaid: said('s'),
+        finalSequence: 2,
+        eventCount: 3,
+        chainHeadSaid: intermediateHead,
+        sealedAt: '2026-09-24T20:03:00.000Z',
+      },
+    },
+    events: intermediateEvents.map((event) => ({
+      version: 1,
+      event,
+      receivedAt: event.recordedAt,
+    })),
+  };
+  const { d: firstSaid, ...firstBody } = prepared.segment;
+  expect(firstSaid).toBe(prepared.segment.d);
+  const chained = prepareRunSuccessorSegment({
+    ...firstBody,
+    fromRunVersion: 4,
+    admittedAt: '2026-09-24T20:04:00.000Z',
+    predecessor: {
+      ...firstBody.predecessor,
+      segmentSaid: prepared.segment.d,
+      incarnationId: id('8'),
+      evidenceStreamId: id('7'),
+      chainHeadSaid: intermediateHead,
+    },
+    successor: { ...firstBody.successor, incarnationId: id('9'), evidenceStreamId: id('6') },
+  });
+  if (chained.kind !== 'Prepared') throw new Error('chained segment');
+  const singleRun = required(f.runs[0]);
+  const singlePage = required(f.pages[0]);
+  if (singleRun.lease.kind !== 'Held') throw new Error('lease');
+  const chainedEvents: EvidenceEvent[] = [];
+  for (const item of singlePage.events) {
+    const { d: oldSaid, ...body } = item.event;
+    expect(oldSaid).toBeTruthy();
+    const next = prepareEvidenceEvent({
+      ...body,
+      incarnationId: id('9'),
+      predecessor:
+        chainedEvents.length === 0
+          ? { kind: 'Genesis' }
+          : { kind: 'Previous', eventSaid: required(chainedEvents.at(-1)).d },
+    });
+    if (next.kind !== 'Prepared') throw new Error('event');
+    chainedEvents.push(next.event);
+  }
+  if (singlePage.stream.cursor.kind !== 'Accepted' || singlePage.stream.seal.kind !== 'Sealed')
+    throw new Error('stream');
+  const chainedHead = required(chainedEvents.at(-1)).d;
+  f.pages[0] = {
+    ...singlePage,
+    stream: {
+      ...singlePage.stream,
+      evidenceStreamId: id('6'),
+      cursor: { ...singlePage.stream.cursor, chainHeadSaid: chainedHead },
+      seal: { ...singlePage.stream.seal, chainHeadSaid: chainedHead },
+    },
+    events: chainedEvents.map((event) => ({ version: 1, event, receivedAt: event.recordedAt })),
+  };
+  f.runs[0] = {
+    ...singleRun,
+    runVersion: 6,
+    currentExecution: {
+      segmentSaid: chained.segment.d,
+      evidenceStreamId: id('6'),
+      harnessRevisionSaid: original.harnessRevisionSaid,
+    },
+    lease: { ...singleRun.lease, incarnationId: id('9'), segmentSaid: chained.segment.d },
+  };
+  f.segments.set(chained.segment.d, chained.segment);
+  f.historical.set(id('7'), intermediatePage);
+  await expect(f.progress.inspect('receipt', campaignId)).resolves.toMatchObject({
+    kind: 'Ready',
+    nextOrdinal: 2,
+    confirmed: 1,
+  });
+  f.segments.delete(prepared.segment.d);
+  await expect(f.progress.inspect('receipt', campaignId)).resolves.toEqual({ kind: 'Unavailable' });
+  f.segments.set(prepared.segment.d, prepared.segment);
+  f.historical.set(id('7'), { ...intermediatePage, events: intermediatePage.events.slice(1) });
+  await expect(f.progress.inspect('receipt', campaignId)).resolves.toEqual({ kind: 'Unavailable' });
+  f.historical.set(id('7'), intermediatePage);
+  f.runs[0] = singleRun;
+  f.pages[0] = singlePage;
   const { d: segmentSaid, ...segmentBody } = prepared.segment;
   const second = prepareRunSuccessorSegment({
     ...segmentBody,
