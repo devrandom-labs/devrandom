@@ -39,6 +39,8 @@ const [message] = unsignedExchange(
   agent,
   '2026-09-26T06:00:00.000000+00:00',
 );
+type RetrievedExchange = Awaited<ReturnType<ReturnType<SignifyClient['exchanges']>['get']>>['exn'];
+const receiptEvidence = message.sad as unknown as RetrievedExchange;
 const expectation = { exchangeSaid: message.said, sourceAid: issuer, recipientAid: agent, payload };
 
 describe('issuer activation receipt exchange', () => {
@@ -66,7 +68,7 @@ describe('issuer activation receipt exchange', () => {
       'http://127.0.0.1:3903',
     );
     const get = vi.spyOn(client.exchanges(), 'get');
-    get.mockResolvedValueOnce({ exn: message.sad, pathed: {} });
+    get.mockResolvedValueOnce({ exn: receiptEvidence, pathed: {} });
     const exchange = signifyIssuerActivationReceiptExchange(client);
     await expect(exchange.inspect(expectation)).resolves.toMatchObject({ kind: 'Verified' });
     get.mockRejectedValueOnce(new Error(`HTTP GET /exchanges/${message.said} - 404 Not Found`));

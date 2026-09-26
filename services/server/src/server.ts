@@ -5,6 +5,10 @@ import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify, { LogController } from 'fastify';
 
 import { credentialSchema } from '@devrandom/protocol';
+import {
+  activationRoutes,
+  type ActivationRoutesConfiguration,
+} from './activation/route/activation-routes.js';
 
 import {
   manifestWorkAccessPolicy,
@@ -62,6 +66,7 @@ export type HostedWorkCapabilities =
       readonly evaluation?: EvaluationRoutesConfiguration;
       readonly evidenceReading?: EvidenceReadRoutesConfiguration;
       readonly experience?: ExperienceRoutesConfiguration;
+      readonly activation?: ActivationRoutesConfiguration;
     }
   | { readonly kind: 'Unavailable' };
 
@@ -211,6 +216,15 @@ function unavailableExperienceRoutes(): ExperienceRoutesConfiguration {
   };
 }
 
+function unavailableActivationRoutes(): ActivationRoutesConfiguration {
+  return {
+    access: { authorize: () => Promise.resolve({ kind: 'Unavailable' }) },
+    activation: { commit: () => Promise.resolve({ kind: 'Unavailable' }) },
+    now: () => new Date().toISOString(),
+    newCorrelationId: randomUUID,
+  };
+}
+
 export function buildDevrandomServer(
   issuer: VerifiedDevrandomIssuer,
   registration: DevrandomServerRegistration,
@@ -291,6 +305,13 @@ export function buildDevrandomServer(
       hostedWork.kind === 'Available' && hostedWork.experience !== undefined
         ? hostedWork.experience
         : unavailableExperienceRoutes(),
+    ),
+  );
+  void server.register(
+    activationRoutes(
+      hostedWork.kind === 'Available' && hostedWork.activation !== undefined
+        ? hostedWork.activation
+        : unavailableActivationRoutes(),
     ),
   );
   void server.register(schemaOobiRoute);

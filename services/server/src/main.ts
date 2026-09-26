@@ -25,6 +25,7 @@ import {
   credentialSchema,
   taskMandateV2SchemaSaid,
   promotionMandateV2SchemaSaid,
+  promotionMandateV3SchemaSaid,
   verifyMandateSchemaCatalog,
 } from '@devrandom/protocol';
 import {
@@ -38,6 +39,7 @@ import {
   type AtlasExperienceEnvironment,
 } from './configuration/atlas-experience-environment.js';
 import { createHostedWorkMongoClient } from './configuration/hosted-work-mongo.js';
+import { composeHostedActivation } from './activation/composition/hosted-activation.js';
 import type { DevrandomIssuerProfile } from './domain/devrandom-issuer-profile.js';
 import type { IssuerServerAddress } from './domain/issuer-configuration.js';
 import { IssuerFailure, issuerErrorExitCode, issuerErrorMessage } from './domain/issuer-error.js';
@@ -534,6 +536,24 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         ? { experience: serverAtlas.experience, experienceReceipts: serverAtlas.receipts }
         : {}),
     });
+    const hostedActivation = composeHostedActivation({
+      client: hostedWorkCandidate,
+      database: hostedDatabase,
+      attempts,
+      issuerAid: result.issuer.identity.issuerAid,
+      issuerAlias: devrandomIssuerAlias,
+      promotionExchanges: result.infrastructure.promotionExchanges,
+      activationReceiptExchange: result.infrastructure.activationReceiptExchange,
+      mandates: {
+        authorize: (input) =>
+          authorizeCurrentPromotionMandate(input, {
+            issuerAid: result.issuer.identity.issuerAid,
+            currentTaskMandate,
+            presentations: mandatePresentations,
+            admission: mandateAdmission,
+          }),
+      },
+    });
     hostedWorkMongo = hostedWorkCandidate;
     hostedWorkCandidate = undefined;
     hostedWork = {
@@ -545,6 +565,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       runs: runRoutesConfiguration,
       evidence: evidenceRoutesConfiguration,
       ...hostedEvaluation,
+      activation: hostedActivation,
     };
     hostedWorkReadiness = {
       async verify() {
@@ -563,6 +584,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await result.infrastructure.taskMandateV2SchemaAvailability.verify();
         await result.infrastructure.promotionMandateSchemaAvailability.verify();
         await result.infrastructure.promotionMandateV2SchemaAvailability.verify();
+        await result.infrastructure.promotionMandateV3SchemaAvailability.verify();
       },
     };
   } catch {
@@ -603,6 +625,11 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     promotionV2SchemaOobi.pathname = `/oobi/${promotionMandateV2SchemaSaid}`;
     await result.infrastructure.promotionMandateV2SchemaAvailability.resolve(
       promotionV2SchemaOobi.href,
+    );
+    const promotionV3SchemaOobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
+    promotionV3SchemaOobi.pathname = `/oobi/${promotionMandateV3SchemaSaid}`;
+    await result.infrastructure.promotionMandateV3SchemaAvailability.resolve(
+      promotionV3SchemaOobi.href,
     );
   } catch (cause) {
     await server.close();

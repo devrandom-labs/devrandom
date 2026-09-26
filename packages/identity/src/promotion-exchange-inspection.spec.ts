@@ -54,6 +54,9 @@ const [decisionExn] = unsignedExchange(
   issuer,
   datetime,
 );
+type RetrievedExchange = Awaited<ReturnType<ReturnType<SignifyClient['exchanges']>['get']>>['exn'];
+const proposalEvidence = proposalExn.sad as unknown as RetrievedExchange;
+const decisionEvidence = decisionExn.sad as unknown as RetrievedExchange;
 const expected = {
   proposal: {
     exchangeSaid: proposalExn.said,
@@ -81,7 +84,7 @@ describe('issuer promotion exchange inspection', () => {
     const get = vi.spyOn(client.exchanges(), 'get');
     get.mockImplementation((exchangeSaid) =>
       Promise.resolve({
-        exn: exchangeSaid === proposalExn.said ? proposalExn.sad : decisionExn.sad,
+        exn: exchangeSaid === proposalExn.said ? proposalEvidence : decisionEvidence,
         pathed: {},
       }),
     );
@@ -90,11 +93,14 @@ describe('issuer promotion exchange inspection', () => {
     expect(get).toHaveBeenCalledWith(proposalExn.said);
     expect(get).toHaveBeenCalledWith(decisionExn.said);
     await expect(
-      inspection.inspect({ ...expected, decision: { ...expected.decision, sourceAid: agent } }),
+      inspection.inspect({
+        ...expected,
+        decision: { ...expected.decision, sourceAid: governorAid(agent) },
+      }),
     ).resolves.toMatchObject({ kind: 'Rejected' });
     get.mockImplementationOnce(() =>
       Promise.resolve({
-        exn: { ...proposalExn.sad, a: { i: issuer, ...proposal, hypothesisSaid: said('x') } },
+        exn: { ...proposalEvidence, a: { i: issuer, ...proposal, hypothesisSaid: said('x') } },
         pathed: {},
       }),
     );

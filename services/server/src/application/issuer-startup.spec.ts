@@ -106,6 +106,10 @@ function verifiedInfrastructure(
       resolve: () => Promise.resolve(),
       verify: () => Promise.resolve(),
     },
+    promotionMandateV3SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
     mandateAdmission: {
       inspect: () => Promise.resolve({ kind: 'Unavailable', dependency: 'Keria' }),
       begin: () => Promise.resolve({ kind: 'Unavailable', dependency: 'Keria' }),
@@ -118,6 +122,13 @@ function verifiedInfrastructure(
       inspect: () => Promise.resolve({ kind: 'Pending' }),
     },
     evaluationClosureSealExchange: {
+      inspect: () => Promise.resolve({ kind: 'Pending' }),
+    },
+    promotionExchanges: {
+      inspect: () => Promise.resolve({ kind: 'Pending' }),
+    },
+    activationReceiptExchange: {
+      sign: () => Promise.resolve({ kind: 'Pending' }),
       inspect: () => Promise.resolve({ kind: 'Pending' }),
     },
     readiness: { verify: () => Promise.resolve() },

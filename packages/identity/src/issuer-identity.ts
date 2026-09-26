@@ -1,6 +1,7 @@
 import {
   promotionMandateSchema,
   promotionMandateV2Schema,
+  promotionMandateV3Schema,
   taskMandateSchema,
   taskMandateV2Schema,
 } from '@devrandom/protocol';
@@ -27,6 +28,14 @@ import {
   signifyIssuerEvaluationClosureSealExchange,
   type IssuerEvaluationClosureSealExchange,
 } from './evaluation-closure-seal-exchange.js';
+import {
+  signifyIssuerPromotionExchanges,
+  type IssuerPromotionExchanges,
+} from './promotion-exchange-inspection.js';
+import {
+  signifyIssuerActivationReceiptExchange,
+  type IssuerActivationReceiptExchange,
+} from './activation-receipt-exchange.js';
 import {
   signifyIssuerCurrentUserCredentialVerification,
   type IssuerCurrentUserCredentialVerification,
@@ -124,10 +133,13 @@ export interface VerifiedIssuerInfrastructure {
   readonly taskMandateV2SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateSchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateV2SchemaAvailability: CredentialSchemaAvailability;
+  readonly promotionMandateV3SchemaAvailability: CredentialSchemaAvailability;
   readonly mandateAdmission: MandateAdmission;
   readonly runAdmissionExchange: IssuerRunAdmissionExchange;
   readonly evidenceSealExchange: IssuerEvidenceSealExchange;
   readonly evaluationClosureSealExchange: IssuerEvaluationClosureSealExchange;
+  readonly promotionExchanges: IssuerPromotionExchanges;
+  readonly activationReceiptExchange: IssuerActivationReceiptExchange;
   readonly readiness: VerifiedIssuerReadiness;
 }
 
@@ -603,6 +615,11 @@ export async function connectVerifiedIssuerInfrastructure(
       promotionMandateV2Schema,
       input.operationTimeoutMs,
     ),
+    promotionMandateV3SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      promotionMandateV3Schema,
+      input.operationTimeoutMs,
+    ),
     mandateAdmission: signifyMandateAdmission(
       verified.client,
       input.issuerAlias,
@@ -614,6 +631,8 @@ export async function connectVerifiedIssuerInfrastructure(
     ),
     evidenceSealExchange: signifyIssuerEvidenceSealExchange(verified.client),
     evaluationClosureSealExchange: signifyIssuerEvaluationClosureSealExchange(verified.client),
+    promotionExchanges: signifyIssuerPromotionExchanges(verified.client),
+    activationReceiptExchange: signifyIssuerActivationReceiptExchange(verified.client),
     readiness: signifyIssuerReadiness(verified.client, verified.identity.issuerAid),
   };
 }

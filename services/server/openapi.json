@@ -581,11 +581,15 @@
                               {
                                 "type": "string",
                                 "const": "task:read"
+                              },
+                              {
+                                "type": "string",
+                                "const": "activation:commit"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 15,
+                          "maxItems": 16,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -1089,11 +1093,15 @@
                               {
                                 "type": "string",
                                 "const": "task:read"
+                              },
+                              {
+                                "type": "string",
+                                "const": "activation:commit"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 15,
+                          "maxItems": 16,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -1953,11 +1961,15 @@
                               {
                                 "type": "string",
                                 "const": "task:read"
+                              },
+                              {
+                                "type": "string",
+                                "const": "activation:commit"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 15,
+                          "maxItems": 16,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -2461,11 +2473,15 @@
                               {
                                 "type": "string",
                                 "const": "task:read"
+                              },
+                              {
+                                "type": "string",
+                                "const": "activation:commit"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 15,
+                          "maxItems": 16,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -3472,11 +3488,15 @@
                               {
                                 "type": "string",
                                 "const": "task:read"
+                              },
+                              {
+                                "type": "string",
+                                "const": "activation:commit"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 15,
+                          "maxItems": 16,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -3980,11 +4000,15 @@
                               {
                                 "type": "string",
                                 "const": "task:read"
+                              },
+                              {
+                                "type": "string",
+                                "const": "activation:commit"
                               }
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 15,
+                          "maxItems": 16,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -9378,6 +9402,10 @@
                                 {
                                   "type": "string",
                                   "const": "task:read"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "activation:commit"
                                 }
                               ]
                             }
@@ -10166,6 +10194,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -11987,6 +12019,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -13020,6 +13056,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -17943,6 +17983,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -20815,6 +20859,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -23064,6 +23112,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -23675,6 +23727,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -24771,6 +24827,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -30325,6 +30385,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -31610,6 +31674,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -34625,6 +34693,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -35563,6 +35635,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -36316,6 +36392,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -37319,6 +37399,10 @@
                             {
                               "type": "string",
                               "const": "task:read"
+                            },
+                            {
+                              "type": "string",
+                              "const": "activation:commit"
                             }
                           ]
                         }
@@ -43310,6 +43394,653 @@
             }
           },
           "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{taskId}/activation": {
+      "put": {
+        "operationId": "commitActivation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "commandId",
+                  "taskId",
+                  "taskRevisionSaid",
+                  "harnessLineageId",
+                  "expectedIncumbentRevisionSaid",
+                  "expectedPointerVersion",
+                  "evaluationManifestSaid",
+                  "evaluationClosureSaid",
+                  "exactPromotionMandateSaid",
+                  "agentProposalExchangeSaid",
+                  "governorDecisionExchangeSaid",
+                  "selectionRecord",
+                  "disposition",
+                  "fingerprint"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "number",
+                    "const": 1
+                  },
+                  "commandId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
+                  "taskId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
+                  "taskRevisionSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "harnessLineageId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
+                  "expectedIncumbentRevisionSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "expectedPointerVersion": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "evaluationManifestSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "evaluationClosureSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "exactPromotionMandateSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "agentProposalExchangeSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "governorDecisionExchangeSaid": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                  },
+                  "selectionRecord": {
+                    "type": "object",
+                    "required": [
+                      "version",
+                      "d",
+                      "kind",
+                      "taskId",
+                      "taskRevisionSaid",
+                      "harnessLineageId",
+                      "expectedIncumbentRevisionSaid",
+                      "expectedPointerVersion",
+                      "evaluationManifestSaid",
+                      "evaluationClosureSaid",
+                      "hypothesisSaid",
+                      "selection"
+                    ],
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "d": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "PromotionSelection"
+                      },
+                      "taskId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "taskRevisionSaid": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      },
+                      "harnessLineageId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                      },
+                      "expectedIncumbentRevisionSaid": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      },
+                      "expectedPointerVersion": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "evaluationManifestSaid": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      },
+                      "evaluationClosureSaid": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      },
+                      "hypothesisSaid": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                      },
+                      "selection": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": ["kind", "candidateRevisionSaid", "artifactSaids"],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "Activate"
+                              },
+                              "candidateRevisionSaid": {
+                                "type": "string",
+                                "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                              },
+                              "artifactSaids": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                                },
+                                "minItems": 3,
+                                "maxItems": 3
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "required": ["kind"],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "RetainIncumbent"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "disposition": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind",
+                          "selectionEvidenceSaid",
+                          "candidateRevisionSaid",
+                          "artifactSaids"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "Activate"
+                          },
+                          "selectionEvidenceSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "candidateRevisionSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          },
+                          "artifactSaids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                            },
+                            "minItems": 3,
+                            "maxItems": 3
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "required": ["kind", "selectionEvidenceSaid"],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "RetainIncumbent"
+                          },
+                          "selectionEvidenceSaid": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "fingerprint": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "in": "path",
+            "name": "taskId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^Bearer [A-Za-z0-9_-]{43}$"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "kind",
+                        "decisionReceiptSaid",
+                        "activeRevisionSaid",
+                        "pointerVersion",
+                        "disposition"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Committed"
+                            },
+                            {
+                              "type": "string",
+                              "const": "AlreadyCommitted"
+                            }
+                          ]
+                        },
+                        "decisionReceiptSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "activeRevisionSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "pointerVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "disposition": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Activated"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Retained"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Conflict"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "gate"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Rejected"
+                        },
+                        "gate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Authority"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Evidence"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Signature"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Mandate"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Selection"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Unavailable"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "kind",
+                        "decisionReceiptSaid",
+                        "activeRevisionSaid",
+                        "pointerVersion",
+                        "disposition"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Committed"
+                            },
+                            {
+                              "type": "string",
+                              "const": "AlreadyCommitted"
+                            }
+                          ]
+                        },
+                        "decisionReceiptSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "activeRevisionSaid": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+                        },
+                        "pointerVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "disposition": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Activated"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Retained"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Conflict"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind", "gate"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Rejected"
+                        },
+                        "gate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "const": "Authority"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Evidence"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Signature"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Mandate"
+                            },
+                            {
+                              "type": "string",
+                              "const": "Selection"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "Unavailable"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "correlationId", "status", "title", "type"],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
             "description": "Default Response",
             "content": {
               "application/json": {
