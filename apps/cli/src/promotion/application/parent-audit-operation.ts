@@ -37,6 +37,9 @@ const operation = Type.Union([
       kind: Type.Literal('ProtectedGrading'),
       slot,
       taskArtifactSaid: said,
+      buildReceiptSaid: said,
+      buildCleanupReceiptSaid: said,
+      publicCleanupReceiptSaids: Type.Array(said, { minItems: 1, maxItems: 32, uniqueItems: true }),
       protectedObservationSaid: said,
       cleanupReceiptSaid: said,
     },
@@ -153,7 +156,6 @@ function valid(input: ParentAuditOperationInput): boolean {
     case 'PublicSearchSelection':
       return (
         input.scope === 'H1TaskSearch' &&
-        detail.firstArtifactSaid !== detail.secondArtifactSaid &&
         (detail.selectedArtifactSaid === detail.firstArtifactSaid ||
           detail.selectedArtifactSaid === detail.secondArtifactSaid)
       );
