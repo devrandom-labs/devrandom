@@ -5,6 +5,7 @@ import Type from 'typebox';
 import Value from 'typebox/value';
 
 import {
+  taskBudgetCeilings,
   verifyExactPromotionMandate,
   type CurrentPromotionMandate,
   type ExactPromotionMandateClaims,
@@ -24,6 +25,7 @@ import {
   decodeEvaluationClosureEvidenceIndex,
   decodeEvaluationManifest,
   promotionMandateV3SchemaSaid,
+  promotionMandateV5SchemaSaid,
   type GovernorPromotionDecisionPayload,
   type PromotionProposalPayload,
   type TaskProjection,
@@ -207,8 +209,12 @@ export class KeriaActivationAuthority implements ActivationCommitAuthority {
       if (current.kind === 'DependencyUnavailable') return { kind: 'Unavailable' };
       if (current.kind !== 'CurrentPromotionMandateAuthorized')
         return { kind: 'Rejected', gate: 'Mandate' };
+      const exactSchemaSaid =
+        current.task.revision.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
+          ? promotionMandateV5SchemaSaid
+          : promotionMandateV3SchemaSaid;
       if (
-        current.promotionMandate.credential.schemaSaid !== promotionMandateV3SchemaSaid ||
+        current.promotionMandate.credential.schemaSaid !== exactSchemaSaid ||
         !hasExactClaims(current.promotionMandate) ||
         verifyExactPromotionMandate(
           {
@@ -216,7 +222,7 @@ export class KeriaActivationAuthority implements ActivationCommitAuthority {
               issuerAid: this.#issuerAid,
               issueeAid: run.binding.governorAid,
               registryId: current.promotionMandate.credential.registryId,
-              schemaSaid: promotionMandateV3SchemaSaid,
+              schemaSaid: exactSchemaSaid,
               credentialSaid: command.exactPromotionMandateSaid,
             },
             task: mandateTask(current.task),

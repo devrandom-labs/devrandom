@@ -14,6 +14,8 @@ import {
   taskEvaluationBudgetCeilings,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
+  promotionMandateV5SchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
 
@@ -204,149 +206,159 @@ function dependencies(): CurrentPromotionMandateDependencies {
 }
 
 describe('current Promotion Mandate authorization', () => {
-  it('reinspects the exact v3 Governor credential for a current v2 Task', async () => {
-    const experience = {
-      corpusSaid: value('q'),
-      repositoryResourceSaid: value('r'),
-      disclosure: 'AuthorizedAnalogy' as const,
-    };
-    const prepared = prepareTaskCommandV2(
-      {
-        version: 2,
-        label: command.label,
-        title: task.revision.title,
-        objective: task.revision.objective,
-        repository: { kind: 'currentHead' },
-        deliverables: [...task.revision.deliverables],
-        completionConditions: [...task.revision.completionConditions],
-        constraints: {
-          ...task.revision.constraints,
-          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
-          experience,
-        },
-        requestedCapabilities: [...task.revision.requestedCapabilities, 'ReadTaskMemory'],
-        unavailableCapabilities: [...task.revision.unavailableCapabilities],
-        budgets: { ...task.revision.budgets, ...taskEvaluationBudgetCeilings },
-        expiresAt: task.revision.expiresAt,
-        evolutionClasses: [...task.revision.evolutionClasses],
-        checkpointExpectations: [...task.revision.checkpointExpectations],
-      },
-      task.commandId,
-      task.revision.repository,
-    );
-    if (prepared.kind !== 'Prepared') throw new Error('expected v2 Task fixture');
-    const currentTask = {
-      ...task,
-      revisionSaid: prepared.command.revision.d,
-      revision: prepared.command.revision,
-    };
-    const v2TaskMandateEvidence = {
-      ...taskMandateEvidence,
-      credential: {
-        ...taskMandateEvidence.credential,
-        schemaSaid: taskMandateV2SchemaSaid,
-        schemaDocument: { kind: 'Resolved' as const, schemaSaid: taskMandateV2SchemaSaid },
-      },
-      taskRevisionSaid: currentTask.revisionSaid,
-      allowedCapabilities: currentTask.revision.requestedCapabilities,
-      budgets: currentTask.revision.budgets,
-      allowedEvolutionClasses: currentTask.revision.evolutionClasses,
-      experience,
-    };
-    const verifiedTaskMandate = verifyTaskMandate(
-      {
-        credential: {
-          issuerAid: ownerAid,
-          issueeAid: personalAgentAid,
-          registryId,
-          schemaSaid: taskMandateV2SchemaSaid,
-          credentialSaid: taskMandateSaid,
-        },
-        task: {
-          taskId,
-          ownerAid,
-          revisionSaid: currentTask.revisionSaid,
-          harnessLineageId,
-          repository: currentTask.revision.repository,
-          requestedCapabilities: currentTask.revision.requestedCapabilities,
-          unavailableCapabilities: currentTask.revision.unavailableCapabilities,
-          budgets: currentTask.revision.budgets,
-          evolutionClasses: currentTask.revision.evolutionClasses,
-          expiresAt: currentTask.revision.expiresAt,
-          experience,
-        },
-        observedAt,
-      },
-      v2TaskMandateEvidence,
-    );
-    if (verifiedTaskMandate.kind !== 'Current') throw new Error('expected current v2 mandate');
-    const v3Evidence = {
-      ...promotionEvidence,
-      inspection: {
-        ...promotionEvidence.inspection,
-        value: {
-          ...promotionEvidence.inspection.value,
-          credential: {
-            ...promotionEvidence.inspection.value.credential,
-            schemaSaid: promotionMandateV3SchemaSaid,
-            schemaDocument: {
-              kind: 'Resolved' as const,
-              schemaSaid: promotionMandateV3SchemaSaid,
-            },
+  it.each([
+    [6, taskMandateV2SchemaSaid, promotionMandateV3SchemaSaid],
+    [8, taskMandateV3SchemaSaid, promotionMandateV5SchemaSaid],
+  ] as const)(
+    'reinspects the exact Governor credential for a current v2 Task quota%s',
+    async (runs, taskSchema, promotionSchema) => {
+      const experience = {
+        corpusSaid: value('q'),
+        repositoryResourceSaid: value('r'),
+        disclosure: 'AuthorizedAnalogy' as const,
+      };
+      const prepared = prepareTaskCommandV2(
+        {
+          version: 2,
+          label: command.label,
+          title: task.revision.title,
+          objective: task.revision.objective,
+          repository: { kind: 'currentHead' },
+          deliverables: [...task.revision.deliverables],
+          completionConditions: [...task.revision.completionConditions],
+          constraints: {
+            ...task.revision.constraints,
+            dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+            experience,
           },
-          taskRevisionSaid: currentTask.revisionSaid,
-          capabilityCeiling: v2TaskMandateEvidence.allowedCapabilities,
-          budgetCeiling: currentTask.revision.budgets,
-          evolutionClassCeiling: currentTask.revision.evolutionClasses,
-          experience,
-          evaluationManifestSaid: value('s'),
-          requiredMetrics: promotionRequiredMetrics,
-          requiredChecks: promotionRequiredChecks,
-          riskLimit: promotionRiskLimit,
+          requestedCapabilities: [...task.revision.requestedCapabilities, 'ReadTaskMemory'],
+          unavailableCapabilities: [...task.revision.unavailableCapabilities],
+          budgets: {
+            ...task.revision.budgets,
+            ...taskEvaluationBudgetCeilings,
+            runsPerAdmittedUser: runs,
+          },
+          expiresAt: task.revision.expiresAt,
+          evolutionClasses: [...task.revision.evolutionClasses],
+          checkpointExpectations: [...task.revision.checkpointExpectations],
         },
-      },
-    };
-    const outcome = await authorizeCurrentPromotionMandate(
-      { ...input, taskRevisionSaid: currentTask.revisionSaid },
-      {
-        ...dependencies(),
-        currentTaskMandate: {
-          authorize: () =>
-            Promise.resolve({
-              kind: 'CurrentTaskMandateAuthorized',
-              task: currentTask,
-              mandate: verifiedTaskMandate.mandate,
-            }),
+        task.commandId,
+        task.revision.repository,
+      );
+      if (prepared.kind !== 'Prepared') throw new Error('expected v2 Task fixture');
+      const currentTask = {
+        ...task,
+        revisionSaid: prepared.command.revision.d,
+        revision: prepared.command.revision,
+      };
+      const v2TaskMandateEvidence = {
+        ...taskMandateEvidence,
+        credential: {
+          ...taskMandateEvidence.credential,
+          schemaSaid: taskSchema,
+          schemaDocument: { kind: 'Resolved' as const, schemaSaid: taskSchema },
         },
-        presentations: {
-          findByCredential: () =>
-            Promise.resolve({
-              kind: 'PresentationFound',
-              stored: {
-                ...stored,
-                presentation: {
-                  ...stored.presentation,
-                  acceptedReference: {
-                    issueeAid: governorAid,
-                    registryId,
-                    taskId,
-                    taskRevisionSaid: currentTask.revisionSaid,
+        taskRevisionSaid: currentTask.revisionSaid,
+        allowedCapabilities: currentTask.revision.requestedCapabilities,
+        budgets: currentTask.revision.budgets,
+        allowedEvolutionClasses: currentTask.revision.evolutionClasses,
+        experience,
+      };
+      const verifiedTaskMandate = verifyTaskMandate(
+        {
+          credential: {
+            issuerAid: ownerAid,
+            issueeAid: personalAgentAid,
+            registryId,
+            schemaSaid: taskSchema,
+            credentialSaid: taskMandateSaid,
+          },
+          task: {
+            taskId,
+            ownerAid,
+            revisionSaid: currentTask.revisionSaid,
+            harnessLineageId,
+            repository: currentTask.revision.repository,
+            requestedCapabilities: currentTask.revision.requestedCapabilities,
+            unavailableCapabilities: currentTask.revision.unavailableCapabilities,
+            budgets: currentTask.revision.budgets,
+            evolutionClasses: currentTask.revision.evolutionClasses,
+            expiresAt: currentTask.revision.expiresAt,
+            experience,
+          },
+          observedAt,
+        },
+        v2TaskMandateEvidence,
+      );
+      if (verifiedTaskMandate.kind !== 'Current') throw new Error('expected current v2 mandate');
+      const v3Evidence = {
+        ...promotionEvidence,
+        inspection: {
+          ...promotionEvidence.inspection,
+          value: {
+            ...promotionEvidence.inspection.value,
+            credential: {
+              ...promotionEvidence.inspection.value.credential,
+              schemaSaid: promotionSchema,
+              schemaDocument: {
+                kind: 'Resolved' as const,
+                schemaSaid: promotionSchema,
+              },
+            },
+            taskRevisionSaid: currentTask.revisionSaid,
+            capabilityCeiling: v2TaskMandateEvidence.allowedCapabilities,
+            budgetCeiling: currentTask.revision.budgets,
+            evolutionClassCeiling: currentTask.revision.evolutionClasses,
+            experience,
+            evaluationManifestSaid: value('s'),
+            requiredMetrics: promotionRequiredMetrics,
+            requiredChecks: promotionRequiredChecks,
+            riskLimit: promotionRiskLimit,
+          },
+        },
+      };
+      const outcome = await authorizeCurrentPromotionMandate(
+        { ...input, taskRevisionSaid: currentTask.revisionSaid },
+        {
+          ...dependencies(),
+          currentTaskMandate: {
+            authorize: () =>
+              Promise.resolve({
+                kind: 'CurrentTaskMandateAuthorized',
+                task: currentTask,
+                mandate: verifiedTaskMandate.mandate,
+              }),
+          },
+          presentations: {
+            findByCredential: () =>
+              Promise.resolve({
+                kind: 'PresentationFound',
+                stored: {
+                  ...stored,
+                  presentation: {
+                    ...stored.presentation,
+                    acceptedReference: {
+                      issueeAid: governorAid,
+                      registryId,
+                      taskId,
+                      taskRevisionSaid: currentTask.revisionSaid,
+                    },
                   },
                 },
-              },
-            }),
+              }),
+          },
+          admission: {
+            inspect: () =>
+              Promise.resolve({ kind: 'MandateAdmissionInspected', evidence: v3Evidence }),
+          },
         },
-        admission: {
-          inspect: () =>
-            Promise.resolve({ kind: 'MandateAdmissionInspected', evidence: v3Evidence }),
-        },
-      },
-    );
-    expect(outcome).toMatchObject({
-      kind: 'CurrentPromotionMandateAuthorized',
-      promotionMandate: { credential: { schemaSaid: promotionMandateV3SchemaSaid } },
-    });
-  });
+      );
+      expect(outcome).toMatchObject({
+        kind: 'CurrentPromotionMandateAuthorized',
+        promotionMandate: { credential: { schemaSaid: promotionSchema } },
+      });
+    },
+  );
 
   it('reinspects the exact Governor-held credential against the exact current Task Mandate', async () => {
     const inspect = vi.fn(() =>

@@ -7,6 +7,7 @@ import {
   taskBudgetCeilings,
   type AdmitBaselineHarnessBody,
   type BaselineHarnessProjection,
+  type TaskProjection,
 } from '@devrandom/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import { inspectPiModelCompatibility } from '@devrandom/runtime';
@@ -361,7 +362,7 @@ describe('baseline Harness preparation', () => {
   ] as const)(
     'derives stable H1 for v$version quota$quota without changing spending',
     async ({ version, quota }) => {
-      let task = taskProjectionFixture();
+      let task: TaskProjection = taskProjectionFixture();
       if (version === 2) {
         const old = taskSourceFixture();
         const prepared = prepareTaskCommandV2(

@@ -30,6 +30,9 @@ import { startDevrandomIssuer } from './application/issuer-startup.js';
 import {
   credentialSchema,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
+  promotionMandateV4SchemaSaid,
+  promotionMandateV5SchemaSaid,
   promotionMandateV2SchemaSaid,
   promotionMandateV3SchemaSaid,
   verifyMandateSchemaCatalog,
@@ -639,6 +642,9 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await result.infrastructure.promotionMandateSchemaAvailability.verify();
         await result.infrastructure.promotionMandateV2SchemaAvailability.verify();
         await result.infrastructure.promotionMandateV3SchemaAvailability.verify();
+        await result.infrastructure.taskMandateV3SchemaAvailability.verify();
+        await result.infrastructure.promotionMandateV4SchemaAvailability.verify();
+        await result.infrastructure.promotionMandateV5SchemaAvailability.verify();
       },
     };
   } catch {
@@ -669,6 +675,19 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     );
     await result.infrastructure.taskMandateSchemaAvailability.resolve(
       registrationConfiguration.taskMandateSchemaOobiUrl,
+    );
+    const taskMandateV3Oobi = new URL(registrationConfiguration.taskMandateSchemaOobiUrl);
+    taskMandateV3Oobi.pathname = `/oobi/${taskMandateV3SchemaSaid}`;
+    await result.infrastructure.taskMandateV3SchemaAvailability.resolve(taskMandateV3Oobi.href);
+    const promotionMandateV4Oobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
+    promotionMandateV4Oobi.pathname = `/oobi/${promotionMandateV4SchemaSaid}`;
+    await result.infrastructure.promotionMandateV4SchemaAvailability.resolve(
+      promotionMandateV4Oobi.href,
+    );
+    const promotionMandateV5Oobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
+    promotionMandateV5Oobi.pathname = `/oobi/${promotionMandateV5SchemaSaid}`;
+    await result.infrastructure.promotionMandateV5SchemaAvailability.resolve(
+      promotionMandateV5Oobi.href,
     );
     const taskV2SchemaOobi = new URL(registrationConfiguration.taskMandateSchemaOobiUrl);
     taskV2SchemaOobi.pathname = `/oobi/${taskMandateV2SchemaSaid}`;

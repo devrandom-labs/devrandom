@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { taskMandateSchemaSaid, type TaskProjection } from '@devrandom/protocol';
+import {
+  prepareTaskCommandV2,
+  taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
+  taskMandateSchemaSaid,
+  type TaskProjection,
+} from '@devrandom/protocol';
 
 import { taskCommandFixture } from '../../task/test/task-command-fixture.js';
 import {
@@ -121,6 +127,104 @@ function dependencies(): CurrentTaskMandateDependencies {
 }
 
 describe('current Task Mandate authorization', () => {
+  it.each([6, 8])(
+    'requires the exact immutable schema for a Task requesting %s Runs',
+    async (runs) => {
+      const experience = {
+        corpusSaid: `E${'j'.repeat(43)}`,
+        repositoryResourceSaid: `E${'k'.repeat(43)}`,
+        disclosure: 'AuthorizedAnalogy' as const,
+      };
+      const prepared = prepareTaskCommandV2(
+        {
+          version: 2,
+          label: task.label,
+          title: task.revision.title,
+          objective: task.revision.objective,
+          repository: { kind: 'currentHead' },
+          deliverables: [...task.revision.deliverables],
+          completionConditions: [...task.revision.completionConditions],
+          constraints: {
+            ...task.revision.constraints,
+            dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+            experience,
+          },
+          requestedCapabilities: [...task.revision.requestedCapabilities, 'ReadTaskMemory'],
+          unavailableCapabilities: [...task.revision.unavailableCapabilities],
+          budgets: { ...task.revision.budgets, runsPerAdmittedUser: runs },
+          expiresAt: task.revision.expiresAt,
+          evolutionClasses: [...task.revision.evolutionClasses],
+          checkpointExpectations: [...task.revision.checkpointExpectations],
+        },
+        task.commandId,
+        task.revision.repository,
+      );
+      if (prepared.kind !== 'Prepared') throw new Error('v2 task fixture');
+      const selected = {
+        ...task,
+        revisionSaid: prepared.command.revision.d,
+        revision: prepared.command.revision,
+      };
+      const expectedSchema = runs === 8 ? taskMandateV3SchemaSaid : taskMandateV2SchemaSaid;
+      for (const schemaSaid of [taskMandateV2SchemaSaid, taskMandateV3SchemaSaid]) {
+        const outcome = await authorizeCurrentTaskMandate(
+          { ...input, taskRevisionSaid: selected.revisionSaid },
+          {
+            ...dependencies(),
+            tasks: { findById: () => Promise.resolve({ kind: 'TaskFound', task: selected }) },
+            presentations: {
+              findByCredential: () =>
+                Promise.resolve({
+                  kind: 'PresentationFound',
+                  stored: {
+                    ...stored,
+                    presentation: {
+                      ...stored.presentation,
+                      acceptedReference: {
+                        issueeAid: personalAgentAid,
+                        registryId,
+                        taskId,
+                        taskRevisionSaid: selected.revisionSaid,
+                      },
+                    },
+                  },
+                }),
+            },
+            admission: {
+              inspect: () =>
+                Promise.resolve({
+                  kind: 'MandateAdmissionInspected',
+                  evidence: {
+                    ...evidence,
+                    inspection: {
+                      ...evidence.inspection,
+                      value: {
+                        ...evidence.inspection.value,
+                        credential: {
+                          ...evidence.inspection.value.credential,
+                          schemaSaid,
+                          schemaDocument: { kind: 'Resolved', schemaSaid },
+                        },
+                        taskRevisionSaid: selected.revisionSaid,
+                        allowedCapabilities: selected.revision.requestedCapabilities,
+                        budgets: selected.revision.budgets,
+                        experience,
+                      },
+                    },
+                  },
+                }),
+            },
+          },
+        );
+        expect(outcome.kind).toBe(
+          schemaSaid === expectedSchema
+            ? 'CurrentTaskMandateAuthorized'
+            : 'TaskMandateBindingRejected',
+        );
+      }
+    },
+  );
+
   it.each([
     ['2026-09-24T12:29:59.999Z', 'CurrentTaskMandateAuthorized'],
     ['2026-09-24T12:30:00.000Z', 'TaskMandateRevoked'],

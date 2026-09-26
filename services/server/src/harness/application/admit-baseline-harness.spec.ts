@@ -17,6 +17,7 @@ import {
   taskEvaluationBudgetCeilings,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
 
@@ -54,7 +55,11 @@ const task = {
 
 function currentTaskMandate(selectedTask: TaskProjection = task): CurrentTaskMandate {
   const schemaSaid =
-    selectedTask.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid;
+    selectedTask.revision.version !== 2
+      ? taskMandateSchemaSaid
+      : selectedTask.revision.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
+        ? taskMandateV3SchemaSaid
+        : taskMandateV2SchemaSaid;
   const experience =
     selectedTask.revision.version === 2
       ? { experience: selectedTask.revision.constraints.experience }

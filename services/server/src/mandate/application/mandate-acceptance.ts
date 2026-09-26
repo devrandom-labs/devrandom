@@ -1,4 +1,5 @@
 import {
+  taskBudgetCeilings,
   verifyPromotionMandate,
   verifyTaskMandate,
   type CurrentTaskMandate,
@@ -13,6 +14,9 @@ import {
   promotionMandateV3SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
+  taskMandateV3SchemaSaid,
+  promotionMandateV4SchemaSaid,
+  promotionMandateV5SchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
 
@@ -80,13 +84,18 @@ function mandateTask(task: TaskProjection): MandateTask {
 
 function promotionSchemaSaid(task: TaskProjection, inspection: PromotionMandateInspection): string {
   if (task.revision.version !== 2) return promotionMandateSchemaSaid;
-  return inspection.credential.schemaSaid === promotionMandateV3SchemaSaid &&
+  const expanded =
+    task.revision.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser;
+  const exactSchema = expanded ? promotionMandateV5SchemaSaid : promotionMandateV3SchemaSaid;
+  return inspection.credential.schemaSaid === exactSchema &&
     'evaluationManifestSaid' in inspection &&
     'requiredMetrics' in inspection &&
     'requiredChecks' in inspection &&
     'riskLimit' in inspection
-    ? promotionMandateV3SchemaSaid
-    : promotionMandateV2SchemaSaid;
+    ? exactSchema
+    : expanded
+      ? promotionMandateV4SchemaSaid
+      : promotionMandateV2SchemaSaid;
 }
 
 export type CurrentTaskMandateInspection =
@@ -231,7 +240,12 @@ export function inspectCurrentTaskMandate(input: {
         issueeAid: acceptedReference.issueeAid,
         registryId: acceptedReference.registryId,
         schemaSaid:
-          input.task.revision.version === 2 ? taskMandateV2SchemaSaid : taskMandateSchemaSaid,
+          input.task.revision.version !== 2
+            ? taskMandateSchemaSaid
+            : input.task.revision.budgets.runsPerAdmittedUser >
+                taskBudgetCeilings.runsPerAdmittedUser
+              ? taskMandateV3SchemaSaid
+              : taskMandateV2SchemaSaid,
         credentialSaid: input.credentialSaid,
       },
       task: mandateTask(input.task),
@@ -382,7 +396,11 @@ async function currentTaskMandate(
           issueeAid: accepted.issueeAid,
           registryId: accepted.registryId,
           schemaSaid:
-            task.experience === undefined ? taskMandateSchemaSaid : taskMandateV2SchemaSaid,
+            task.experience === undefined
+              ? taskMandateSchemaSaid
+              : task.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
+                ? taskMandateV3SchemaSaid
+                : taskMandateV2SchemaSaid,
           credentialSaid: stored.presentation.binding.credentialSaid,
         },
         task,

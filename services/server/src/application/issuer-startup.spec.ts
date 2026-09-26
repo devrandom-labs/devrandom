@@ -110,6 +110,18 @@ function verifiedInfrastructure(
       resolve: () => Promise.resolve(),
       verify: () => Promise.resolve(),
     },
+    taskMandateV3SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
+    promotionMandateV4SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
+    promotionMandateV5SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
     mandateAdmission: {
       inspect: () => Promise.resolve({ kind: 'Unavailable', dependency: 'Keria' }),
       begin: () => Promise.resolve({ kind: 'Unavailable', dependency: 'Keria' }),
