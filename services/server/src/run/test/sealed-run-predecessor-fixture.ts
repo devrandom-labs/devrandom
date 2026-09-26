@@ -2,6 +2,7 @@ import { acquireFirstRunLease, createEvidenceStream, type Run } from '@devrandom
 import {
   prepareEvidenceEvent,
   prepareVerifiedCheckpoint,
+  preparePublicVerifierReceipt,
   type EvidenceEvent,
   type EvidenceEventDetail,
 } from '@devrandom/protocol';
@@ -11,7 +12,12 @@ export function sealedRunPredecessorFixture(
   extraBeforeCheckpoint: readonly EvidenceEventDetail[] = [],
   reason:
     'CheckpointPause' | 'HarnessCompatibilityFailure' | 'ContextLimitReached' = 'CheckpointPause',
-  options?: { readonly run: Run; readonly leaseAt: string; readonly at: string },
+  options?: {
+    readonly run: Run;
+    readonly leaseAt: string;
+    readonly at: string;
+    readonly completionConditionIds?: readonly string[];
+  },
 ) {
   const base = options?.run ?? runFixture();
   const at = options?.at ?? '2026-09-24T20:00:01.000Z';
@@ -91,7 +97,17 @@ export function sealedRunPredecessorFixture(
         changedFiles: [],
       },
       outputArtifactSaids: [],
-      verifierReceipts: [],
+      verifierReceipts: (options?.completionConditionIds ?? []).map((completionConditionId) => {
+        const receipt = preparePublicVerifierReceipt({
+          version: 1,
+          completionConditionId,
+          commandSaid: `E${'v'.repeat(43)}`,
+          recordedAt: at,
+          outcome: { kind: 'Unresolved', reason: 'RunBlocked' },
+        });
+        if (receipt.kind !== 'Prepared') throw new Error('verifier fixture');
+        return receipt.receipt;
+      }),
       evidence: {
         eventCount: events.length,
         finalSequence: head.sequence,
@@ -113,7 +129,7 @@ export function sealedRunPredecessorFixture(
                   : 'LaterRuntimeRecoveryRequired',
             },
     },
-    [],
+    options?.completionConditionIds ?? [],
   );
   if (preparedCheckpoint.kind !== 'Prepared') throw new Error('checkpoint fixture');
   const checkpoint = preparedCheckpoint.checkpoint;
@@ -146,6 +162,8 @@ export function sealedRunPredecessorFixture(
   if (createdStream.kind !== 'Created') throw new Error('stream fixture');
   const stream = {
     ...createdStream.stream,
+    version: 2,
+    acceptedEvidenceBytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
     cursor: { kind: 'Continued' as const, acceptedThrough: last.sequence, chainHeadSaid: last.d },
     provisional: {
       kind: 'Checkpointed' as const,

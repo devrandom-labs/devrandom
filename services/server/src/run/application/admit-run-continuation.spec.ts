@@ -122,3 +122,67 @@ describe('same-Run continuation admission authority', () => {
     expect(newPorts.commitments.admit).not.toHaveBeenCalled();
   });
 });
+
+it('binds calibration recovery to the unchanged initial pointer without Governor activation', async () => {
+  const ports = dependencies();
+  const calibration = {
+    ...run,
+    binding: {
+      ...run.binding,
+      purpose: {
+        kind: 'PreparedCompatibilityCalibration' as const,
+        campaignId: 'a6b175e6-6b6a-4d34-9c31-23879b37752e',
+        ordinal: 1 as const,
+      },
+    },
+  };
+  const { expectedActivePointerVersion, expectedActivationReceiptSaid, ...common } = command;
+  expect(expectedActivePointerVersion).toBe(2);
+  expect(expectedActivationReceiptSaid).toBeTruthy();
+  const recovery = {
+    ...common,
+    version: 2 as const,
+    kind: 'CalibrationContinuation' as const,
+    expectedHarnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+  };
+  const initialPointer = {
+    version: 1 as const,
+    kind: 'Initial' as const,
+    pointerVersion: 1 as const,
+    taskId: run.binding.taskId,
+    taskRevisionSaid: run.binding.taskRevisionSaid,
+    harnessLineageId: run.binding.harnessLineageId,
+    activeRevisionSaid: run.binding.initialHarnessRevisionSaid,
+  };
+  const current = {
+    ...ports,
+    runs: { findById: () => Promise.resolve({ kind: 'RunFound' as const, run: calibration }) },
+    activation: { read: () => Promise.resolve({ kind: 'Read' as const, pointer: initialPointer }) },
+  };
+  await admitRunContinuation(
+    { owner, runId: calibration.binding.runId, command: recovery },
+    current,
+  );
+  expect(ports.commitments.admit).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ run: calibration, command: recovery, activation: initialPointer }),
+  );
+  ports.commitments.admit.mockClear();
+  expect(
+    await admitRunContinuation(
+      {
+        owner,
+        runId: calibration.binding.runId,
+        command: { ...recovery, expectedHarnessRevisionSaid: `E${'q'.repeat(43)}` },
+      },
+      current,
+    ),
+  ).toEqual({ kind: 'Rejected' });
+  expect(ports.commitments.admit).not.toHaveBeenCalled();
+  expect(
+    await admitRunContinuation(
+      { owner, runId: run.binding.runId, command: recovery },
+      { ...current, runs: ports.runs },
+    ),
+  ).toEqual({ kind: 'Rejected' });
+  expect(ports.commitments.admit).not.toHaveBeenCalled();
+});
