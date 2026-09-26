@@ -298,6 +298,11 @@ export async function nativeComparisonCandidates(
     ...manifestFields,
     allocation: {
       ...initial.allocation,
+      perEntry: {
+        ...initial.allocation.perEntry,
+        providerRequests: 10,
+        providerInputTokens: 100_000,
+      },
       finalization: {
         ...initial.allocation.finalization,
         runWallTimeSeconds: 1800,
