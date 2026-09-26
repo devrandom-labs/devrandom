@@ -1,4 +1,64 @@
-# Devrandom backup demonstration
+# Devrandom interactive CLI demonstration
+
+Run the interactive CLI:
+
+```sh
+nix develop -c just demo-prd03
+```
+
+The presenter does nothing until you choose an action. Start with `live whoami`,
+`live task-list`, then `live task-inspect` and enter an existing Task label.
+`live init` invokes the actual onboarding command. `actions` lists the real CLI
+paths; input prompts supply their existing arguments. No browser demo or second
+server is required. Build the product CLI first with
+`nix develop -c just build-package @devrandom/cli` when its build is missing.
+
+If the operator normally uses an environment file, pass its path explicitly:
+
+```sh
+DEVRANDOM_DEMO_ENV_FILE=/absolute/path/to/.env.cli nix develop -c just demo-prd03
+```
+
+For an isolated presenter checkout, `DEVRANDOM_DEMO_REPOSITORY_ROOT` selects the
+built product checkout. No keys are copied. Real commands retain their normal
+identity, server authorization, errors and prerequisites. A nonzero exit never
+switches to simulated success. Mutating actions require typing `RUN`; running a
+Task can consume the real authorized provider budget. Do not recreate or run an
+existing campaign merely to open the demo.
+
+For the unproven continuation, choose `simulate`, then enter actions individually:
+
+```text
+sim task
+sim baseline
+sim compare workflow
+sim approve agent
+sim approve
+sim network
+sim crash
+sim resume
+sim publish
+sim fork
+```
+
+Every such result is marked **SIMULATED**, with visibly synthetic identifiers.
+Try `sim compare instruction` or `sim compare none` after `sim reset`, `sim task`
+and `sim baseline` to explore different outcomes. `sim inspect` explains current
+state; `sim evidence` explains its limits. Reset changes only ephemeral presenter
+state. Simulated results never become live Tasks, evidence, credentials or Atlas
+records. The model's actual winner remains determined by actual evaluation.
+
+When a live stage has its real prerequisite artifacts, use `actions`, then
+`enable <action>` and `live <action>` to call that same existing public command.
+This only selects the live route; it grants no authority and bypasses no check.
+As the product becomes ready, use its live route instead of the simulation.
+
+`proofs` reads the separate retained proof report and verifies its hashes; missing
+reports remain unavailable. `exit` ends the session. For the original narrated
+backup use `nix develop -c just demo-prd03-recorded`; stage playback remains
+available as `nix develop -c just demo-prd03 <proof-directory> <stage>`.
+
+## Recorded mechanism-proof backup
 
 This is a **recorded simulation with independent mechanism proofs**. It is not
 one continuous live campaign. Qualification of a genuine H1 failure, live H2
@@ -35,7 +95,7 @@ are not needed for playback after a successful preparation.
 1. **Opening — 45 seconds.** Display the overview:
 
    ```sh
-   nix develop -c just demo-prd03
+   nix develop -c just demo-prd03-recorded
    ```
 
    Say: “This is our simulation backup. These are recorded, independently

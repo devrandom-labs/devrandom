@@ -503,6 +503,9 @@ demo-prd03-prepare output=".devrandom/prd03-demo": _require-nix
     pnpm exec tsx tooling/prd03-demo.ts prepare {{quote(output)}}
 
 demo-prd03 output=".devrandom/prd03-demo" stage="": _require-nix
+    {{ if stage == "" { "pnpm exec tsx tooling/prd03-interactive.ts " + quote(output) } else { "pnpm exec tsx tooling/prd03-demo.ts present " + quote(output) + " " + quote(stage) } }}
+
+demo-prd03-recorded output=".devrandom/prd03-demo" stage="": _require-nix
     pnpm exec tsx tooling/prd03-demo.ts present {{quote(output)}} {{ if stage == "" { "" } else { quote(stage) } }}
 
 test-cesr-fixture: _require-nix
