@@ -112,7 +112,8 @@ export class HostedEvaluationProviderCustody implements EvaluationProviderCustod
       const accepted: Current['accepted'][number][] = [];
       if (prefix !== undefined) {
         for (const event of prefix.events) {
-          if (event.detail.kind !== 'ProviderUsageVerified') continue;
+          if (event.detail.kind !== 'ProviderUsageVerified' || event.phase.kind !== 'Trial')
+            continue;
           const verifier = new AcceptedConcentrateProviderUsage({
             binding: {
               ...binding,

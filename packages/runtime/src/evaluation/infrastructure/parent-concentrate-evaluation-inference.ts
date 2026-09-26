@@ -106,7 +106,6 @@ export class ParentConcentrateEvaluationInference implements EvaluationModelInfe
       this.#nextOrdinal < 0 ||
       input.requestOrdinal !== this.#nextOrdinal ||
       validateExecutionBinding(input.binding).kind !== 'Accepted' ||
-      input.binding.phase.kind !== 'Trial' ||
       input.modelProfileSaid !== profile.d ||
       input.maximumOutputTokens !== profile.maximumOutputTokens ||
       opened.model.provider !== 'concentrate' ||

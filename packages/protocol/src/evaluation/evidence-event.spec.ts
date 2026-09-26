@@ -131,7 +131,7 @@ describe('native evaluation evidence stream', () => {
     });
   });
 
-  it('accepts only a source-bound provider verification event in a trial phase', () => {
+  it('accepts source-bound provider verification for trial and policy-bound research', () => {
     const verified = prepareEvaluationEvidenceEvent({
       ...event,
       sequence: 1,
@@ -159,7 +159,7 @@ describe('native evaluation evidence stream', () => {
           requestOrdinal: 0,
         },
       }),
-    ).toEqual({ kind: 'Rejected', reason: 'SchemaInvalid' });
+    ).toMatchObject({ kind: 'Prepared' });
   });
 
   it('rejects a Run-shaped alias and a hidden answer in an event', () => {

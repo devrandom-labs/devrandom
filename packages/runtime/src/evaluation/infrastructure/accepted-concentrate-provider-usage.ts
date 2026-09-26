@@ -88,8 +88,7 @@ export class AcceptedConcentrateProviderUsage {
 
   async verifyProviderUsage(input: { readonly usageEventSaid: string }): Promise<Verification> {
     const { binding, accepted } = this.#parent;
-    if (validateExecutionBinding(binding).kind !== 'Accepted' || binding.phase.kind !== 'Trial')
-      return { kind: 'Missing' };
+    if (validateExecutionBinding(binding).kind !== 'Accepted') return { kind: 'Missing' };
     try {
       const prefix = await accepted.open(binding);
       if (prefix.kind !== 'Acknowledged') return prefix;

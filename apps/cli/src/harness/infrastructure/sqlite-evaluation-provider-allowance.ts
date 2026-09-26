@@ -8,8 +8,22 @@ import {
   validateExecutionBinding,
   type EvaluationExecutionBinding,
 } from '@devrandom/domain';
-import { decodeEvaluationManifest, prepareEvidenceArtifact } from '@devrandom/protocol';
-import type { EvaluationProviderAllowance, EvaluationProviderCustody } from '@devrandom/runtime';
+import {
+  decodeEvaluationManifest,
+  decodeEvaluationPolicy,
+  prepareEvidenceArtifact,
+} from '@devrandom/protocol';
+import type {
+  EvaluationProviderAllowance,
+  EvaluationProviderCustody,
+  EvaluationResearchProviderCustody,
+} from '@devrandom/runtime';
+
+type ProviderCustody = EvaluationProviderCustody | EvaluationResearchProviderCustody;
+type ResearchCurrent = Extract<
+  Awaited<ReturnType<EvaluationResearchProviderCustody['inspect']>>,
+  { readonly kind: 'ResearchCurrent' }
+>;
 
 type Current = Extract<
   Awaited<ReturnType<EvaluationProviderCustody['inspect']>>,
@@ -128,7 +142,7 @@ function amount(value: Maximum | Verified, name: Dimension): number {
 }
 
 function providerLimits(
-  current: Current,
+  current: Current | ResearchCurrent,
   binding: EvaluationExecutionBinding,
 ):
   | {
@@ -138,6 +152,7 @@ function providerLimits(
       readonly searchAttempt: Readonly<Record<Dimension, number>>;
     }
   | undefined {
+  if (current.kind === 'ResearchCurrent') return researchProviderLimits(current, binding);
   const { admission, manifest, lock, lease, ownerAid } = current;
   const phase = binding.phase;
   if (
@@ -236,6 +251,83 @@ function providerLimits(
   };
 }
 
+function researchProviderLimits(
+  current: ResearchCurrent,
+  binding: EvaluationExecutionBinding,
+): ReturnType<typeof providerLimits> {
+  const { policy, admission, lease, ownerAid } = current;
+  if (
+    validateExecutionBinding(binding).kind !== 'Accepted' ||
+    binding.phase.kind !== 'Research' ||
+    decodeEvaluationPolicy(policy).kind !== 'Accepted' ||
+    binding.phase.policySaid !== policy.d ||
+    binding.taskId !== policy.taskId ||
+    binding.taskRevisionSaid !== policy.taskRevisionSaid ||
+    binding.originRunId !== policy.originRunId ||
+    binding.harnessRevisionSaid !== policy.expectedActiveRevisionSaid ||
+    !said.test(ownerAid) ||
+    ownerAid === binding.personalAgentAid ||
+    !uuid.test(admission.commandId) ||
+    admission.evaluationId !== binding.evaluationId ||
+    admission.evidenceStreamId !== binding.evidenceStreamId ||
+    admission.originRunId !== binding.originRunId ||
+    admission.leaseId !== binding.evaluationLeaseId ||
+    lease.evaluationId !== binding.evaluationId ||
+    lease.leaseId !== binding.evaluationLeaseId ||
+    !Number.isSafeInteger(lease.version) ||
+    lease.version < 1 ||
+    !Number.isFinite(Date.parse(lease.serverTime)) ||
+    !Number.isFinite(Date.parse(lease.expiresAt)) ||
+    Date.parse(lease.expiresAt) <= Date.now() ||
+    Date.parse(lease.expiresAt) <= Date.parse(lease.serverTime)
+  )
+    return undefined;
+  const reserved: Record<string, number> = {};
+  for (const name of evaluationConsumables) {
+    const value =
+      policy.allocation.diagnosis[name] +
+      15 * policy.allocation.perEntry[name] +
+      policy.allocation.finalization[name];
+    if (!count(value)) return undefined;
+    reserved[name] = value;
+  }
+  const reservation = prepareEvidenceArtifact(
+    new TextEncoder().encode(
+      JSON.stringify({
+        evaluationId: admission.evaluationId,
+        ownerAid,
+        commandId: admission.commandId,
+        originRunId: admission.originRunId,
+        reserved,
+      }),
+    ),
+    'application/json',
+  );
+  if (reservation.kind !== 'Prepared' || reservation.artifact.d !== admission.reservationSaid)
+    return undefined;
+  const total = {
+    providerRequests: policy.allocation.diagnosis.providerRequests,
+    inputTokens: policy.allocation.diagnosis.providerInputTokens,
+    outputTokens: policy.allocation.diagnosis.providerOutputTokens,
+    spendMicroUsd: policy.allocation.diagnosis.providerSpendMicroUsd,
+  };
+  if (dimensions.some((name) => !count(total[name]))) return undefined;
+  return {
+    scopeKey: JSON.stringify({
+      ownerAid,
+      evaluationId: admission.evaluationId,
+      streamId: admission.evidenceStreamId,
+      originRunId: admission.originRunId,
+      leaseId: admission.leaseId,
+      policySaid: policy.d,
+      reservationSaid: admission.reservationSaid,
+    }),
+    total,
+    perEntry: total,
+    searchAttempt: total,
+  };
+}
+
 function reservationRow(value: unknown): ReservationRow | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
   const row = value as Partial<ReservationRow>;
@@ -276,13 +368,13 @@ function matchesAccepted(row: ReservationRow, accepted: Accepted): boolean {
 export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllowance {
   readonly #database: DatabaseSync;
   readonly #binding: EvaluationExecutionBinding;
-  readonly #custody: EvaluationProviderCustody;
+  readonly #custody: ProviderCustody;
   readonly #scopeKey: string;
 
   private constructor(
     database: DatabaseSync,
     binding: EvaluationExecutionBinding,
-    custody: EvaluationProviderCustody,
+    custody: ProviderCustody,
     scopeKey: string,
   ) {
     this.#database = database;
@@ -294,22 +386,30 @@ export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllo
   static async open(
     stateRoot: string,
     binding: EvaluationExecutionBinding,
-    custody: EvaluationProviderCustody,
+    custody: ProviderCustody,
   ): Promise<
     | { readonly kind: 'Opened'; readonly allowance: SqliteEvaluationProviderAllowance }
     | { readonly kind: 'UnsafePath' | 'Unavailable' }
   > {
-    let current: Awaited<ReturnType<EvaluationProviderCustody['inspect']>>;
+    let current: Awaited<ReturnType<ProviderCustody['inspect']>>;
     try {
       current = await custody.inspect(binding);
     } catch {
       return { kind: 'Unavailable' };
     }
-    const limits = current.kind === 'Current' ? providerLimits(current, binding) : undefined;
+    const limits =
+      current.kind === 'Current' || current.kind === 'ResearchCurrent'
+        ? providerLimits(current, binding)
+        : undefined;
     if (limits === undefined) return { kind: 'Unavailable' };
     const directory = directoryFor(stateRoot, binding.evaluationId);
     if (directory === undefined) return { kind: 'UnsafePath' };
-    const path = join(directory, 'provider-allowance.sqlite');
+    const path = join(
+      directory,
+      binding.phase.kind === 'Research'
+        ? 'research-provider-allowance.sqlite'
+        : 'provider-allowance.sqlite',
+    );
     if (!privateDatabase(path)) return { kind: 'UnsafePath' };
     let database: DatabaseSync | undefined;
     try {
@@ -367,14 +467,21 @@ export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllo
       !count(input.requestOrdinal)
     )
       return { kind: 'Unavailable' };
-    let current: Awaited<ReturnType<EvaluationProviderCustody['inspect']>>;
+    let current: Awaited<ReturnType<ProviderCustody['inspect']>>;
     try {
       current = await this.#custody.inspect(binding);
     } catch {
       return { kind: 'Unavailable' };
     }
-    const limits = current.kind === 'Current' ? providerLimits(current, binding) : undefined;
-    if (current.kind !== 'Current' || limits === undefined || limits.scopeKey !== this.#scopeKey)
+    const limits =
+      current.kind === 'Current' || current.kind === 'ResearchCurrent'
+        ? providerLimits(current, binding)
+        : undefined;
+    if (
+      (current.kind !== 'Current' && current.kind !== 'ResearchCurrent') ||
+      limits === undefined ||
+      limits.scopeKey !== this.#scopeKey
+    )
       return { kind: 'Unavailable' };
     const slotKey = `${binding.phase.kind}:${binding.phase.kind === 'Trial' ? binding.phase.arm : ''}:${binding.phase.kind === 'Trial' ? String(binding.phase.repetition) : ''}`;
     const attemptKey =

@@ -1,4 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { TrialObservationEvidence } from './comparison-evidence.js';
+import type { EvaluationManifest } from './manifest.js';
+import type { EvaluationExecutionWireBinding } from './execution-binding.js';
+import type { ComparisonSlot } from '@devrandom/domain';
+
+expectTypeOf<TrialObservationEvidence['observation']['slot']['arm']>().toEqualTypeOf<
+  ComparisonSlot['arm']
+>();
+expectTypeOf<EvaluationManifest['slots'][number]['arm']>().toEqualTypeOf<ComparisonSlot['arm']>();
+expectTypeOf<
+  Extract<EvaluationExecutionWireBinding['phase'], { kind: 'Trial' }>['arm']
+>().toEqualTypeOf<ComparisonSlot['arm']>();
 
 import {
   decodeComparisonMeasurementEvidence,

@@ -234,8 +234,6 @@ function invalidEvent(
     input.detail.consumed < input.detail.amount
   )
     return 'SchemaInvalid';
-  if (input.detail.kind === 'ProviderUsageVerified' && input.phase.kind !== 'Trial')
-    return 'SchemaInvalid';
   if (
     input.phase.kind === 'Trial' &&
     input.phase.arm !== 'H1TaskSearch' &&

@@ -26,6 +26,23 @@ const input = {
 } as const;
 
 describe('Evaluation provider usage raw receipt', () => {
+  it('binds pre-manifest research to its policy and role without invented trial rights', () => {
+    const prepared = prepareEvaluationProviderUsageReceipt({
+      ...input,
+      phase: { kind: 'Research', policySaid: said('p'), role: 'CandidateWorker' },
+    });
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') return;
+    expect(decodeEvaluationProviderUsageReceipt(prepared.artifact, prepared.bytes).kind).toBe(
+      'Accepted',
+    );
+    expect(
+      prepareEvaluationProviderUsageReceipt({
+        ...input,
+        phase: { kind: 'Research', policySaid: said('p'), role: 'Governor' },
+      }).kind,
+    ).toBe('Rejected');
+  });
   it('binds exact versioned bytes, source event, and original provider report', () => {
     const prepared = prepareEvaluationProviderUsageReceipt(input);
     expect(prepared.kind).toBe('Prepared');

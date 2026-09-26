@@ -114,13 +114,11 @@ describe('Evaluation tool effects', () => {
     const inspect = vi
       .fn()
       .mockResolvedValue({ kind: 'Held', expiresAt: '2026-09-26T13:00:00.000Z' });
-    const mandate = vi
-      .fn()
-      .mockResolvedValue({
-        kind: 'Current',
-        mandateSaid: trial.binding.taskMandateSaid,
-        allowedCapabilities: ['ReadRepository'],
-      });
+    const mandate = vi.fn().mockResolvedValue({
+      kind: 'Current',
+      mandateSaid: trial.binding.taskMandateSaid,
+      allowedCapabilities: ['ReadRepository'],
+    });
     const gateway = new AuthorizedEvaluationTools({
       manifest: trial.manifest,
       activeTools: [{ name: 'read_file', requiredCapability: 'ReadRepository' }],

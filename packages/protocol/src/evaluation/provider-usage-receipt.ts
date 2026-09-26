@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 
 import Type from 'typebox';
 import Value from 'typebox/value';
+import { evaluationExecutionBindingSchema } from './execution-binding.js';
 
 import {
   decodeEvidenceArtifact,
@@ -14,25 +15,13 @@ const uuid = Type.String({
   pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 });
 const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
-const trialPhase = Type.Object(
-  {
-    kind: Type.Literal('Trial'),
-    manifestSaid: said,
-    arm: Type.Union(
-      (['H1', 'C1', 'C2', 'C3', 'H1TaskSearch'] as const).map((arm) => Type.Literal(arm)),
-    ),
-    repetition: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]),
-    attempt: Type.Union([Type.Literal(1), Type.Literal(2)]),
-  },
-  { additionalProperties: false },
-);
 
 export const evaluationProviderUsageReceiptInputSchema = Type.Object(
   {
     evaluationId: uuid,
     streamId: uuid,
     harnessRevisionSaid: said,
-    phase: trialPhase,
+    phase: evaluationExecutionBindingSchema.properties.phase,
     modelExchangeEventSaid: said,
     requestOrdinal: count,
     provider: Type.String({ minLength: 1, maxLength: 128 }),
@@ -106,7 +95,9 @@ function valid(receipt: EvaluationProviderUsageReceipt): boolean {
     Number.isSafeInteger(cached) &&
     cached <= receipt.inputTokens &&
     total === receipt.totalTokens &&
-    (receipt.phase.arm === 'H1TaskSearch' || receipt.phase.attempt === 1)
+    (receipt.phase.kind === 'Research' ||
+      receipt.phase.arm === 'H1TaskSearch' ||
+      receipt.phase.attempt === 1)
   );
 }
 

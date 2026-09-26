@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
+import type { EvaluationExecutionBinding } from '@devrandom/domain';
 import {
   prepareEvidenceArtifact,
   prepareEvaluationEvidenceEvent,
@@ -13,7 +14,7 @@ import { AcceptedConcentrateProviderUsage } from './accepted-concentrate-provide
 
 const said = (letter: string): string => `E${letter.repeat(43)}`;
 
-function fixture() {
+function fixture(phase?: EvaluationExecutionBinding['phase']) {
   const binding = {
     kind: 'Evaluation' as const,
     evaluationId: randomUUID(),
@@ -25,7 +26,7 @@ function fixture() {
     personalAgentAid: said('a'),
     taskMandateSaid: said('m'),
     harnessRevisionSaid: said('h'),
-    phase: {
+    phase: phase ?? {
       kind: 'Trial' as const,
       manifestSaid: said('v'),
       arm: 'H1' as const,
@@ -140,25 +141,32 @@ function fixture() {
 }
 
 describe('accepted Concentrate provider usage replay', () => {
-  it('verifies source, exact raw terminal report, and charge after reopening accepted custody', async () => {
-    const given = fixture();
-    const first = new AcceptedConcentrateProviderUsage(given);
-    const second = new AcceptedConcentrateProviderUsage(given);
-    const expected = {
-      kind: 'Verified',
-      usageEventSaid: given.usageEvent.d,
-      responseId: 'response-1',
-      inputTokens: 14,
-      outputTokens: 2,
-      spendMicroUsd: 7,
-    };
-    expect(await first.verifyProviderUsage({ usageEventSaid: given.usageEvent.d })).toEqual(
-      expected,
-    );
-    expect(await second.verifyProviderUsage({ usageEventSaid: given.usageEvent.d })).toEqual(
-      expected,
-    );
-  });
+  it.each(['Trial', 'Research'] as const)(
+    'verifies %s source, exact raw terminal report, and charge after reopening accepted custody',
+    async (kind) => {
+      const given = fixture(
+        kind === 'Research'
+          ? { kind: 'Research', policySaid: said('p'), role: 'DiagnosticRefiner' }
+          : undefined,
+      );
+      const first = new AcceptedConcentrateProviderUsage(given);
+      const second = new AcceptedConcentrateProviderUsage(given);
+      const expected = {
+        kind: 'Verified',
+        usageEventSaid: given.usageEvent.d,
+        responseId: 'response-1',
+        inputTokens: 14,
+        outputTokens: 2,
+        spendMicroUsd: 7,
+      };
+      expect(await first.verifyProviderUsage({ usageEventSaid: given.usageEvent.d })).toEqual(
+        expected,
+      );
+      expect(await second.verifyProviderUsage({ usageEventSaid: given.usageEvent.d })).toEqual(
+        expected,
+      );
+    },
+  );
 
   it('fails closed on missing event or substituted exact provider bytes', async () => {
     const given = fixture();

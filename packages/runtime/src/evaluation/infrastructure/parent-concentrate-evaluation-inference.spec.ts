@@ -112,6 +112,19 @@ const request = {
   signal: new AbortController().signal,
 };
 
+it('uses the same leased, reserved provider boundary for pre-manifest research', async () => {
+  const given = fixture();
+  const research: EvaluationExecutionBinding = {
+    ...binding,
+    phase: { kind: 'Research', policySaid: said('q'), role: 'DiagnosticRefiner' },
+  };
+  expect(await given.inference.complete({ ...request, binding: research })).toMatchObject({
+    kind: 'Completed',
+  });
+  expect(given.calls).toEqual(['lease', 'reserve', 'provider', 'record', 'lease']);
+  expect(given.reserve).toHaveBeenCalledWith(expect.objectContaining({ binding: research }));
+});
+
 it('returns an exact parent-observed provider frame only after lease, reservation and usage settlement', async () => {
   const given = fixture();
   expect(await given.inference.complete(request)).toEqual({

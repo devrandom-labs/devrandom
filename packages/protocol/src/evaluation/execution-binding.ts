@@ -19,9 +19,13 @@ const phase = Type.Union([
     {
       kind: Type.Literal('Trial'),
       manifestSaid: said,
-      arm: Type.Union(
-        (['H1', 'C1', 'C2', 'C3', 'H1TaskSearch'] as const).map((arm) => Type.Literal(arm)),
-      ),
+      arm: Type.Union([
+        Type.Literal('H1'),
+        Type.Literal('C1'),
+        Type.Literal('C2'),
+        Type.Literal('C3'),
+        Type.Literal('H1TaskSearch'),
+      ]),
       repetition: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]),
       attempt: Type.Union([Type.Literal(1), Type.Literal(2)]),
     },

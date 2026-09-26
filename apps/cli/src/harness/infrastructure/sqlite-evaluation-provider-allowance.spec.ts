@@ -6,10 +6,15 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 
 import type { EvaluationExecutionBinding } from '@devrandom/domain';
-import { prepareEvaluationManifest, prepareEvidenceArtifact } from '@devrandom/protocol';
+import {
+  prepareEvaluationManifest,
+  prepareEvaluationPolicy,
+  prepareEvidenceArtifact,
+} from '@devrandom/protocol';
 
 import { SqliteEvaluationProviderAllowance } from './sqlite-evaluation-provider-allowance.js';
 import { HostedEvaluationProviderCustody } from './hosted-evaluation-provider-custody.js';
+import { HostedEvaluationResearchProviderCustody } from './hosted-evaluation-research-provider-custody.js';
 
 const said = (letter: string): string => `E${letter.repeat(43)}`;
 const roots: string[] = [];
@@ -130,6 +135,126 @@ function fixture() {
   };
   return { stateRoot, binding, current, inspect: () => Promise.resolve(current) };
 }
+
+it('reserves research from the policy diagnosis allocation before M exists and fences a crash', async () => {
+  const given = fixture();
+  const manifest = given.current.manifest;
+  const prepared = prepareEvaluationPolicy({
+    taskId: manifest.taskId,
+    taskRevisionSaid: manifest.taskRevisionSaid,
+    originRunId: manifest.originRunId,
+    expectedActiveRevisionSaid: manifest.revisions.H1,
+    executionProfileSaid: manifest.executionProfileSaid,
+    sourceInventorySaid: manifest.sourceInventorySaid,
+    comparisonLaw: 'ThreeRepetitionsTwoAttemptsPublicSearch',
+    allocation: manifest.allocation,
+  });
+  if (prepared.kind !== 'Prepared') throw new Error(prepared.reason);
+  const research: EvaluationExecutionBinding = {
+    ...given.binding,
+    phase: { kind: 'Research', policySaid: prepared.policy.d, role: 'DiagnosticRefiner' },
+  };
+  const custody = {
+    inspect: () =>
+      Promise.resolve({
+        kind: 'ResearchCurrent' as const,
+        ownerAid: given.current.ownerAid,
+        admission: given.current.admission,
+        policy: prepared.policy,
+        lease: given.current.lease,
+        accepted: given.current.accepted,
+      }),
+  };
+  const command = {
+    version: 1 as const,
+    commandId: given.current.admission.commandId,
+    fingerprint: `sha256:${'a'.repeat(64)}`,
+    taskId: research.taskId,
+    taskRevisionSaid: research.taskRevisionSaid,
+    originRunId: research.originRunId,
+    retainedCheckpointSaid: manifest.retainedCheckpointSaid,
+    retainedSealSaid: manifest.retainedSealSaid,
+    expectedActiveRevisionSaid: research.harnessRevisionSaid,
+    personalAgentAid: research.personalAgentAid,
+    taskMandateSaid: research.taskMandateSaid,
+    policySaid: prepared.policy.d,
+    executionProfileSaid: prepared.policy.executionProfileSaid,
+    sourceInventorySaid: prepared.policy.sourceInventorySaid,
+    allocation: prepared.policy.allocation,
+  };
+  const hosted = new HostedEvaluationResearchProviderCustody({
+    ownerAid: given.current.ownerAid,
+    policy: prepared.policy,
+    command,
+    http: {
+      admit: () =>
+        Promise.resolve({
+          kind: 'Admitted',
+          evaluationId: research.evaluationId,
+          version: 1,
+          lease: given.current.lease,
+          evidenceStreamId: research.evidenceStreamId,
+          reservationSaid: given.current.admission.reservationSaid,
+        }),
+      readPosition: () =>
+        Promise.resolve({
+          kind: 'Read',
+          position: {
+            version: 1,
+            evaluationId: research.evaluationId,
+            ownerAid: given.current.ownerAid,
+            commandId: command.commandId,
+            originRunId: research.originRunId,
+            streamId: research.evidenceStreamId,
+            reservationSaid: given.current.admission.reservationSaid,
+            lease: given.current.lease,
+            acceptedThroughSequence: -1,
+            chainHeadSaid: null,
+          },
+        }),
+      readEvidencePage: () => Promise.resolve({ kind: 'Unavailable' }),
+      readPublicArtifact: () => Promise.resolve({ kind: 'Unavailable' }),
+    },
+  });
+  expect(await hosted.inspect(research)).toEqual(await custody.inspect());
+  expect(await hosted.inspect({ ...research, taskMandateSaid: said('z') })).toEqual({
+    kind: 'Lost',
+  });
+  const opened = await SqliteEvaluationProviderAllowance.open(given.stateRoot, research, custody);
+  expect(opened.kind).toBe('Opened');
+  if (opened.kind !== 'Opened') return;
+  const maximum = {
+    providerRequests: 1 as const,
+    inputTokens: 10,
+    outputTokens: 10,
+    spendMicroUsd: 10,
+  };
+  expect(
+    await opened.allowance.reserve({
+      binding: research,
+      requestOrdinal: 0,
+      maximum: { ...maximum, inputTokens: 21 },
+    }),
+  ).toEqual({ kind: 'Exhausted' });
+  expect(
+    await opened.allowance.reserve({ binding: research, requestOrdinal: 0, maximum }),
+  ).toMatchObject({ kind: 'Reserved' });
+  opened.allowance.close();
+  const reopened = await SqliteEvaluationProviderAllowance.open(given.stateRoot, research, custody);
+  expect(reopened.kind).toBe('Opened');
+  if (reopened.kind !== 'Opened') return;
+  expect(
+    await reopened.allowance.reserve({
+      binding: {
+        ...research,
+        phase: { kind: 'Research', policySaid: prepared.policy.d, role: 'CandidateWorker' },
+      },
+      requestOrdinal: 1,
+      maximum,
+    }),
+  ).toEqual({ kind: 'Unavailable' });
+  reopened.allowance.close();
+});
 
 it('fences a request durably before provider I/O and never reuses it after crash', async () => {
   const given = fixture();

@@ -9,6 +9,7 @@ import type {
   EvidenceArtifactMediaType,
   EvaluationEvidenceEvent,
   EvaluationManifest,
+  EvaluationPolicy,
   ProtectedEvaluationArtifact,
 } from '@devrandom/protocol';
 import type { AssistantMessage, TranscriptContext } from '@earendil-works/pi-ai';
@@ -166,6 +167,22 @@ export interface EvaluationProviderCustody {
           readonly spendMicroUsd: number;
         }[];
       }
+    | { readonly kind: 'Lost' | 'Unavailable' }
+  >;
+}
+
+type CurrentEvaluationProviderCustody = Extract<
+  Awaited<ReturnType<EvaluationProviderCustody['inspect']>>,
+  { readonly kind: 'Current' }
+>;
+
+/** Research consumes D under the admitted policy before candidate identities and M exist. */
+export interface EvaluationResearchProviderCustody {
+  inspect(binding: EvaluationExecutionBinding): Promise<
+    | (Omit<CurrentEvaluationProviderCustody, 'kind' | 'manifest' | 'lock'> & {
+        readonly kind: 'ResearchCurrent';
+        readonly policy: EvaluationPolicy;
+      })
     | { readonly kind: 'Lost' | 'Unavailable' }
   >;
 }

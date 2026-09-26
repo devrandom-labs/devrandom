@@ -17,9 +17,13 @@ const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 const conditionId = Type.String({ minLength: 1, maxLength: 96, pattern: '^[a-z][a-z0-9._-]*$' });
 const slot = Type.Object(
   {
-    arm: Type.Union(
-      (['H1', 'C1', 'C2', 'C3', 'H1TaskSearch'] as const).map((name) => Type.Literal(name)),
-    ),
+    arm: Type.Union([
+      Type.Literal('H1'),
+      Type.Literal('C1'),
+      Type.Literal('C2'),
+      Type.Literal('C3'),
+      Type.Literal('H1TaskSearch'),
+    ]),
     repetition: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]),
     attempt: Type.Union([Type.Literal(1), Type.Literal(2)]),
   },
