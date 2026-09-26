@@ -13,6 +13,7 @@ import {
   runLeaseRenewalHeaderNames,
   runLeaseTimesAreValid,
   runParametersSchema,
+  runSuccessorSegmentParametersSchema,
   runProblemSchema,
   runProjectionSchema,
   type RunAdmissionCommand,
@@ -212,6 +213,31 @@ export class ServerRunHttp implements HostedRuns, HostedRunStatuses {
       return decoded.kind === 'Accepted'
         ? { kind: 'Renewed', receipt: decoded.receipt }
         : { kind: 'ResponseInvalid' };
+    } catch (cause) {
+      return failure(cause);
+    }
+  }
+
+  async readSuccessorSegment(
+    runId: string,
+    segmentSaid: string,
+  ): ReturnType<NonNullable<HostedRunStatuses['readSuccessorSegment']>> {
+    if (!Value.Check(runSuccessorSegmentParametersSchema, { runId, segmentSaid }))
+      return { kind: 'InputInvalid' };
+    try {
+      const response = await this.#request(
+        `/api/runs/${encodeURIComponent(runId)}/continuations/${encodeURIComponent(segmentSaid)}`,
+        { method: 'GET' },
+      );
+      if (response.status !== 200) return this.#rejected(response);
+      const decoded = decodeRunSuccessorSegment(response.body);
+      if (
+        decoded.kind !== 'Accepted' ||
+        decoded.segment.d !== segmentSaid ||
+        decoded.segment.runId !== runId
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: 'Found', segment: decoded.segment };
     } catch (cause) {
       return failure(cause);
     }

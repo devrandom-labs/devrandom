@@ -4,12 +4,14 @@ export type EvidenceTimelineCursorDecoding =
 
 export interface EvidenceTimelineCursor {
   encode(input: {
+    readonly evidenceStreamId?: string;
     readonly ownerAid: string;
     readonly runId: string;
     readonly limit: number;
     readonly afterSequence: number;
   }): string;
   decode(input: {
+    readonly evidenceStreamId?: string;
     readonly ownerAid: string;
     readonly runId: string;
     readonly limit: number;

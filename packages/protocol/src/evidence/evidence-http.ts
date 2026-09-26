@@ -319,6 +319,7 @@ export type AcceptedEvidenceEventProjection = Type.Static<
 
 export const evidenceTimelineQuerySchema = Type.Object(
   {
+    evidenceStreamId: Type.Optional(uuidV4Schema),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     cursor: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
   },

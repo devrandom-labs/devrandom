@@ -16,6 +16,11 @@ const cursorPayloadSchema = Type.Object(
     runId: Type.String({
       pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
     }),
+    evidenceStreamId: Type.Optional(
+      Type.String({
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+      }),
+    ),
     limit: Type.Integer({ minimum: 1, maximum: 100 }),
     afterSequence: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
   },
@@ -35,6 +40,7 @@ export class HmacEvidenceTimelineCursor implements EvidenceTimelineCursor {
   }
 
   encode(input: {
+    readonly evidenceStreamId?: string;
     readonly ownerAid: string;
     readonly runId: string;
     readonly limit: number;
@@ -49,6 +55,7 @@ export class HmacEvidenceTimelineCursor implements EvidenceTimelineCursor {
   }
 
   decode(input: {
+    readonly evidenceStreamId?: string;
     readonly ownerAid: string;
     readonly runId: string;
     readonly limit: number;
@@ -82,6 +89,7 @@ export class HmacEvidenceTimelineCursor implements EvidenceTimelineCursor {
         !Value.Check(cursorPayloadSchema, untrusted) ||
         untrusted.ownerAid !== input.ownerAid ||
         untrusted.runId !== input.runId ||
+        untrusted.evidenceStreamId !== input.evidenceStreamId ||
         untrusted.limit !== input.limit
       ) {
         return { kind: 'CursorRejected' };

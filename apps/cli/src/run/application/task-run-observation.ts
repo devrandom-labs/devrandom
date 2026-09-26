@@ -3,6 +3,7 @@ import type {
   EvidenceTimelinePage,
   EvidenceTimelineQuery,
   RunProjection,
+  RunSuccessorSegment,
   TaskProjection,
 } from '@devrandom/protocol';
 
@@ -27,6 +28,10 @@ export type HostedRunInspection =
 
 export interface HostedRunStatuses {
   inspect(runId: string): Promise<HostedRunInspection>;
+  readSuccessorSegment?(
+    runId: string,
+    segmentSaid: string,
+  ): Promise<{ readonly kind: 'Found'; readonly segment: RunSuccessorSegment } | HostedRunFailure>;
 }
 
 export type HostedRunTimelineInspection =

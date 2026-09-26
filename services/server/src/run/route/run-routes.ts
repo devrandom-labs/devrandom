@@ -12,6 +12,8 @@ import {
   runContinuationRejectedProblemSchema,
   runContinuationReceiptSchema,
   runContinuationRequestSchema,
+  runSuccessorSegmentSchema,
+  runSuccessorSegmentParametersSchema,
   runIncarnationParametersSchema,
   runLeaseAcquisitionBodySchema,
   runLeaseProjectionSchema,
@@ -44,6 +46,7 @@ import type {
 } from '../application/acquire-run-lease.js';
 import type { AdmitRunInput, AdmitRunOutcome } from '../application/admit-run.js';
 import type { InspectRunInput, InspectRunOutcome } from '../application/inspect-run.js';
+import type { RunSuccessorSegments } from '../application/run-successor-segments.js';
 import type { RenewRunLeaseInput, RenewRunLeaseOutcome } from '../application/renew-run-lease.js';
 
 type RunScope = Extract<WorkAccessScope, 'run:create' | 'run:execute' | 'run:read'>;
@@ -75,6 +78,7 @@ export interface RunConversation {
 }
 
 export interface RunRoutesConfiguration {
+  readonly successors?: RunSuccessorSegments;
   readonly access: RunAccessAuthorizer;
   readonly conversation: RunConversation;
   readonly continuation?: {
@@ -638,6 +642,51 @@ export function runRoutes(configuration: RunRoutesConfiguration): FastifyPluginC
           runId: request.params.runId,
         });
         await sendInspectionOutcome(reply, outcome, configuration.newCorrelationId());
+      },
+    );
+
+    server.get(
+      '/api/runs/:runId/continuations/:segmentSaid',
+      {
+        schema: {
+          operationId: 'readRunSuccessorSegment',
+          headers: workAccessAuthorizationHeadersSchema,
+          params: runSuccessorSegmentParametersSchema,
+          response: {
+            200: runSuccessorSegmentSchema,
+            400: runRequestInvalidProblemSchema,
+            401: unauthorizedResponses,
+            403: workAccessForbiddenResponses,
+            404: runResourceNotFoundProblemSchema,
+            409: workAccessGrantConcurrentUpdateProblemSchema,
+            429: workAccessGrantExhaustedProblemSchema,
+            503: runUnavailableProblemSchema,
+          },
+        },
+      },
+      async (request, reply) => {
+        const owner = await authorize(
+          reply,
+          request.headers.authorization,
+          'run:read',
+          configuration,
+        );
+        if (owner === undefined) return;
+        const outcome = await configuration.successors?.read({
+          ownerAid: owner.ownerAid,
+          ...request.params,
+        });
+        if (outcome?.kind === 'Found') {
+          await reply.code(200).send(outcome.segment);
+        } else {
+          await sendInspectionOutcome(
+            reply,
+            outcome?.kind === 'NotFound'
+              ? { kind: 'RunResourceNotFound', resource: 'Run' }
+              : { kind: 'DependencyUnavailable', dependency: 'HostedMongoDB' },
+            configuration.newCorrelationId(),
+          );
+        }
       },
     );
 

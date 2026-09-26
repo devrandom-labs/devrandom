@@ -1,3 +1,4 @@
+import { MongoRunSuccessorSegments } from './mongo-run-successor-segments.js';
 import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -67,14 +68,12 @@ integration('same calibration Run Mongo continuation', () => {
       completionConditionIds: task.revision.completionConditions.map((condition) => condition.id),
     });
     const { run, stream, events, checkpoint } = prior;
-    await db
-      .collection<TaskDocument>(tasksCollectionName)
-      .insertOne(
-        encodeTaskDocument(task, authorizedTaskCommandFingerprint(taskCommand), {
-          ownerSlot: 0,
-          globalSlot: 0,
-        }),
-      );
+    await db.collection<TaskDocument>(tasksCollectionName).insertOne(
+      encodeTaskDocument(task, authorizedTaskCommandFingerprint(taskCommand), {
+        ownerSlot: 0,
+        globalSlot: 0,
+      }),
+    );
     await db
       .collection<RunDocument>(runsCollectionName)
       .insertOne(encodeRunDocument(run, runCommandFingerprint));
@@ -158,6 +157,21 @@ integration('same calibration Run Mongo continuation', () => {
     const admitted = await writer.admit(input);
     expect(admitted.kind).toBe('Admitted');
     if (admitted.kind !== 'Admitted') throw new Error('continuation failed');
+    const history = new MongoRunSuccessorSegments(db);
+    expect(
+      await history.read({
+        ownerAid: run.binding.ownerAid,
+        runId: run.binding.runId,
+        segmentSaid: admitted.segment.d,
+      }),
+    ).toEqual({ kind: 'Found', segment: admitted.segment });
+    expect(
+      await history.read({
+        ownerAid: `E${'z'.repeat(43)}`,
+        runId: run.binding.runId,
+        segmentSaid: admitted.segment.d,
+      }),
+    ).toEqual({ kind: 'NotFound' });
     expect(admitted.run.binding).toEqual(run.binding);
     expect(admitted.run.consumedBudget).toEqual(run.consumedBudget);
     expect(admitted.segment).toMatchObject({
