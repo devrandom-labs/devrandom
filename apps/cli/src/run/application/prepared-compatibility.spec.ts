@@ -5,10 +5,13 @@ import {
   prepareBaselineHarnessRevision,
   preparePublicVerifierReceipt,
   prepareTaskCommand,
+  prepareTaskCommandV2,
   taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
   type BaselineHarnessRevision,
   type PublicVerifierReceipt,
-  type TaskProjectionV1,
+  type TaskProjection,
+  type TaskSourceCommand,
 } from '@devrandom/protocol';
 import { describe, expect, it } from 'vitest';
 
@@ -37,6 +40,9 @@ describe('prepared public verifier source custody', () => {
       'rust-toolchain.toml',
       'tests',
     ]);
+    expect(preparedCompatibilityVerifierReadOnlyPaths(fixture(2).task)).toEqual(
+      preparedCompatibilityVerifierReadOnlyPaths(task),
+    );
     expect(preparedCompatibilityVerifierReadOnlyPaths({ ...task, label: 'other-task' })).toEqual(
       [],
     );
@@ -60,66 +66,86 @@ describe('prepared public verifier source custody', () => {
   });
 });
 
-function fixture(): {
-  readonly task: TaskProjectionV1;
+function fixture(version: 1 | 2 = 1): {
+  readonly task: TaskProjection;
   readonly harness: BaselineHarnessRevision;
   readonly run: Run;
 } {
-  const preparedTask = prepareTaskCommand(
-    {
-      version: 1,
-      label: 'cesr-compat',
-      title: 'Repair CESR receipt compatibility',
-      objective:
-        'Accept the prepared legacy and current CESR receipt representations without weakening tamper rejection.',
-      repository: { kind: 'currentHead' },
-      deliverables: [{ kind: 'repositoryFile', id: 'decoder', path: 'src/lib.rs' }],
-      completionConditions: [
-        {
-          id: 'cesr-current',
-          argv: ['cargo', 'test', '--locked', '--test', 'cesr-current'],
-          timeoutSeconds: 120,
-          expected: { kind: 'exitCode', code: 0 },
-        },
-        {
-          id: 'cesr-tamper',
-          argv: ['cargo', 'test', '--locked', '--test', 'cesr-tamper'],
-          timeoutSeconds: 120,
-          expected: { kind: 'exitCode', code: 0 },
-        },
-        {
-          id: 'cesr-legacy',
-          argv: ['cargo', 'test', '--locked', '--test', 'cesr-legacy'],
-          timeoutSeconds: 120,
-          expected: { kind: 'exitCode', code: 0 },
-        },
-      ],
-      constraints: {
-        protectedPaths: ['tests/vectors'],
-        prohibitedEffects: ['NetworkAccess', 'PackageInstall', 'CredentialAccess'],
-        dataPolicy: 'RepositoryContentOnly',
-      },
-      requestedCapabilities: ['ReadRepository', 'EditRepository', 'RunTests', 'SubmitResult'],
-      unavailableCapabilities: [],
-      budgets: { ...taskBudgetCeilings },
-      expiresAt: '2027-09-24T20:00:00.000Z',
-      evolutionClasses: ['C1', 'C2', 'C3'],
-      checkpointExpectations: [
-        { kind: 'completionCondition', completionConditionId: 'cesr-current' },
-        { kind: 'completionCondition', completionConditionId: 'cesr-tamper' },
-        { kind: 'completionCondition', completionConditionId: 'cesr-legacy' },
-      ],
-    },
-    '97e16745-4b76-4de3-9ae5-a183496e73e8',
-    {
-      objectFormat: 'sha1',
-      commit: '1111111111111111111111111111111111111111',
-      tree: '2222222222222222222222222222222222222222',
-    },
-  );
-  if (preparedTask.kind !== 'Prepared') throw new Error('Task fixture must prepare');
-  const task: TaskProjectionV1 = {
+  const source: TaskSourceCommand = {
     version: 1,
+    label: 'cesr-compat',
+    title: 'Repair CESR receipt compatibility',
+    objective:
+      'Accept the prepared legacy and current CESR receipt representations without weakening tamper rejection.',
+    repository: { kind: 'currentHead' },
+    deliverables: [{ kind: 'repositoryFile', id: 'decoder', path: 'src/lib.rs' }],
+    completionConditions: [
+      {
+        id: 'cesr-current',
+        argv: ['cargo', 'test', '--locked', '--test', 'cesr-current'],
+        timeoutSeconds: 120,
+        expected: { kind: 'exitCode', code: 0 },
+      },
+      {
+        id: 'cesr-tamper',
+        argv: ['cargo', 'test', '--locked', '--test', 'cesr-tamper'],
+        timeoutSeconds: 120,
+        expected: { kind: 'exitCode', code: 0 },
+      },
+      {
+        id: 'cesr-legacy',
+        argv: ['cargo', 'test', '--locked', '--test', 'cesr-legacy'],
+        timeoutSeconds: 120,
+        expected: { kind: 'exitCode', code: 0 },
+      },
+    ],
+    constraints: {
+      protectedPaths: ['tests/vectors'],
+      prohibitedEffects: ['NetworkAccess', 'PackageInstall', 'CredentialAccess'],
+      dataPolicy: 'RepositoryContentOnly',
+    },
+    requestedCapabilities: ['ReadRepository', 'EditRepository', 'RunTests', 'SubmitResult'],
+    unavailableCapabilities: [],
+    budgets: { ...taskBudgetCeilings },
+    expiresAt: '2027-09-24T20:00:00.000Z',
+    evolutionClasses: ['C1', 'C2', 'C3'],
+    checkpointExpectations: [
+      { kind: 'completionCondition', completionConditionId: 'cesr-current' },
+      { kind: 'completionCondition', completionConditionId: 'cesr-tamper' },
+      { kind: 'completionCondition', completionConditionId: 'cesr-legacy' },
+    ],
+  };
+  const commandId = '97e16745-4b76-4de3-9ae5-a183496e73e8';
+  const repository = {
+    objectFormat: 'sha1' as const,
+    commit: '1111111111111111111111111111111111111111',
+    tree: '2222222222222222222222222222222222222222',
+  };
+  const preparedTask =
+    version === 1
+      ? prepareTaskCommand(source, commandId, repository)
+      : prepareTaskCommandV2(
+          {
+            ...source,
+            version: 2,
+            constraints: {
+              ...source.constraints,
+              dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+              experience: {
+                corpusSaid: said('c'),
+                repositoryResourceSaid: said('r'),
+                disclosure: 'AuthorizedAnalogy',
+              },
+            },
+            requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
+            budgets: { ...taskEvaluationBudgetCeilings },
+          },
+          commandId,
+          repository,
+        );
+  if (preparedTask.kind !== 'Prepared') throw new Error('Task fixture must prepare');
+  const task = {
+    version,
     taskId,
     ownerAid: said('u'),
     label: preparedTask.command.label,
@@ -130,7 +156,13 @@ function fixture(): {
     createdAt: '2026-09-24T18:00:00.000Z',
     expectedVersion: 0,
     revision: preparedTask.command.revision,
-  };
+  } as TaskProjection;
+  const harnessTools = task.revision.requestedCapabilities.filter(
+    (capability) => capability !== 'ReadTaskMemory',
+  ) as BaselineHarnessRevision['task']['requestedCapabilities'];
+  const unavailableHarnessTools = task.revision.unavailableCapabilities.filter(
+    (capability) => capability !== 'ReadTaskMemory',
+  ) as BaselineHarnessRevision['task']['requestedCapabilities'];
   const instruction = identifyHarnessInstruction({
     path: 'AGENTS.md',
     content: '# Prepared CESR fixture\n',
@@ -153,12 +185,12 @@ function fixture(): {
       taskId: task.taskId,
       revisionSaid: task.revisionSaid,
       harnessLineageId: task.harnessLineageId,
-      requestedCapabilities: task.revision.requestedCapabilities,
+      requestedCapabilities: harnessTools,
     },
     authority: {
       personalAgentAid: said('a'),
       taskMandateSaid: said('d'),
-      allowedCapabilities: task.revision.requestedCapabilities,
+      allowedCapabilities: harnessTools,
     },
     repository: {
       ...task.revision.repository,
@@ -186,8 +218,8 @@ function fixture(): {
       xstateVersion: '5.33.2',
     },
     capabilities: {
-      available: task.revision.requestedCapabilities,
-      unavailable: task.revision.unavailableCapabilities,
+      available: harnessTools,
+      unavailable: unavailableHarnessTools,
     },
     budgetCeilings: {
       task: task.revision.budgets,
@@ -287,6 +319,18 @@ function exactVerification(harness: BaselineHarnessRevision): RetainedSubmittedV
 }
 
 describe('prepared CESR compatibility classification', () => {
+  it('confirms the same exact public pattern for an authorized v2 Task without granting H1 a memory tool', () => {
+    const input = fixture(2);
+    expect(input.task.revision.requestedCapabilities).toContain('ReadTaskMemory');
+    expect(input.harness.task.requestedCapabilities).not.toContain('ReadTaskMemory');
+    expect(
+      new PreparedCompatibilityClassifier().classify({
+        ...input,
+        verification: exactVerification(input.harness),
+      }).kind,
+    ).toBe('Confirmed');
+  });
+
   it('confirms only the exact Task, H1, Run, and prepared receipt pattern', () => {
     const input = fixture();
     const failures: PreparedCompatibilityFailures = new PreparedCompatibilityClassifier();

@@ -4,6 +4,7 @@ import {
   decodeBaselineHarnessRevision,
   decodePublicVerifierReceipt,
   decodeTaskRevision,
+  decodeTaskRevisionV2,
   type BaselineHarnessRevision,
   type PublicVerifierReceipt,
   type TaskProjection,
@@ -75,7 +76,7 @@ export function preparedCompatibilityVerifierReadOnlyPaths(
 ): readonly string[] {
   if (
     task.label !== 'cesr-compat' ||
-    decodeTaskRevision(task.revision).kind !== 'Accepted' ||
+    !taskRevisionAccepted(task) ||
     task.revision.completionConditions.length !== fixtureConditions.length ||
     !fixtureConditions.every((expected, index) => {
       const condition = task.revision.completionConditions[index];
@@ -95,10 +96,22 @@ function arraysEqual(left: readonly string[], right: readonly string[]): boolean
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function taskRevisionAccepted(task: TaskProjection): boolean {
+  return task.revision.version === 1
+    ? decodeTaskRevision(task.revision).kind === 'Accepted'
+    : decodeTaskRevisionV2(task.revision).kind === 'Accepted';
+}
+
+function requestedHarnessTools(task: TaskProjection): readonly string[] {
+  return task.revision.requestedCapabilities.filter(
+    (capability) => capability !== 'ReadTaskMemory',
+  );
+}
+
 function fixtureCommands(input: PreparedCompatibilityFailureInput): FixtureCommands | undefined {
   const { task, harness, run } = input;
   if (
-    decodeTaskRevision(task.revision).kind !== 'Accepted' ||
+    !taskRevisionAccepted(task) ||
     decodeBaselineHarnessRevision(harness).kind !== 'Accepted' ||
     task.label !== 'cesr-compat' ||
     task.lifecycle.kind !== 'Open' ||
@@ -108,7 +121,7 @@ function fixtureCommands(input: PreparedCompatibilityFailureInput): FixtureComma
     harness.task.taskId !== task.taskId ||
     harness.task.revisionSaid !== task.revisionSaid ||
     harness.task.harnessLineageId !== task.harnessLineageId ||
-    !arraysEqual(harness.task.requestedCapabilities, task.revision.requestedCapabilities) ||
+    !arraysEqual(harness.task.requestedCapabilities, requestedHarnessTools(task)) ||
     harness.repository.objectFormat !== task.revision.repository.objectFormat ||
     harness.repository.commit !== task.revision.repository.commit ||
     harness.repository.tree !== task.revision.repository.tree ||
