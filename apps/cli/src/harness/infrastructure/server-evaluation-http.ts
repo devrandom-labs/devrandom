@@ -90,7 +90,10 @@ export type HostedEvaluationPublicArtifact =
 export type HostedEvaluationLeaseRenewal =
   | {
       readonly kind: 'Renewed' | 'AlreadyRenewed';
-      readonly receipt: Type.Static<typeof evaluationLeaseRenewalReceiptSchema>;
+      readonly receipt: Extract<
+        Type.Static<typeof evaluationLeaseRenewalReceiptSchema>,
+        { readonly kind: 'Renewed' | 'AlreadyRenewed' }
+      >;
     }
   | {
       readonly kind:

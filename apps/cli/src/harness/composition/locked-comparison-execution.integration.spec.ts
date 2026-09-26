@@ -101,6 +101,8 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         if (reservation.kind !== 'Prepared') throw new Error('fixture reservation');
         const leaseStarted = Date.now() - 30000;
         let renewals = 0;
+        let aggregateVersion = 2;
+        let raced = false;
         let lease = {
           evaluationId: manifest.evaluationId,
           leaseId: binding.evaluationLeaseId,
@@ -172,7 +174,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             } else if (url.pathname.endsWith('/position')) {
               reply({
                 version: 1,
-                currentEvaluationVersion: lease.version + 1,
+                currentEvaluationVersion: aggregateVersion,
                 evaluationId: manifest.evaluationId,
                 ownerAid: manifest.ownerAid,
                 commandId,
@@ -218,7 +220,23 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               const renewal = JSON.parse(Buffer.concat(chunks).toString()) as {
                 expectedEvaluationVersion: number;
               };
-              expect(renewal.expectedEvaluationVersion).toBe(lease.version + 1);
+              expect(renewal.expectedEvaluationVersion).toBe(aggregateVersion);
+              if (!raced) {
+                raced = true;
+                aggregateVersion++;
+                reply(
+                  {
+                    code: 'EvaluationVersionConflict',
+                    title: 'EvaluationVersionConflict',
+                    type: 'https://devrandom.example/problems/evaluationversionconflict',
+                    status: 409,
+                    correlationId: randomUUID(),
+                  },
+                  409,
+                );
+                return;
+              }
+              aggregateVersion++;
               renewals++;
               const renewedAt = Date.now();
               lease = {
@@ -230,7 +248,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               reply({
                 kind: 'Renewed',
                 evaluationId: manifest.evaluationId,
-                version: lease.version + 1,
+                version: aggregateVersion,
                 lease,
               });
             } else throw new Error('unexpected fixture HTTP route');

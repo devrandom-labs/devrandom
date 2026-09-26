@@ -1,3 +1,4 @@
+import { renewOwnedEvaluationLease } from '../application/renew-owned-evaluation-lease.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify, isDeepStrictEqual } from 'node:util';
@@ -351,26 +352,35 @@ export async function evaluateLocalHarness(
           return false;
         let lease = current.position.lease;
         if (Date.parse(lease.expiresAt) - Date.now() <= 15000) {
-          const renewed = await hosted.evaluations.renewLease(
+          const heldLease = lease;
+          const renewed = await renewOwnedEvaluationLease(
             {
-              version: 1,
-              commandId: randomUUID(),
-              fingerprint: digest(
-                JSON.stringify([binding.evaluationId, current.position.currentEvaluationVersion]),
-              ),
-              evaluationId: binding.evaluationId,
-              leaseId: binding.evaluationLeaseId,
-              expectedEvaluationVersion: current.position.currentEvaluationVersion,
+              ownerAid: task.ownerAid,
+              currentEvaluationVersion: current.position.currentEvaluationVersion,
+              lease: heldLease,
+              leaseRequestStartedAt:
+                Date.now() - Math.max(0, Date.now() - Date.parse(heldLease.serverTime)),
+              signal,
+              now: Date.now,
             },
-            signal,
+            {
+              inspect: () => hosted.evaluations.readPosition(binding.evaluationId),
+              renew: (version) =>
+                hosted.evaluations.renewLease(
+                  {
+                    version: 1,
+                    commandId: randomUUID(),
+                    fingerprint: digest(JSON.stringify([binding.evaluationId, version])),
+                    evaluationId: binding.evaluationId,
+                    leaseId: binding.evaluationLeaseId,
+                    expectedEvaluationVersion: version,
+                  },
+                  signal,
+                ),
+            },
           );
-          if (
-            (renewed.kind !== 'Renewed' && renewed.kind !== 'AlreadyRenewed') ||
-            !('lease' in renewed.receipt) ||
-            renewed.receipt.lease.version !== lease.version + 1
-          )
-            return false;
-          lease = renewed.receipt.lease;
+          if (renewed.kind !== 'Renewed') return false;
+          lease = renewed.lease;
         }
         return Date.parse(lease.expiresAt) - Date.now() > 5000;
       })().finally(() => {

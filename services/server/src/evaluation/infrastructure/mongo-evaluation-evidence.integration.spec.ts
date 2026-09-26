@@ -859,6 +859,48 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
     const position = (await fresh.json()) as { version: number; currentEvaluationVersion: number };
     expect(position.version).toBe(1);
     expect(position.currentEvaluationVersion).toBe(state.version + 1);
+    const racedState = await evaluations.findOne({ _id: evaluationId });
+    if (racedState === null || racedState.chainHeadSaid === null) throw new Error('race cursor');
+    const concurrentBytes = Buffer.from('actual concurrent Research capture');
+    const concurrentArtifact = prepareEvidenceArtifact(
+      concurrentBytes,
+      'text/plain; charset=utf-8',
+    );
+    if (concurrentArtifact.kind !== 'Prepared') throw new Error('race artifact');
+    const concurrentEvent = event(
+      racedState.acceptedThroughSequence + 1,
+      { kind: 'Previous', eventSaid: racedState.chainHeadSaid },
+      { kind: 'ModelExchange', rawArtifactSaid: concurrentArtifact.artifact.d },
+    );
+    const appended = await fetch(`${address}/api/evaluations/${evaluationId}/batches`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        ...upload([concurrentEvent]),
+        publicArtifacts: [
+          {
+            artifact: concurrentArtifact.artifact,
+            bytesBase64Url: concurrentBytes.toString('base64url'),
+          },
+        ],
+      }),
+    });
+    expect(appended.status).toBe(201);
+    const raced = await fetch(endpoint, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        ...command,
+        commandId: randomUUID(),
+        expectedEvaluationVersion: position.currentEvaluationVersion,
+      }),
+    });
+    expect(raced.status).toBe(409);
+    const afterAppend = await fetch(`${address}/api/evaluations/${evaluationId}/position`, {
+      headers,
+    });
+    const freshVersion = (await afterAppend.json()) as { currentEvaluationVersion: number };
+    expect(freshVersion.currentEvaluationVersion).toBe(position.currentEvaluationVersion + 1);
     const secondAt = Date.now();
     await evaluations.updateOne(
       { _id: evaluationId },
@@ -875,13 +917,13 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
       body: JSON.stringify({
         ...command,
         commandId: randomUUID(),
-        expectedEvaluationVersion: position.currentEvaluationVersion,
+        expectedEvaluationVersion: freshVersion.currentEvaluationVersion,
       }),
     });
     expect(second.status).toBe(200);
     expect(await second.json()).toMatchObject({
       kind: 'Renewed',
-      version: state.version + 2,
+      version: state.version + 3,
       lease: { version: state.lease.version + 2 },
     });
   });

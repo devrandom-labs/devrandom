@@ -1,3 +1,4 @@
+import { renewOwnedEvaluationLease } from '../application/renew-owned-evaluation-lease.js';
 import {
   FinalizationNativeGrading,
   type FinalizationNativeMeasurement,
@@ -201,28 +202,35 @@ export async function executeLockedComparison(
       if (previousLease?.version !== lease.version)
         requestStartedAt = started - Math.max(0, Date.now() - Date.parse(lease.serverTime));
       if (Date.parse(lease.expiresAt) - Date.now() <= 15000) {
-        const command = {
-          version: 1 as const,
-          commandId: randomUUID(),
-          fingerprint: fingerprint([
-            binding.evaluationId,
-            lease.leaseId,
-            current.position.currentEvaluationVersion,
-          ]),
-          evaluationId: binding.evaluationId,
-          leaseId: lease.leaseId,
-          expectedEvaluationVersion: current.position.currentEvaluationVersion,
-        };
-        const renewedAt = Date.now();
-        const renewed = await hosted.renewLease(command, signal);
-        if (
-          (renewed.kind !== 'Renewed' && renewed.kind !== 'AlreadyRenewed') ||
-          !('lease' in renewed.receipt) ||
-          renewed.receipt.lease.version !== lease.version + 1
-        )
-          return false;
-        lease = renewed.receipt.lease;
-        requestStartedAt = renewedAt;
+        const heldLease = lease;
+        const renewed = await renewOwnedEvaluationLease(
+          {
+            ownerAid: manifest.ownerAid,
+            currentEvaluationVersion: current.position.currentEvaluationVersion,
+            lease: heldLease,
+            leaseRequestStartedAt: requestStartedAt,
+            signal,
+            now: Date.now,
+          },
+          {
+            inspect: () => hosted.readPosition(binding.evaluationId),
+            renew: (version) =>
+              hosted.renewLease(
+                {
+                  version: 1,
+                  commandId: randomUUID(),
+                  fingerprint: fingerprint([binding.evaluationId, heldLease.leaseId, version]),
+                  evaluationId: binding.evaluationId,
+                  leaseId: heldLease.leaseId,
+                  expectedEvaluationVersion: version,
+                },
+                signal,
+              ),
+          },
+        );
+        if (renewed.kind !== 'Renewed') return false;
+        lease = renewed.lease;
+        requestStartedAt = renewed.requestStartedAt;
       }
       return (
         assessEvaluationLease(
