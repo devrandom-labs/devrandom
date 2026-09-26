@@ -3,7 +3,11 @@ import { createServer } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import { issuerAid as decodeIssuerAid, personalAgentAid } from '@devrandom/identity';
 
-import type { CreateWorkAccessAttemptBody, WorkAccessAttemptProjection } from '@devrandom/protocol';
+import {
+  prepareEvaluationSourceInventory,
+  type CreateWorkAccessAttemptBody,
+  type WorkAccessAttemptProjection,
+} from '@devrandom/protocol';
 
 import type { DevrandomFetch } from '../../infrastructure/devrandom-server-http.js';
 import { ServerHarnessHttp } from '../../harness/infrastructure/server-harness-http.js';
@@ -64,6 +68,46 @@ const granted: Extract<WorkAccessAttemptProjection, { readonly kind: 'Granted' }
     remainingRequests: 1_999,
   },
 };
+
+it('opens H0 Context only under both current retrieval and raw-read scopes without exposing the bearer', () => {
+  const prepared = prepareEvaluationSourceInventory({
+    taskId: commandId,
+    taskRevisionSaid: credentialSaid,
+    ownerAid: userAid,
+    repositoryResourceSaid: issuerAid,
+    corpusSaid: responseSaid,
+    experienceMandateSaid: credentialSaid,
+    sources: [
+      {
+        episodeSaid: issuerAid,
+        rawEvidenceSaid: responseSaid,
+        ownerAid: userAid,
+        repositoryResourceSaid: issuerAid,
+        corpusSaid: responseSaid,
+        disclosure: 'AuthorizedAnalogy',
+      },
+    ],
+  });
+  if (prepared.kind !== 'Prepared') throw new Error('inventory fixture rejected');
+  const access = new ServerWorkAccessHttp('http://127.0.0.1:3211', new Uint8Array(32).fill(0xab));
+  expect(() => access.authorizedWork(granted).context(prepared.inventory)).toThrow(
+    WorkAccessHttpFailure,
+  );
+  expect(() =>
+    access
+      .authorizedWork({ ...granted, scopes: ['experience:retrieve'] })
+      .context(prepared.inventory),
+  ).toThrow(WorkAccessHttpFailure);
+  const scoped = access
+    .authorizedWork({
+      ...granted,
+      scopes: ['experience:retrieve', 'evidence:read'],
+    })
+    .context(prepared.inventory);
+  expect(JSON.stringify(scoped)).not.toContain(grantSecret);
+  expect(typeof scoped.retrieval.retrieve).toBe('function');
+  expect(typeof scoped.reading.read).toBe('function');
+});
 
 function jsonResponse(body: WorkAccessAttemptProjection, status: 200 | 201 | 202): Response {
   return new Response(JSON.stringify(body), {

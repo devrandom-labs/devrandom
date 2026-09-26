@@ -16,6 +16,7 @@ import {
   type CreateWorkAccessAttemptBody,
   type WorkAccessAttemptProjection,
   type WorkAccessProblem,
+  type EvaluationSourceInventory,
 } from '@devrandom/protocol';
 import Value from 'typebox/value';
 
@@ -31,6 +32,8 @@ import { ServerEvidenceHttp } from '../../run/infrastructure/server-evidence-htt
 import { ServerTaskHttp } from '../../task/infrastructure/server-task-http.js';
 import { ServerEvaluationHttp } from '../../harness/infrastructure/server-evaluation-http.js';
 import { ServerActivationHttp } from '../../promotion/infrastructure/server-activation-http.js';
+import { ServerExperienceRetrieval } from '../../context/infrastructure/server-experience-retrieval.js';
+import { ServerEvidenceReading } from '../../context/infrastructure/server-evidence-reading.js';
 
 export type WorkAccessHttpError =
   | { readonly kind: 'server-url-invalid' }
@@ -252,6 +255,21 @@ export class ServerWorkAccessHttp {
     );
   }
 
+  context(inventory: EvaluationSourceInventory): {
+    readonly retrieval: ServerExperienceRetrieval;
+    readonly reading: ServerEvidenceReading;
+  } {
+    return {
+      retrieval: new ServerExperienceRetrieval(
+        this.#serverOrigin,
+        this.#bearer,
+        inventory,
+        this.#fetch,
+      ),
+      reading: new ServerEvidenceReading(this.#serverOrigin, this.#bearer, inventory, this.#fetch),
+    };
+  }
+
   #authorizedHeaders(additional?: Readonly<{ 'content-type': 'application/json' }>): HeadersInit {
     return additional === undefined
       ? { authorization: `Bearer ${this.#bearer}` }
@@ -378,6 +396,19 @@ export class GrantedServerWorkHttp {
 
   evaluations(): ServerEvaluationHttp {
     return this.#evaluations;
+  }
+
+  contextReady(): boolean {
+    return (
+      this.grant.disposition.kind === 'Active' &&
+      this.grant.scopes.includes('experience:retrieve') &&
+      this.grant.scopes.includes('evidence:read')
+    );
+  }
+
+  context(inventory: EvaluationSourceInventory): ReturnType<ServerWorkAccessHttp['context']> {
+    if (!this.contextReady()) throw new WorkAccessHttpFailure({ kind: 'request-invalid' });
+    return this.#access.context(inventory);
   }
 
   activation(

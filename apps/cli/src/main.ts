@@ -21,7 +21,15 @@ import { SqliteCesrComparisonCases } from './harness/infrastructure/sqlite-cesr-
 import { VerifiedFailureCampaign } from './harness/application/verified-failure-campaign.js';
 import { EvaluationCommandFile } from './harness/infrastructure/evaluation-command-file.js';
 import { EvaluationPolicyFile } from './harness/infrastructure/evaluation-policy-file.js';
+import { progressQualifiedH0 } from './evolution/application/progress-qualified-h0.js';
+import type { QualifiedH0ProgressOutcome } from './evolution/application/progress-qualified-h0.js';
+import { FilePublicAnalogyReviews } from './evolution/infrastructure/file-public-analogy-reviews.js';
+import { FileQualifiedH0Records } from './evolution/infrastructure/file-qualified-h0-records.js';
+import { ReviewedComparisonPlanFile } from './evolution/infrastructure/reviewed-comparison-plan-file.js';
+import { SignifyCurrentExperienceMandate } from './evolution/infrastructure/signify-current-experience-mandate.js';
 import { PreparedCompatibilityCampaignHistoryFile } from './harness/infrastructure/prepared-compatibility-campaign-history.js';
+import { prepareQualifiedSourceInventory } from './harness/application/prepare-qualified-source-inventory.js';
+import { QualifiedSourceInventoryFile } from './harness/infrastructure/qualified-source-inventory-file.js';
 import { verifyDemoIssuer } from './identity/application/demo-issuer-compatibility.js';
 import { IdentityFiles } from './identity/infrastructure/identity-files.js';
 import { IssuerHealthHttp } from './identity/infrastructure/issuer-health-http.js';
@@ -58,6 +66,7 @@ import {
   type BrowserPresentation,
   type CliProcess,
   type DevrandomCommands,
+  type SourceInventoryCommandOutcome,
 } from './program.js';
 import { CurrentTaskAuthority, UserTasks } from './task/application/user-tasks.js';
 import { TaskRunExecution } from './task/application/task-run-execution.js';
@@ -134,18 +143,11 @@ function userTasks(): UserTasks {
 
 function taskRunPreparation(linux?: LinuxH1ProfileBundle): TaskRunPreparation {
   const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
-  const files = new IdentityFiles(configuration.stateDirectory);
   const authority = currentTaskAuthority();
-  const local = new SignifyLocalMandateAuthority(
-    configuration,
-    loadMandateConfiguration(mandateEnvironment(process.env)),
-    files,
-    new GovernanceProfileFile(configuration.stateDirectory),
-  );
   return new TaskRunPreparation({
     authority,
     localMandates: new AuthorizedLocalTaskMandates({
-      local,
+      local: currentLocalMandates(),
       records: new TaskAuthorizationFile(join(configuration.stateDirectory, 'task-authorizations')),
       issuerAid: configuration.issuerAid,
       userAlias: devrandomUserAlias,
@@ -196,6 +198,134 @@ function taskRunPreparation(linux?: LinuxH1ProfileBundle): TaskRunPreparation {
       maximumObservations: 300,
     }),
   });
+}
+
+function currentLocalMandates(): SignifyLocalMandateAuthority {
+  const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+  return new SignifyLocalMandateAuthority(
+    configuration,
+    loadMandateConfiguration(mandateEnvironment(process.env)),
+    new IdentityFiles(configuration.stateDirectory),
+    new GovernanceProfileFile(configuration.stateDirectory),
+  );
+}
+
+const said = /^[A-Z][A-Za-z0-9_-]{43}$/u;
+
+async function progressH0Command(
+  label: string,
+  originRunId: string,
+  policyPath: string,
+  reviewArtifactSaid: string,
+  configurationSaid: string,
+  nonTreatmentInputsSaid: string,
+  signal: AbortSignal,
+): Promise<QualifiedH0ProgressOutcome> {
+  if (
+    !said.test(reviewArtifactSaid) ||
+    !said.test(configurationSaid) ||
+    !said.test(nonTreatmentInputsSaid)
+  )
+    return { kind: 'Blocked', gate: 'ReviewCustody' };
+  const policyReading = await new EvaluationPolicyFile().read(policyPath);
+  if (policyReading.kind !== 'Read' || policyReading.policy.originRunId !== originRunId)
+    return { kind: 'Blocked', gate: 'Policy' };
+  const authority = await currentTaskAuthority().acquireHostedWork();
+  if (authority.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
+  const inspection = await authority.tasks.inspect(label);
+  if (
+    inspection.kind !== 'Inspected' ||
+    inspection.task.ownerAid !== authority.user.principal.aid ||
+    inspection.task.taskId !== policyReading.policy.taskId ||
+    inspection.task.revisionSaid !== policyReading.policy.taskRevisionSaid
+  )
+    return { kind: 'Blocked', gate: 'Authority' };
+  if (!authority.contextReady()) return { kind: 'Blocked', gate: 'Authority' };
+  const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+  const stateRoot = configuration.stateDirectory;
+  return progressQualifiedH0(
+    {
+      qualification: {
+        task: inspection.task,
+        originRunId,
+        executionProfileSaid: policyReading.policy.executionProfileSaid,
+        expectedActiveRevisionSaid: policyReading.policy.expectedActiveRevisionSaid,
+        runs: authority.runs,
+        evidence: authority.evidence,
+        signal,
+      },
+      reviewArtifactSaids: [reviewArtifactSaid],
+      configurationSaid,
+      nonTreatmentInputsSaid,
+    },
+    {
+      qualification: new VerifiedFailureCampaign(
+        new PreparedCompatibilityCampaignHistoryFile(stateRoot),
+      ),
+      history: new PreparedCompatibilityCampaignHistoryFile(stateRoot),
+      mandate: new SignifyCurrentExperienceMandate({
+        task: inspection.task,
+        user: authority.user,
+        records: new TaskAuthorizationFile(join(stateRoot, 'task-authorizations')),
+        local: currentLocalMandates(),
+        now: () => new Date().toISOString(),
+      }),
+      policy: new ReviewedComparisonPlanFile(policyPath),
+      reviews: new FilePublicAnalogyReviews(join(stateRoot, 'public-analogy-reviews')),
+      commands: new EvaluationCommandFile(join(stateRoot, 'evaluation-commands'), randomUUID),
+      hosted: authority.evaluations,
+      context: { open: (inventory) => authority.context(inventory) },
+      records: new FileQualifiedH0Records(join(stateRoot, 'qualified-h0-records')),
+    },
+  );
+}
+
+async function recordSourceInventoryCommand(
+  label: string,
+  originRunId: string,
+  executionProfileSaid: string,
+  expectedActiveRevisionSaid: string,
+  outputDirectory: string,
+  signal: AbortSignal,
+): Promise<SourceInventoryCommandOutcome> {
+  if (!said.test(executionProfileSaid) || !said.test(expectedActiveRevisionSaid))
+    return { kind: 'Blocked', gate: 'Qualification' };
+  const authority = await currentTaskAuthority().acquireHostedWork();
+  if (authority.kind !== 'Authorized') return { kind: 'Blocked', gate: 'Authority' };
+  const inspection = await authority.tasks.inspect(label);
+  if (inspection.kind !== 'Inspected' || inspection.task.ownerAid !== authority.user.principal.aid)
+    return { kind: 'Blocked', gate: 'Authority' };
+  const stateRoot = loadUserIdentityConfiguration(
+    userIdentityEnvironment(process.env),
+  ).stateDirectory;
+  const history = new PreparedCompatibilityCampaignHistoryFile(stateRoot);
+  const prepared = await prepareQualifiedSourceInventory(
+    {
+      task: inspection.task,
+      originRunId,
+      executionProfileSaid,
+      expectedActiveRevisionSaid,
+      runs: authority.runs,
+      evidence: authority.evidence,
+      signal,
+    },
+    {
+      qualification: new VerifiedFailureCampaign(history),
+      history,
+      mandate: new SignifyCurrentExperienceMandate({
+        task: inspection.task,
+        user: authority.user,
+        records: new TaskAuthorizationFile(join(stateRoot, 'task-authorizations')),
+        local: currentLocalMandates(),
+        now: () => new Date().toISOString(),
+      }),
+    },
+  );
+  if (prepared.kind !== 'Prepared') return prepared;
+  const recorded = await new QualifiedSourceInventoryFile(outputDirectory).commit(
+    prepared.inventory,
+  );
+  return recorded.kind === 'Recorded' ? recorded : { kind: 'Blocked', gate: 'Inventory' };
 }
 
 function taskRunExecution(): TaskRunExecution {
@@ -323,6 +453,8 @@ const commands: DevrandomCommands = {
   harness: {
     evaluate: (label, runId, policyPath, signal) =>
       harnessEvaluation().evaluate(label, runId, policyPath, signal),
+    progressH0: progressH0Command,
+    recordSourceInventory: recordSourceInventoryCommand,
     resumeManifest: async (evaluationId) => {
       const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
       const authorized = await currentTaskAuthority().acquireHostedWork();

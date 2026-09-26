@@ -170,6 +170,7 @@ export type QualifiedH0ProgressOutcome =
       readonly kind: 'Blocked';
       readonly gate:
         | 'Qualification'
+        | 'Authority'
         | 'Mandate'
         | 'History'
         | 'Timeline'

@@ -11,6 +11,8 @@ import type { TaskRunExecutionOutcome } from './task/application/task-run-execut
 import type { WorkAccessAcquisition } from './work-access/application/work-access-acquisition.js';
 import type { HarnessEvaluationOutcome } from './harness/application/harness-evaluation.js';
 import type { CesrManifestLockOutcome } from './harness/application/lock-cesr-comparison-manifest.js';
+import type { QualifiedH0ProgressOutcome } from './evolution/application/progress-qualified-h0.js';
+import type { QualifiedSourceInventoryPreparation } from './harness/application/prepare-qualified-source-inventory.js';
 import type {
   TaskRunObservationFailure,
   TaskRunStatus,
@@ -22,6 +24,11 @@ import type { HostedEvidenceFailure } from './run/application/evidence-delivery.
 import type { HostedTaskFailure } from './task/application/user-tasks.js';
 
 export type BrowserPresentation = 'OpenSystemBrowser' | 'PrintBrowserUrl';
+
+export type SourceInventoryCommandOutcome =
+  | { readonly kind: 'Recorded'; readonly inventorySaid: string; readonly path: string }
+  | Extract<QualifiedSourceInventoryPreparation, { readonly kind: 'Blocked' }>
+  | { readonly kind: 'Blocked'; readonly gate: 'Authority' };
 
 export interface UserIdentityCommands {
   status(): Promise<DemoIssuerCompatibility>;
@@ -49,6 +56,23 @@ export interface DevrandomCommands extends UserIdentityCommands {
       signal: AbortSignal,
     ): Promise<HarnessEvaluationOutcome>;
     resumeManifest(evaluationId: string): Promise<CesrManifestLockOutcome>;
+    progressH0(
+      label: string,
+      fromRunId: string,
+      policyPath: string,
+      reviewArtifactSaid: string,
+      configurationSaid: string,
+      nonTreatmentInputsSaid: string,
+      signal: AbortSignal,
+    ): Promise<QualifiedH0ProgressOutcome>;
+    recordSourceInventory(
+      label: string,
+      fromRunId: string,
+      profileSaid: string,
+      activeRevisionSaid: string,
+      outputDirectory: string,
+      signal: AbortSignal,
+    ): Promise<SourceInventoryCommandOutcome>;
   };
 }
 
@@ -184,7 +208,104 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
       writeRenderedCommand(renderManifestResume(outcome), cliProcess);
     });
 
+  harness
+    .command('h0-progress')
+    .description('Progress one qualified failure through reviewed hosted H0 evidence')
+    .argument('<label>')
+    .requiredOption('--from-run <run-id>', 'the verified sixth retained Run ID')
+    .requiredOption('--policy <file>', 'the reviewed Evaluation plan JSON file')
+    .requiredOption('--review <said>', 'one exact parent-reviewed public analogy artifact SAID')
+    .requiredOption('--configuration-said <said>', 'the fixed public choice procedure SAID')
+    .requiredOption('--non-treatment-inputs-said <said>', 'the fixed replay input SAID')
+    .action(
+      async (
+        label: string,
+        options: {
+          fromRun: string;
+          policy: string;
+          review: string;
+          configurationSaid: string;
+          nonTreatmentInputsSaid: string;
+        },
+      ) => {
+        const interruption = cliProcess.watchInterruption();
+        try {
+          const outcome = await commands.harness.progressH0(
+            label,
+            options.fromRun,
+            options.policy,
+            options.review,
+            options.configurationSaid,
+            options.nonTreatmentInputsSaid,
+            interruption.signal,
+          );
+          writeRenderedCommand(renderH0Progress(outcome), cliProcess);
+        } finally {
+          interruption.release();
+        }
+      },
+    );
+
+  harness
+    .command('source-inventory')
+    .description('Record five exact Q verifier sources for parent Evaluation review')
+    .argument('<label>')
+    .requiredOption('--from-run <run-id>', 'the verified sixth retained Run ID')
+    .requiredOption('--profile-said <said>', 'the exact H1 execution profile artifact SAID')
+    .requiredOption('--active-revision-said <said>', 'the expected active H1 revision SAID')
+    .requiredOption('--output-dir <directory>', 'the protected reviewed plan directory')
+    .action(
+      async (
+        label: string,
+        options: {
+          fromRun: string;
+          profileSaid: string;
+          activeRevisionSaid: string;
+          outputDir: string;
+        },
+      ) => {
+        const interruption = cliProcess.watchInterruption();
+        try {
+          const outcome = await commands.harness.recordSourceInventory(
+            label,
+            options.fromRun,
+            options.profileSaid,
+            options.activeRevisionSaid,
+            options.outputDir,
+            interruption.signal,
+          );
+          writeRenderedCommand(renderSourceInventory(outcome), cliProcess);
+        } finally {
+          interruption.release();
+        }
+      },
+    );
+
   return program;
+}
+
+function renderH0Progress(outcome: QualifiedH0ProgressOutcome): RenderedCommand {
+  return outcome.kind === 'Progressed'
+    ? {
+        destination: 'stdout',
+        exitCode: 0,
+        text: `Evaluation ${outcome.evaluationId} H0 ${outcome.hypothesisSaid} recorded as ${outcome.recordArtifactSaid}.`,
+      }
+    : {
+        destination: 'stderr',
+        exitCode: 6,
+        text: `H0 progression blocked: ${outcome.gate}.${outcome.evaluationId === undefined ? '' : ` Evaluation ${outcome.evaluationId} is admitted.`}`,
+      };
+}
+
+function renderSourceInventory(outcome: SourceInventoryCommandOutcome): RenderedCommand {
+  return outcome.kind === 'Recorded'
+    ? {
+        destination: 'stdout',
+        exitCode: 0,
+        text: `Source inventory ${outcome.inventorySaid} recorded at ${outcome.path}.`,
+      }
+    : { destination: 'stderr', exitCode: 6, text: `Source inventory blocked: ${outcome.gate}.` };
 }
 
 function renderManifestResume(outcome: CesrManifestLockOutcome): RenderedCommand {

@@ -116,6 +116,8 @@ function commandFixture(): {
       harness: {
         evaluate: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
         resumeManifest: () => Promise.resolve({ kind: 'Blocked', gate: 'Manifest' }),
+        progressH0: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
+        recordSourceInventory: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
       },
     },
   };
@@ -159,6 +161,79 @@ function processFixture(): {
 }
 
 describe('devrandom command', () => {
+  it('routes H0 progression through the public command and reports missing Q without an H0 claim', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const progressH0 = vi.fn(() =>
+      Promise.resolve({
+        kind: 'Blocked' as const,
+        gate: 'Qualification' as const,
+      }),
+    );
+    await createProgram(
+      { ...commands, harness: { ...commands.harness, progressH0 } },
+      runtime.process,
+    ).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'h0-progress',
+      'cesr-compat',
+      '--from-run',
+      'retained-run-id',
+      '--policy',
+      'evaluation.json',
+      '--review',
+      'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      '--configuration-said',
+      'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      '--non-treatment-inputs-said',
+      'ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+    ]);
+    expect(progressH0).toHaveBeenCalledOnce();
+    expect(progressH0.mock.calls[0]?.slice(0, 6)).toEqual([
+      'cesr-compat',
+      'retained-run-id',
+      'evaluation.json',
+      'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      'ECCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+    ]);
+    expect(runtime.errors).toEqual(['H0 progression blocked: Qualification.\n']);
+    expect(runtime.exitCodes).toEqual([6]);
+  });
+
+  it('routes source inventory custody through the public command and blocks on missing Q', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const recordSourceInventory = vi.fn(() =>
+      Promise.resolve({
+        kind: 'Blocked' as const,
+        gate: 'Qualification' as const,
+      }),
+    );
+    await createProgram(
+      { ...commands, harness: { ...commands.harness, recordSourceInventory } },
+      runtime.process,
+    ).parseAsync([
+      'node',
+      'devrandom',
+      'harness',
+      'source-inventory',
+      'cesr-compat',
+      '--from-run',
+      'retained-run-id',
+      '--profile-said',
+      'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      '--active-revision-said',
+      'EBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      '--output-dir',
+      'reviewed-plan',
+    ]);
+    expect(recordSourceInventory).toHaveBeenCalledOnce();
+    expect(runtime.errors).toEqual(['Source inventory blocked: Qualification.\n']);
+    expect(runtime.exitCodes).toEqual([6]);
+  });
   it('routes a staged M retry through the public command and reports missing custody', async () => {
     const { commands } = commandFixture();
     const runtime = processFixture();
