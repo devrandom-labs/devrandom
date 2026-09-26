@@ -93,4 +93,41 @@ describe('Mongo Work Access document codec', () => {
       allocation: { kind: 'ReleasedCapacity' },
     });
   });
+
+  it('persists new PRD03 scopes without adding them to an older stored grant', () => {
+    const verification = beginWorkAccessVerification(
+      awaiting,
+      'EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'operation.challenge.verify.1',
+    );
+    if (verification.kind !== 'VerificationStarted') throw new Error('expected verification');
+    const grant = grantWorkAccessAttempt(
+      verification.attempt,
+      ['CreateAgent', 'CreateTask', 'RunPrivateTask', 'ReceiveTaskResults'],
+      '2026-09-24T17:01:00.000Z',
+      '2026-09-24T17:31:00.000Z',
+      workAccessPolicy,
+    );
+    const stored = {
+      revision: 3,
+      commandFingerprint: `sha256:${'b'.repeat(64)}`,
+      attempt: grant,
+    };
+    const document = encodeWorkAccessAttemptDocument(stored, {
+      kind: 'GrantCapacity',
+      userSlot: 0,
+    });
+    expect(decodeWorkAccessAttemptDocument(document).stored.attempt.state).toEqual(grant.state);
+    if (document.state.kind !== 'Granted') throw new Error('expected granted document');
+    const olderDocument = {
+      ...document,
+      state: {
+        ...document.state,
+        scopes: ['evidence:append', 'evidence:seal', 'run:create', 'run:execute'],
+      },
+    };
+    const older = decodeWorkAccessAttemptDocument(olderDocument).stored.attempt.state;
+    if (older.kind !== 'Granted') throw new Error('expected old granted state');
+    expect(older.scopes).toEqual(['evidence:append', 'evidence:seal', 'run:create', 'run:execute']);
+  });
 });

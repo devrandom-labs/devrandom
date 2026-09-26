@@ -327,13 +327,22 @@ export function scopesForEligibility(
   const claimSet = new Set<CredentialCapability>(claims);
   const scopes: WorkAccessScope[] = [];
   if (claimSet.has('RunPrivateTask')) {
-    scopes.push('evidence:append', 'evidence:seal', 'run:create', 'run:execute');
+    scopes.push(
+      'evaluation:admit',
+      'evaluation:append',
+      'evaluation:close',
+      'evaluation:prepare',
+      'evidence:append',
+      'evidence:seal',
+      'run:create',
+      'run:execute',
+    );
   }
   if (claimSet.has('CreateAgent') && claimSet.has('RunPrivateTask')) {
     scopes.push('run:prepare');
   }
   if (claimSet.has('ReceiveTaskResults')) {
-    scopes.push('run:read');
+    scopes.push('evidence:read', 'experience:retrieve', 'run:read');
   }
   if (claimSet.has('CreateTask')) {
     scopes.push('task:create', 'task:read');

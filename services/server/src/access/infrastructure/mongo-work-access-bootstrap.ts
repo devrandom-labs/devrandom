@@ -80,12 +80,18 @@ const challengeWords = {
 const scopes = {
   bsonType: 'array',
   minItems: 1,
-  maxItems: 8,
+  maxItems: 14,
   uniqueItems: true,
   items: {
     enum: [
+      'evaluation:admit',
+      'evaluation:append',
+      'evaluation:close',
+      'evaluation:prepare',
       'evidence:append',
+      'evidence:read',
       'evidence:seal',
+      'experience:retrieve',
       'run:create',
       'run:execute',
       'run:prepare',

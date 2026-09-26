@@ -1,5 +1,6 @@
 import Type from 'typebox';
 import Value from 'typebox/value';
+import type { WorkAccessScope } from '@devrandom/protocol';
 
 import type { StoredWorkAccessAttempt } from '../application/work-access-attempts.js';
 import {
@@ -20,8 +21,14 @@ const words = Type.Array(Type.String({ minLength: 1, maxLength: 64 }), {
   maxItems: 24,
 });
 const scope = Type.Union([
+  Type.Literal('evaluation:admit'),
+  Type.Literal('evaluation:append'),
+  Type.Literal('evaluation:close'),
+  Type.Literal('evaluation:prepare'),
   Type.Literal('evidence:append'),
+  Type.Literal('evidence:read'),
   Type.Literal('evidence:seal'),
+  Type.Literal('experience:retrieve'),
   Type.Literal('run:create'),
   Type.Literal('run:execute'),
   Type.Literal('run:prepare'),
@@ -75,7 +82,7 @@ const state = Type.Union([
     {
       kind: Type.Literal('Granted'),
       verifiedResponseSaid: keriIdentifier,
-      scopes: Type.Array(scope, { minItems: 1, maxItems: 8, uniqueItems: true }),
+      scopes: Type.Array(scope, { minItems: 1, maxItems: 14, uniqueItems: true }),
       policyFingerprint: fingerprint,
       grantedAt: Type.Unknown(),
       expiresAt: Type.Unknown(),
@@ -132,16 +139,7 @@ type StorageWorkAccessAttemptState =
   | {
       readonly kind: 'Granted';
       readonly verifiedResponseSaid: string;
-      readonly scopes: readonly (
-        | 'evidence:append'
-        | 'evidence:seal'
-        | 'run:create'
-        | 'run:execute'
-        | 'run:prepare'
-        | 'run:read'
-        | 'task:create'
-        | 'task:read'
-      )[];
+      readonly scopes: readonly WorkAccessScope[];
       readonly policyFingerprint: string;
       readonly grantedAt: Date;
       readonly expiresAt: Date;

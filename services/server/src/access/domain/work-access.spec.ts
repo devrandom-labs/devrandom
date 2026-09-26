@@ -73,9 +73,25 @@ describe('Work Access domain', () => {
     });
     expect(granted.state).not.toHaveProperty('challengeWords');
     expect(scopesForEligibility(['CreateTask'])).toEqual(['task:create', 'task:read']);
+    expect(scopesForEligibility(['RunPrivateTask'])).toEqual([
+      'evaluation:admit',
+      'evaluation:append',
+      'evaluation:close',
+      'evaluation:prepare',
+      'evidence:append',
+      'evidence:seal',
+      'run:create',
+      'run:execute',
+    ]);
+    expect(scopesForEligibility(['ReceiveTaskResults'])).toEqual([
+      'evidence:read',
+      'experience:retrieve',
+      'run:read',
+    ]);
     if (granted.state.kind !== 'Granted') {
       throw new Error('expected a granted Work Access state');
     }
+    expect(granted.state.scopes).toHaveLength(14);
     const grantedState = granted.state;
     expect(() =>
       reconstructWorkAccessAttempt(granted.binding, {

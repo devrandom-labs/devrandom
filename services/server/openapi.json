@@ -524,11 +524,35 @@
                             "anyOf": [
                               {
                                 "type": "string",
+                                "const": "evaluation:admit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:append"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:close"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:prepare"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:append"
                               },
                               {
                                 "type": "string",
+                                "const": "evidence:read"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:seal"
+                              },
+                              {
+                                "type": "string",
+                                "const": "experience:retrieve"
                               },
                               {
                                 "type": "string",
@@ -557,7 +581,7 @@
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 8,
+                          "maxItems": 14,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -1004,11 +1028,35 @@
                             "anyOf": [
                               {
                                 "type": "string",
+                                "const": "evaluation:admit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:append"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:close"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:prepare"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:append"
                               },
                               {
                                 "type": "string",
+                                "const": "evidence:read"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:seal"
+                              },
+                              {
+                                "type": "string",
+                                "const": "experience:retrieve"
                               },
                               {
                                 "type": "string",
@@ -1037,7 +1085,7 @@
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 8,
+                          "maxItems": 14,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -1840,11 +1888,35 @@
                             "anyOf": [
                               {
                                 "type": "string",
+                                "const": "evaluation:admit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:append"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:close"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:prepare"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:append"
                               },
                               {
                                 "type": "string",
+                                "const": "evidence:read"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:seal"
+                              },
+                              {
+                                "type": "string",
+                                "const": "experience:retrieve"
                               },
                               {
                                 "type": "string",
@@ -1873,7 +1945,7 @@
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 8,
+                          "maxItems": 14,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -2320,11 +2392,35 @@
                             "anyOf": [
                               {
                                 "type": "string",
+                                "const": "evaluation:admit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:append"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:close"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:prepare"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:append"
                               },
                               {
                                 "type": "string",
+                                "const": "evidence:read"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:seal"
+                              },
+                              {
+                                "type": "string",
+                                "const": "experience:retrieve"
                               },
                               {
                                 "type": "string",
@@ -2353,7 +2449,7 @@
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 8,
+                          "maxItems": 14,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -3303,11 +3399,35 @@
                             "anyOf": [
                               {
                                 "type": "string",
+                                "const": "evaluation:admit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:append"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:close"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:prepare"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:append"
                               },
                               {
                                 "type": "string",
+                                "const": "evidence:read"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:seal"
+                              },
+                              {
+                                "type": "string",
+                                "const": "experience:retrieve"
                               },
                               {
                                 "type": "string",
@@ -3336,7 +3456,7 @@
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 8,
+                          "maxItems": 14,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -3783,11 +3903,35 @@
                             "anyOf": [
                               {
                                 "type": "string",
+                                "const": "evaluation:admit"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:append"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:close"
+                              },
+                              {
+                                "type": "string",
+                                "const": "evaluation:prepare"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:append"
                               },
                               {
                                 "type": "string",
+                                "const": "evidence:read"
+                              },
+                              {
+                                "type": "string",
                                 "const": "evidence:seal"
+                              },
+                              {
+                                "type": "string",
+                                "const": "experience:retrieve"
                               },
                               {
                                 "type": "string",
@@ -3816,7 +3960,7 @@
                             ]
                           },
                           "minItems": 1,
-                          "maxItems": 8,
+                          "maxItems": 14,
                           "uniqueItems": true
                         },
                         "policyFingerprint": {
@@ -7087,11 +7231,35 @@
                               "anyOf": [
                                 {
                                   "type": "string",
+                                  "const": "evaluation:admit"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "evaluation:append"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "evaluation:close"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "evaluation:prepare"
+                                },
+                                {
+                                  "type": "string",
                                   "const": "evidence:append"
                                 },
                                 {
                                   "type": "string",
+                                  "const": "evidence:read"
+                                },
+                                {
+                                  "type": "string",
                                   "const": "evidence:seal"
+                                },
+                                {
+                                  "type": "string",
+                                  "const": "experience:retrieve"
                                 },
                                 {
                                   "type": "string",
@@ -7847,11 +8015,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -8957,11 +9149,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -9962,11 +10178,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -14857,11 +15097,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -17701,11 +17965,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -19922,11 +20210,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -20505,11 +20817,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -21573,11 +21909,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -27071,11 +27431,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -28328,11 +28712,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -31287,11 +31695,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",
@@ -32230,11 +32662,35 @@
                           "anyOf": [
                             {
                               "type": "string",
+                              "const": "evaluation:admit"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:append"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:close"
+                            },
+                            {
+                              "type": "string",
+                              "const": "evaluation:prepare"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:append"
                             },
                             {
                               "type": "string",
+                              "const": "evidence:read"
+                            },
+                            {
+                              "type": "string",
                               "const": "evidence:seal"
+                            },
+                            {
+                              "type": "string",
+                              "const": "experience:retrieve"
                             },
                             {
                               "type": "string",

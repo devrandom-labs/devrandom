@@ -10,8 +10,14 @@ const timestampSchema = Type.String({
 });
 
 export const workAccessScopes = Object.freeze([
+  'evaluation:admit',
+  'evaluation:append',
+  'evaluation:close',
+  'evaluation:prepare',
   'evidence:append',
+  'evidence:read',
   'evidence:seal',
+  'experience:retrieve',
   'run:create',
   'run:execute',
   'run:prepare',
@@ -29,6 +35,12 @@ export const workAccessScopeSchema = Type.Union([
   Type.Literal(workAccessScopes[5]),
   Type.Literal(workAccessScopes[6]),
   Type.Literal(workAccessScopes[7]),
+  Type.Literal(workAccessScopes[8]),
+  Type.Literal(workAccessScopes[9]),
+  Type.Literal(workAccessScopes[10]),
+  Type.Literal(workAccessScopes[11]),
+  Type.Literal(workAccessScopes[12]),
+  Type.Literal(workAccessScopes[13]),
 ]);
 
 export type WorkAccessScope = Type.Static<typeof workAccessScopeSchema>;
@@ -142,7 +154,7 @@ const grantedProjectionSchema = Type.Object(
     verifiedResponseSaid: keriIdentifierSchema,
     scopes: Type.Array(workAccessScopeSchema, {
       minItems: 1,
-      maxItems: 8,
+      maxItems: workAccessScopes.length,
       uniqueItems: true,
     }),
     policyFingerprint: sha256FingerprintSchema,
