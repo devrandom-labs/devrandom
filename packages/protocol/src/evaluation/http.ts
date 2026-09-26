@@ -235,6 +235,17 @@ export const evaluationClosureCommandSchema = Type.Object(
     fingerprint,
     expectedEvaluationVersion: Type.Integer({ minimum: 1 }),
     closure: evaluationClosureSchema,
+    evidenceIndex: Type.Object(
+      {
+        artifact: evidenceArtifactSchema,
+        bytesBase64Url: Type.String({
+          minLength: 1,
+          maxLength: Math.ceil((128 * 1_024 * 4) / 3),
+          pattern: '^[A-Za-z0-9_-]*$',
+        }),
+      },
+      { additionalProperties: false },
+    ),
   },
   { additionalProperties: false },
 );

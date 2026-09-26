@@ -4,9 +4,11 @@ import Value from 'typebox/value';
 import { describe, expect, it } from 'vitest';
 
 import { prepareEvidenceArtifact } from '../evidence/evidence-artifact.js';
+import { prepareEvaluationClosure } from './closure.js';
 import {
   decodePublicEvaluationArtifact,
   evaluationAdmissionCommandSchema,
+  evaluationClosureCommandSchema,
   evaluationEvidenceUploadSchema,
   evaluationLeaseRenewalCommandSchema,
   evaluationLeaseRenewalReceiptSchema,
@@ -127,5 +129,51 @@ describe('closed evaluation hosted commands', () => {
         evaluationId: id('2'),
       }),
     ).toBe(true);
+  });
+
+  it('requires exact index bytes to accompany the signed EvidenceOnly closure', () => {
+    const prepared = prepareEvaluationClosure({
+      evaluationId: id('4'),
+      evidenceStreamId: id('5'),
+      originRunId: id('6'),
+      manifestSaid: said('M'),
+      evidenceIndexSaid: said('I'),
+      acceptedEventCount: 2,
+      acceptedHeadSaid: said('H'),
+      observationSaids: Array.from({ length: 18 }, (_, index) =>
+        said(String.fromCharCode(65 + index)),
+      ),
+      measurementSaids: Array.from({ length: 15 }, (_, index) =>
+        said(String.fromCharCode(97 + index)),
+      ),
+      sharedAuditSaid: said('u'),
+      armAuditSaids: {
+        H1: said('1'),
+        C1: said('2'),
+        C2: said('3'),
+        C3: said('4'),
+        H1TaskSearch: said('5'),
+      },
+      protectedCustodySaid: said('q'),
+      agentSealSaid: said('g'),
+    });
+    if (prepared.kind !== 'Prepared') throw new Error('closure fixture invalid');
+    const bytes = new TextEncoder().encode('{}');
+    const artifact = prepareEvidenceArtifact(bytes, 'application/json');
+    if (artifact.kind !== 'Prepared') throw new Error('index artifact fixture invalid');
+    const command = {
+      version: 1,
+      commandId: id('7'),
+      fingerprint: `sha256:${'a'.repeat(64)}`,
+      expectedEvaluationVersion: 2,
+      closure: prepared.closure,
+      evidenceIndex: {
+        artifact: artifact.artifact,
+        bytesBase64Url: Buffer.from(bytes).toString('base64url'),
+      },
+    };
+    expect(Value.Check(evaluationClosureCommandSchema, command)).toBe(true);
+    const { evidenceIndex: _missing, ...withoutIndex } = command;
+    expect(Value.Check(evaluationClosureCommandSchema, withoutIndex)).toBe(false);
   });
 });
