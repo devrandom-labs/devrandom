@@ -343,6 +343,15 @@ function reservationRow(value: unknown): ReservationRow | undefined {
     : undefined;
 }
 
+function attemptIdentity(phase: EvaluationExecutionBinding['phase']): string {
+  return phase.kind === 'Trial'
+    ? `Trial:${phase.arm}:${String(phase.repetition)}:${String(phase.attempt)}`
+    : phase.kind;
+}
+
+const reservationSchema =
+  'CREATE TABLE reservations (reservation_id TEXT PRIMARY KEY, request_ordinal INTEGER NOT NULL, slot_key TEXT NOT NULL, attempt_key TEXT NOT NULL, maximum_json TEXT NOT NULL, state TEXT NOT NULL, usage_json TEXT, UNIQUE(attempt_key, request_ordinal))';
+
 function matchesAccepted(row: ReservationRow, accepted: Accepted): boolean {
   if (row.usage_json === null || !said.test(accepted.eventSaid)) return false;
   let usage: unknown;
@@ -355,6 +364,7 @@ function matchesAccepted(row: ReservationRow, accepted: Accepted): boolean {
   const verified = usage as Verified;
   return (
     validUsage(verified) &&
+    attemptIdentity(accepted.phase) === row.attempt_key &&
     accepted.requestOrdinal === row.request_ordinal &&
     accepted.responseId === verified.responseId &&
     accepted.providerReportArtifactSaid === verified.providerReportArtifactSaid &&
@@ -420,9 +430,7 @@ export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllo
       database.exec(
         'CREATE TABLE IF NOT EXISTS scope (singleton INTEGER PRIMARY KEY CHECK (singleton=1), scope_key TEXT NOT NULL)',
       );
-      database.exec(
-        'CREATE TABLE IF NOT EXISTS reservations (reservation_id TEXT PRIMARY KEY, request_ordinal INTEGER NOT NULL UNIQUE, slot_key TEXT NOT NULL, attempt_key TEXT NOT NULL, maximum_json TEXT NOT NULL, state TEXT NOT NULL, usage_json TEXT)',
-      );
+      database.exec(reservationSchema.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS '));
       const existing = database.prepare('SELECT scope_key FROM scope WHERE singleton=1').get() as
         { scope_key: string } | undefined;
       if (existing === undefined)
@@ -430,6 +438,23 @@ export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllo
       else if (existing.scope_key !== limits.scopeKey) {
         database.close();
         return { kind: 'Unavailable' };
+      }
+      // Losslessly upgrade the original global-ordinal constraint before accepting another slot.
+      const schema = database
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reservations'")
+        .get() as { sql: string };
+      if (schema.sql.includes('request_ordinal INTEGER NOT NULL UNIQUE')) {
+        database.exec('BEGIN IMMEDIATE');
+        try {
+          database.exec('ALTER TABLE reservations RENAME TO legacy_reservations');
+          database.exec(reservationSchema);
+          database.exec('INSERT INTO reservations SELECT * FROM legacy_reservations');
+          database.exec('DROP TABLE legacy_reservations');
+          database.exec('COMMIT');
+        } catch (error) {
+          database.exec('ROLLBACK');
+          throw error;
+        }
       }
       return {
         kind: 'Opened',
@@ -494,13 +519,24 @@ export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllo
         .map(reservationRow);
       if (rows.some((row) => row === undefined)) throw new Error('corrupt allowance ledger');
       const known = rows as ReservationRow[];
-      const accepted = new Map(current.accepted.map((item) => [item.requestOrdinal, item]));
+      const accepted = new Map(
+        current.accepted.map((item) => [
+          `${attemptIdentity(item.phase)}:${String(item.requestOrdinal)}`,
+          item,
+        ]),
+      );
       if (
         accepted.size !== current.accepted.length ||
-        known.some((row) => row.request_ordinal >= input.requestOrdinal) ||
+        current.accepted.some(
+          (proof) =>
+            proof.phase.kind !== 'Trial' || proof.phase.manifestSaid !== current.manifest.d,
+        ) ||
+        known.some(
+          (row) => row.attempt_key === attemptKey && row.request_ordinal >= input.requestOrdinal,
+        ) ||
         known.some((row) => row.state === 'Pending' || row.state === 'Unresolved') ||
         known.some((row) => {
-          const proof = accepted.get(row.request_ordinal);
+          const proof = accepted.get(`${row.attempt_key}:${String(row.request_ordinal)}`);
           return row.state === 'Accepted'
             ? proof === undefined || !matchesAccepted(row, proof)
             : row.state === 'AwaitingEvidence'
@@ -508,7 +544,12 @@ export class SqliteEvaluationProviderAllowance implements EvaluationProviderAllo
               : proof !== undefined;
         }) ||
         current.accepted.some(
-          (proof) => !known.some((row) => row.request_ordinal === proof.requestOrdinal),
+          (proof) =>
+            !known.some(
+              (row) =>
+                row.attempt_key === attemptIdentity(proof.phase) &&
+                row.request_ordinal === proof.requestOrdinal,
+            ),
         )
       ) {
         this.#database.exec('ROLLBACK');

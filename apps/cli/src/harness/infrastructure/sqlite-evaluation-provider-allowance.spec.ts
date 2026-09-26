@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import { afterEach, expect, it } from 'vitest';
 
@@ -125,6 +126,7 @@ function fixture() {
     },
     accepted: [] as {
       eventSaid: string;
+      phase: EvaluationExecutionBinding['phase'];
       requestOrdinal: number;
       responseId: string;
       providerReportArtifactSaid: string;
@@ -273,6 +275,17 @@ it('fences a request durably before provider I/O and never reuses it after crash
     await first.allowance.reserve({ binding: given.binding, requestOrdinal: 0, maximum }),
   ).toMatchObject({ kind: 'Reserved' });
   first.allowance.close();
+  // Recreate the original schema to prove an existing uncertain request survives migration.
+  const legacy = new DatabaseSync(
+    join(given.stateRoot, 'evaluations', given.binding.evaluationId, 'provider-allowance.sqlite'),
+  );
+  legacy.exec('ALTER TABLE reservations RENAME TO saved_reservations');
+  legacy.exec(
+    'CREATE TABLE reservations (reservation_id TEXT PRIMARY KEY, request_ordinal INTEGER NOT NULL UNIQUE, slot_key TEXT NOT NULL, attempt_key TEXT NOT NULL, maximum_json TEXT NOT NULL, state TEXT NOT NULL, usage_json TEXT)',
+  );
+  legacy.exec('INSERT INTO reservations SELECT * FROM saved_reservations');
+  legacy.exec('DROP TABLE saved_reservations');
+  legacy.close();
   const reopened = await SqliteEvaluationProviderAllowance.open(given.stateRoot, given.binding, {
     inspect: given.inspect,
   });
@@ -327,6 +340,7 @@ it('serializes two parent processes and does not refund before accepted provider
   ).toEqual({ kind: 'Unavailable' });
   given.current.accepted.push({
     eventSaid: said('u'),
+    phase: given.binding.phase,
     requestOrdinal: 0,
     responseId: usage.responseId,
     providerReportArtifactSaid: usage.providerReportArtifactSaid,
@@ -430,4 +444,69 @@ it('composes owner-scoped current position and M lock, refusing an unreadable ac
   throughSequence = 0;
   chainHeadSaid = said('x');
   expect(await custody.inspect(given.binding)).toEqual({ kind: 'Unavailable' });
+});
+
+it('starts each exact Trial slot at ordinal zero while retaining shared accounting and retry fences', async () => {
+  const given = fixture();
+  const opened = await SqliteEvaluationProviderAllowance.open(given.stateRoot, given.binding, {
+    inspect: given.inspect,
+  });
+  if (opened.kind !== 'Opened') throw new Error('fixture opening failed');
+  const maximum = {
+    providerRequests: 1 as const,
+    inputTokens: 10,
+    outputTokens: 10,
+    spendMicroUsd: 10,
+  };
+  try {
+    for (const slot of given.current.manifest.slots) {
+      const binding: EvaluationExecutionBinding = {
+        ...given.binding,
+        harnessRevisionSaid:
+          given.current.manifest.revisions[slot.arm === 'H1TaskSearch' ? 'H1' : slot.arm],
+        phase: { kind: 'Trial', manifestSaid: given.current.manifest.d, ...slot },
+      };
+      const reservation = await opened.allowance.reserve({ binding, requestOrdinal: 0, maximum });
+      expect(reservation.kind, JSON.stringify(slot)).toBe('Reserved');
+      if (reservation.kind !== 'Reserved') throw new Error('reservation');
+      const usage = {
+        kind: 'Verified' as const,
+        ...maximum,
+        responseId: JSON.stringify(slot),
+        providerReportArtifactSaid: said('r'),
+      };
+      expect(
+        await opened.allowance.record({ reservationId: reservation.reservationId, usage }),
+      ).toEqual({ kind: 'Recorded' });
+      expect(
+        await opened.allowance.record({ reservationId: reservation.reservationId, usage }),
+      ).toEqual({ kind: 'Recorded' });
+      given.current.accepted.push({
+        eventSaid: said('u'),
+        phase: binding.phase,
+        requestOrdinal: 0,
+        responseId: usage.responseId,
+        providerReportArtifactSaid: usage.providerReportArtifactSaid,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        spendMicroUsd: usage.spendMicroUsd,
+      });
+      const proof = given.current.accepted.at(-1);
+      if (proof === undefined || proof.phase.kind !== 'Trial') throw new Error('proof fixture');
+      proof.phase = { ...proof.phase, repetition: proof.phase.repetition === 1 ? 2 : 1 };
+      expect(await opened.allowance.reserve({ binding, requestOrdinal: 1, maximum })).toEqual({
+        kind: 'Unavailable',
+      });
+      proof.phase = binding.phase;
+      expect(await opened.allowance.reserve({ binding, requestOrdinal: 0, maximum })).toEqual({
+        kind: 'Unavailable',
+      });
+      if (slot.arm === 'H1TaskSearch')
+        expect(await opened.allowance.reserve({ binding, requestOrdinal: 1, maximum })).toEqual({
+          kind: 'Exhausted',
+        });
+    }
+  } finally {
+    opened.allowance.close();
+  }
 });

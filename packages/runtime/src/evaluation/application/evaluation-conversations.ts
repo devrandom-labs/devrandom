@@ -159,6 +159,7 @@ export interface EvaluationProviderCustody {
         /** Complete verified Trial provider usage set from an exact authenticated hosted prefix. */
         readonly accepted: readonly {
           readonly eventSaid: string;
+          readonly phase: EvaluationExecutionBinding['phase'];
           readonly requestOrdinal: number;
           readonly responseId: string;
           readonly providerReportArtifactSaid: string;
