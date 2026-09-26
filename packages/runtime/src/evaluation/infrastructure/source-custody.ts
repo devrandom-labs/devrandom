@@ -162,9 +162,13 @@ export class SourceCustody {
     }
   }
 
-  async open(
-    sourceSaid: string,
-  ): Promise<{ readonly files: readonly { path: string; bytes: Uint8Array }[] } | undefined> {
+  async open(sourceSaid: string): Promise<
+    | {
+        readonly manifestBytes: Uint8Array;
+        readonly files: readonly { path: string; bytes: Uint8Array }[];
+      }
+    | undefined
+  > {
     if (!/^[A-Z][A-Za-z0-9_-]{43}$/u.test(sourceSaid)) return undefined;
     const root = join(this.#root, sourceSaid);
     try {
@@ -197,7 +201,7 @@ export class SourceCustody {
         if (bytes.length !== file.length || digest(bytes) !== file.digest) return undefined;
         files.push({ path: file.path, bytes });
       }
-      return { files };
+      return { manifestBytes: Uint8Array.from(manifest), files };
     } catch {
       return undefined;
     }

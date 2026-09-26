@@ -2,6 +2,7 @@ import { chmod, mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { prepareEvidenceArtifact } from '@devrandom/protocol';
 
 import { SourceCustody } from './source-custody.js';
 
@@ -24,6 +25,11 @@ describe('stopped-writer source capture', () => {
       sourceSaid: captured.sourceSaid,
     });
     const opened = await custody.open(captured.sourceSaid);
+    const manifest = prepareEvidenceArtifact(
+      opened?.manifestBytes ?? new Uint8Array(),
+      'application/json',
+    );
+    expect(manifest).toMatchObject({ kind: 'Prepared', artifact: { d: captured.sourceSaid } });
     expect(
       opened?.files.map((file) => ({ path: file.path, bytes: Buffer.from(file.bytes).toString() })),
     ).toEqual([{ path: 'src/lib.rs', bytes: 'pub fn answer() -> u8 { 7 }\n' }]);

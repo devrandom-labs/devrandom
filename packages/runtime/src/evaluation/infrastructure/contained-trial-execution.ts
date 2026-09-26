@@ -167,8 +167,7 @@ export class DockerContainedTrialExecution implements TrialExecution {
     const sessionId = randomUUID();
     const bindingId = `${binding.evaluationId}/${input.slot.arm}/${String(input.slot.repetition)}/${String(input.slot.attempt)}/${sessionId}`;
 
-    const raw = async (value: unknown): Promise<string> => {
-      const bytes = Buffer.from(JSON.stringify(value), 'utf8');
+    const storeRawBytes = async (bytes: Uint8Array): Promise<string> => {
       const identified = prepareEvidenceArtifact(bytes, 'application/json');
       if (identified.kind !== 'Prepared')
         throw new Error('Evaluation raw artifact exceeds custody limit.');
@@ -177,6 +176,8 @@ export class DockerContainedTrialExecution implements TrialExecution {
         throw new Error('Evaluation raw artifact custody failed.');
       return stored.artifact.d;
     };
+    const raw = (value: unknown): Promise<string> =>
+      storeRawBytes(Buffer.from(JSON.stringify(value), 'utf8'));
 
     const append = async (detail: EvaluationEvidenceEvent['detail']): Promise<string> => {
       const prepared = prepareEvaluationEvidenceEvent({
@@ -221,6 +222,14 @@ export class DockerContainedTrialExecution implements TrialExecution {
 
     const trial = async (): ReturnType<TrialExecution['run']> => {
       try {
+        const cleanManifestSaid = await storeRawBytes(clean.manifestBytes);
+        if (cleanManifestSaid !== input.cleanSourceSaid)
+          throw new Error('Clean Evaluation source manifest changed before custody.');
+        await append({
+          kind: 'SourceRead',
+          sourceSaid: input.cleanSourceSaid,
+          rawArtifactSaid: cleanManifestSaid,
+        });
         await mkdir(sourcePath, { mode: 0o700 });
         for (const file of clean.files) {
           const path = resolve(sourcePath, file.path);
@@ -454,6 +463,12 @@ export class DockerContainedTrialExecution implements TrialExecution {
         const captured = await config.source.capture(extracted, () => Promise.resolve(false));
         if (captured.kind !== 'Captured')
           throw new Error('Stopped evaluation source capture failed.');
+        const stopped = await config.source.open(captured.sourceSaid);
+        if (
+          stopped === undefined ||
+          (await storeRawBytes(stopped.manifestBytes)) !== captured.sourceSaid
+        )
+          throw new Error('Stopped Evaluation source manifest lacks raw custody.');
         await append({
           kind: 'ArtifactCaptured',
           artifactSaid: captured.sourceSaid,

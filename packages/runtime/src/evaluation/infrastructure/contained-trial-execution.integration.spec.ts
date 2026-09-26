@@ -270,6 +270,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
         expect(events.map((event) => event.detail.kind)).toContain('ToolAuthorization');
         expect(events.at(-1)?.detail).toEqual({ kind: 'TrialStopped', reason: 'Completed' });
         expect(rawSaids).toContain(result.cleanupReceiptSaid);
+        expect(rawSaids).toContain(result.capturedSourceSaid);
         expect(await readFile(join(root, result.cleanupReceiptSaid))).toBeDefined();
       } finally {
         await rm(root, { recursive: true, force: true });
