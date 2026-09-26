@@ -13,6 +13,7 @@ apps/site/.playwright-artifacts/
 .env.*
 !.env.example
 .devrandom/
+/.pi/
 /docs/
 result
 result-*
