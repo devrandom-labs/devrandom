@@ -3,12 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify from 'fastify';
 import { MongoClient } from 'mongodb';
+import { comparisonSlots, tamperAuditObligations, tamperLifecycleRoles } from '@devrandom/domain';
 import { issuerAid, personalAgentAid } from '@devrandom/identity';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   prepareEvaluationExecutionProfile,
   prepareEvaluationClosure,
+  prepareEvaluationClosureEvidenceIndex,
   prepareEvaluationSourceInventory,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -406,27 +408,83 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
     const evaluationId = randomUUID();
     const evidenceStreamId = randomUUID();
     const originRunId = randomUUID();
+    let serial = 0;
+    const nextSaid = () => `E${String(++serial).padStart(43, '0')}`;
+    const dimensions = [
+      'providerRequests',
+      'providerInputTokens',
+      'providerOutputTokens',
+      'providerSpendMicroUsd',
+      'runWallTimeSeconds',
+      'toolProposals',
+      'aggregateChildCommandTimeSeconds',
+      'changedFiles',
+      'changedWorktreeBytes',
+    ] as const;
+    const index = prepareEvaluationClosureEvidenceIndex({
+      version: 1,
+      kind: 'EvaluationClosureEvidenceIndex',
+      evaluationId,
+      manifestSaid: said('M'),
+      sourceInventorySaid: inventory.inventory.d,
+      hypothesisSaid: said('H'),
+      lease: { leaseId: randomUUID(), version: 1 },
+      observations: comparisonSlots().map((slot) => ({ slot, artifactSaid: nextSaid() })),
+      measurements: comparisonSlots()
+        .filter((slot) => slot.attempt === 1)
+        .map((slot) => ({ slot, artifactSaid: nextSaid() })),
+      audits: (['Shared', 'H1', 'C1', 'C2', 'C3', 'H1TaskSearch'] as const).map((scope) => ({
+        scope,
+        assessmentArtifactSaid: nextSaid(),
+        proofs: tamperAuditObligations.map((obligation) => ({
+          scope,
+          obligation,
+          proofSaid: nextSaid(),
+          finding: 'Pass' as const,
+        })),
+        attemptCoverage: {
+          scope,
+          proofSaid: nextSaid(),
+          complete: true,
+          coveredRoles: [...tamperLifecycleRoles],
+          attempts: [],
+        },
+        obligations: Object.fromEntries(tamperAuditObligations.map((name) => [name, 'Pass'])),
+        verdict: 'Pass' as const,
+      })),
+      budget: {
+        coverageEventSaid: nextSaid(),
+        totals: Object.fromEntries(dimensions.map((name) => [name, 1])),
+        anchors: dimensions.map((dimension) => ({
+          dimension,
+          finalDebitEventSaid: nextSaid(),
+          receiptArtifactSaid: nextSaid(),
+          sourceEventSaid: nextSaid(),
+        })),
+      },
+    });
+    if (index.kind !== 'Prepared') throw new Error(index.reason);
+    const [shared, h1, c1, c2, c3, search] = index.index.audits.map(
+      ({ assessmentArtifactSaid }) => assessmentArtifactSaid,
+    );
+    if (!shared || !h1 || !c1 || !c2 || !c3 || !search) throw new Error('audit fixture invalid');
     const closure = prepareEvaluationClosure({
       evaluationId,
       evidenceStreamId,
       originRunId,
       manifestSaid: said('M'),
-      evidenceIndexSaid: said('I'),
+      evidenceIndexSaid: index.artifact.d,
       acceptedEventCount: 1,
       acceptedHeadSaid: said('h'),
-      observationSaids: Array.from({ length: 18 }, (_, index) =>
-        said(String.fromCharCode(65 + index)),
-      ),
-      measurementSaids: Array.from({ length: 15 }, (_, index) =>
-        said(String.fromCharCode(97 + index)),
-      ),
-      sharedAuditSaid: said('s'),
+      observationSaids: index.index.observations.map(({ artifactSaid }) => artifactSaid),
+      measurementSaids: index.index.measurements.map(({ artifactSaid }) => artifactSaid),
+      sharedAuditSaid: shared,
       armAuditSaids: {
-        H1: said('1'),
-        C1: said('2'),
-        C2: said('3'),
-        C3: said('4'),
-        H1TaskSearch: said('5'),
+        H1: h1,
+        C1: c1,
+        C2: c2,
+        C3: c3,
+        H1TaskSearch: search,
       },
       protectedCustodySaid: said('p'),
       agentSealSaid: said('g'),
@@ -500,6 +558,10 @@ describeMongo('composed hosted Evaluation HTTP boundary', () => {
           fingerprint: `sha256:${'f'.repeat(64)}`,
           expectedEvaluationVersion: 1,
           closure: closure.closure,
+          evidenceIndex: {
+            artifact: index.artifact,
+            bytesBase64Url: Buffer.from(index.bytes).toString('base64url'),
+          },
         }),
       });
     try {
