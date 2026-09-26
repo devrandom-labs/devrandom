@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { runInteractiveDemo } from './prd03-interactive.js';
 
-async function present(commands: string[]) {
+async function present(commands: string[], color = false) {
   const output: string[] = [];
   const invoke = vi.fn(() =>
     Promise.resolve({
@@ -18,6 +18,7 @@ async function present(commands: string[]) {
     read: () => Promise.resolve(commands.shift() ?? null),
     write: (text) => output.push(text),
     invoke,
+    color,
   });
   return { output: output.join(''), invoke };
 }
@@ -48,7 +49,31 @@ it('runs the complete explicitly simulated journey without a real invocation', a
     'exit',
   ]);
   expect(result.invoke).not.toHaveBeenCalled();
-  expect(result.output).toContain('SIM-CONSUMER-01');
-  expect(result.output).toContain('Same Run: SIM-RUN-06');
-  expect(result.output).toContain('not live Q evidence');
+  expect(result.output).toContain('consumer-01');
+  expect(result.output).toContain('Same Run: run-06');
+  expect(result.output).toContain('Illustrative walkthrough');
+});
+
+it('offers a colored walkthrough with one disclosure and natural commands', async () => {
+  const result = await present(
+    [
+      'walkthrough',
+      'task',
+      'baseline',
+      'compare workflow',
+      'approve',
+      'crash',
+      'resume',
+      'publish',
+      'fork',
+      'exit',
+    ],
+    true,
+  );
+  expect(result.invoke).not.toHaveBeenCalled();
+  expect(result.output).toContain('\u001b[');
+  expect(result.output.match(/Illustrative walkthrough/g)).toHaveLength(1);
+  expect(result.output).not.toContain('[SIMULATED]');
+  expect(result.output).not.toContain('[LIVE CLI]');
+  expect(result.output).toContain('New private lineage');
 });

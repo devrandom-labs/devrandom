@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -63,6 +63,29 @@ describe('interactive demo public CLI boundary', () => {
 });
 
 describe('public subprocess adapter', () => {
+  it('creates Tasks in the selected repository rather than the CLI installation checkout', async () => {
+    const repositoryRoot = await mkdtemp(join(tmpdir(), 'devrandom-demo-cwd-'));
+    const workingDirectory = join(repositoryRoot, 'task-source');
+    try {
+      await mkdir(join(repositoryRoot, 'apps/cli/dist'), { recursive: true });
+      await mkdir(workingDirectory);
+      await writeFile(
+        join(repositoryRoot, 'apps/cli/dist/main.js'),
+        'process.stdout.write(process.cwd());',
+      );
+      const outcome = await invokeDemoCliAction({
+        action: 'task-create',
+        inputs: { file: 'task.json' },
+        confirmed: true,
+        repositoryRoot,
+        workingDirectory,
+      });
+      expect(outcome.exitCode).toBe(0);
+      expect(outcome.output).toBe(await realpath(workingDirectory));
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+    }
+  });
   it('preserves nonzero exit and live provenance without a simulated fallback', async () => {
     const repositoryRoot = await mkdtemp(join(tmpdir(), 'devrandom-demo-invocation-'));
     try {

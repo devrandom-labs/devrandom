@@ -31,7 +31,7 @@ export function renderSimulationDemo(report: SimulationProofReport, stageId?: st
   }
   lines.push(
     'Story: propose → verify → govern → recover → share behavior.',
-    'Presenter guide: DEMO.md',
+    'Presenter guide: demo.md; recorded fixture setup: recorded-demo.md',
   );
   return `${lines.join('\n')}\n`;
 }
@@ -63,7 +63,7 @@ async function prepare(directory: string): Promise<number> {
   const image = process.env.DEVRANDOM_EVAL_IMAGE;
   if (image === undefined || !/^sha256:[a-f0-9]{64}$/u.test(image)) {
     throw new Error(
-      'Set DEVRANDOM_EVAL_IMAGE to the exact local sha256 image digest; see DEMO.md.',
+      'Set DEVRANDOM_EVAL_IMAGE to the exact local sha256 image digest; see recorded-demo.md.',
     );
   }
   const { simulationProofStages, writeSimulationProofReport } =

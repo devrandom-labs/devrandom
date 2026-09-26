@@ -281,6 +281,7 @@ export type DemoCliOutcome = {
 export async function invokeDemoCliAction(
   input: DemoCliInvocation & {
     repositoryRoot: string;
+    workingDirectory?: string;
     environment?: Readonly<Record<string, string | undefined>>;
     environmentFile?: string;
     signal?: AbortSignal;
@@ -316,7 +317,7 @@ export async function invokeDemoCliAction(
       process.execPath,
       [join(input.repositoryRoot, 'apps/cli/dist/main.js'), ...prepared.args],
       {
-        cwd: input.repositoryRoot,
+        cwd: input.workingDirectory ?? input.repositoryRoot,
         env: environment,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,

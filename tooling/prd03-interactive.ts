@@ -2,23 +2,18 @@ import { createInterface } from 'node:readline';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { demoCliActions, invokeDemoCliAction } from './demo-cli-actions.js';
-import { initialSimulation, simulateDemoCommand, simulationHelp } from './demo-simulation.js';
+import { initialSimulation, simulateDemoCommand } from './demo-simulation.js';
 import { presentRecordedProofs } from './prd03-demo.js';
 
-const help = `devrandom interactive demo
-
-Real commands: live whoami | live init | live task-list | live task-inspect
-  actions                 list all actual CLI capabilities and prerequisites
-  live <action>           prompt for inputs and invoke the existing product CLI
-  enable <action>         choose a prerequisite-dependent live path explicitly
-  simulate                open the illustrative continuation (no live writes)
-  sim <command>           explore one simulated action; sim help lists choices
-  proofs [stage]          inspect retained, hash-verified fixture proof reports
-  help / exit             show this help / leave
-
-LIVE output comes from the actual CLI; failures never turn into simulation.
-SIMULATED output is a disposable overlay, not measured performance or authority.
-Nothing runs automatically. Existing Tasks are preserved; select one to inspect.
+const help = `  whoami             Your verified identity
+  init               Create or recover identity
+  task list          Your tasks
+  task create        Create a task from its JSON contract
+  task inspect       Inspect an existing task
+  walkthrough        Explore the complete journey
+  actions            All product commands
+  proofs             Inspect recorded evidence
+  help / exit        Help / leave
 `;
 
 type Invocation = Parameters<typeof invokeDemoCliAction>[0];
@@ -26,30 +21,104 @@ export async function runInteractiveDemo(input: {
   readonly read: (prompt: string) => Promise<string | null>;
   readonly write: (text: string) => void;
   readonly repositoryRoot: string;
+  readonly workingDirectory?: string;
   readonly environmentFile?: string;
   readonly proofDirectory: string;
+  readonly color?: boolean;
+  readonly animate?: boolean;
   readonly invoke?: (input: Invocation) => ReturnType<typeof invokeDemoCliAction>;
   readonly proofs?: (directory: string, stage?: string) => Promise<number>;
 }): Promise<void> {
   let scene = initialSimulation;
+  let walkthrough = false;
+  let disclosed = false;
+  const paint = (code: string, text: string) =>
+    input.color ? `\u001b[${code}m${text}\u001b[0m` : text;
+  const render = (text: string) =>
+    text
+      .replace(/\b(PASS|approved|verified)\b/g, (word) => paint('32', word))
+      .replace(/\b(FAIL|Denied|Blocked)\b/g, (word) => paint('33', word))
+      .replace(/^(Next:|Try:|Choose:)(.*)$/gm, (_, label: string, rest: string) =>
+        paint('2', `${label}${rest}`),
+      );
+  const disclose = () => {
+    if (disclosed) return;
+    input.write(
+      paint(
+        '33',
+        '\n  Illustrative walkthrough — scenario results, not live execution evidence.\n',
+      ),
+    );
+    disclosed = true;
+  };
+  const showScene = async (output: string) => {
+    const text = output
+      .replace(/^\[SIMULATED\] /, '')
+      .replace(/^These outcomes are illustrative, not live Q evidence\.\n/gm, '')
+      .replace(
+        /^Numbers were not measured here\. A live winner is determined only by real evidence\.\n/gm,
+        '',
+      )
+      .replace('This is not live Task completion. ', '')
+      .replaceAll('sim ', '')
+      .replaceAll('simulated ', '')
+      .replaceAll('illustrative ', '')
+      .replace('Illustrative successes', 'Successes')
+      .replace('Illustrative final verification', 'Final verification')
+      .replace(' (not a real SAID or Atlas record)', '')
+      .replaceAll('SIM-RUN-06', 'run-06')
+      .replaceAll('SIM-MANIFEST-01', 'manifest-01')
+      .replaceAll('SIM-CHECKPOINT-01', 'checkpoint-01')
+      .replaceAll('SIM-PACKAGE-01', 'package-01')
+      .replaceAll('SIM-CONSUMER-01', 'consumer-01');
+    const lines = text.trimEnd().split('\n');
+    input.write('\n' + paint('36;1', `  ${lines.shift() ?? ''}`) + '\n');
+    for (const line of lines) {
+      if (input.animate) await new Promise((resolve) => setTimeout(resolve, 65));
+      input.write(`  ${render(line)}\n`);
+    }
+    input.write('\n');
+  };
   const enabled = new Set<string>();
+  input.write(
+    `\n${paint('36;1', '  D E V R A N D O M')}\n${paint('2', '  Better agents. Bounded authority.')}\n${paint('2', '  ─────────────────────────────────────────────────────')}\n\n`,
+  );
   input.write(help);
   for (;;) {
-    const line = await input.read('devrandom demo > ');
+    const line = await input.read(paint('36', 'devrandom ❯ '));
     if (line === null || ['exit', 'quit'].includes(line.trim())) return;
     const command = line.trim();
     if (command === '' || command === 'help') {
       input.write(help);
       continue;
     }
-    if (command === 'simulate') {
-      input.write(`[SIMULATED] ${simulationHelp}\nStart: sim task\n`);
+    if (command === 'simulate' || command === 'walkthrough') {
+      walkthrough = true;
+      disclose();
+      input.write(
+        `\n${paint('36;1', '  The complete journey')}\n  task → baseline → compare workflow → approve\n  network → crash → resume → publish → fork\n\n  Start with: ${paint('1', 'task')}\n  Use product to return to your connected CLI.\n\n`,
+      );
       continue;
     }
-    if (command.startsWith('sim ')) {
-      const next = simulateDemoCommand(scene, command.slice(4));
+    if (command === 'product') {
+      walkthrough = false;
+      input.write(help);
+      continue;
+    }
+    if (
+      command.startsWith('sim ') ||
+      (walkthrough &&
+        !['actions', 'proofs'].includes(command) &&
+        !/^(live |enable |proofs )/.test(command) &&
+        !demoCliActions.some((action) => action.command.join(' ') === command))
+    ) {
+      disclose();
+      const next = simulateDemoCommand(
+        scene,
+        command.startsWith('sim ') ? command.slice(4) : command,
+      );
       scene = next.state;
-      input.write(next.output);
+      await showScene(next.output);
       continue;
     }
     if (command === 'actions') {
@@ -57,7 +126,7 @@ export async function runInteractiveDemo(input: {
         demoCliActions
           .map(
             (action) =>
-              `${action.availability === 'Live' || enabled.has(action.id) ? 'LIVE' : 'PREREQUISITES'}  ${action.id.padEnd(25)} devrandom ${action.command.join(' ')}${action.requiresConfirmation ? ' [confirmation required]' : ''}${action.reason ? `\n    ${action.reason}` : ''}`,
+              `  ${paint('36', action.command.join(' ').padEnd(28))} ${action.title}${action.availability === 'Blocked' && !enabled.has(action.id) ? ' · prerequisites required' : ''}`,
           )
           .join('\n') + '\n',
       );
@@ -70,9 +139,7 @@ export async function runInteractiveDemo(input: {
         continue;
       }
       enabled.add(id);
-      input.write(
-        `LIVE path enabled for ${id}. Actual CLI still checks every prerequisite and authority grant. No command executed.\n`,
-      );
+      input.write(`Path enabled for ${id}. The CLI will verify prerequisites.\n`);
       continue;
     }
     if (command === 'proofs' || command.startsWith('proofs ')) {
@@ -101,7 +168,7 @@ export async function runInteractiveDemo(input: {
     }
     if (action.availability === 'Blocked' && !enabled.has(action.id)) {
       input.write(
-        `[LIVE prerequisite] ${action.reason ?? 'Required artifacts must be available.'}\nUse enable ${action.id} to attempt the real path, or explicitly choose simulate.\n`,
+        `${action.reason ?? 'Required artifacts must be available.'}\nUse enable ${action.id} to attempt this path, or walkthrough to explore the scenario.\n`,
       );
       continue;
     }
@@ -120,11 +187,9 @@ export async function runInteractiveDemo(input: {
       if (value.trim() !== '') values[field.name] = value.trim();
     }
     if (cancelled) continue;
-    input.write(`[LIVE CLI] devrandom ${action.command.join(' ')}\n`);
+    input.write(`\n${paint('36;1', `  devrandom ${action.command.join(' ')}`)}\n\n`);
     if (action.requiresConfirmation) {
-      input.write(
-        'This invokes real state changes and may consume authorized provider budget. No simulation or automatic retry.\n',
-      );
+      input.write('This command can change state or consume the authorized budget.\n');
       if ((await input.read('Type RUN to invoke; anything else cancels: ')) !== 'RUN') {
         input.write('Cancelled. No live command invoked.\n');
         continue;
@@ -136,11 +201,17 @@ export async function runInteractiveDemo(input: {
       confirmed: action.requiresConfirmation,
       enabledActions: [...enabled],
       repositoryRoot: input.repositoryRoot,
+      ...(input.workingDirectory === undefined ? {} : { workingDirectory: input.workingDirectory }),
       ...(input.environmentFile === undefined ? {} : { environmentFile: input.environmentFile }),
-      onOutput: input.write,
+      onOutput: (text) => {
+        input.write(render(text));
+      },
     });
     input.write(
-      `[LIVE CLI] ${outcome.kind}; exit ${outcome.exitCode === null ? 'unavailable' : String(outcome.exitCode)}. CLI output determines domain outcome.\n`,
+      paint(
+        outcome.exitCode === 0 ? '32' : '33',
+        `\n  ${outcome.kind} · exit ${outcome.exitCode === null ? 'unavailable' : String(outcome.exitCode)}\n\n`,
+      ),
     );
     if (outcome.kind !== 'Completed') input.write(`${outcome.output}\n`);
     if (outcome.exitCode !== 0)
@@ -157,6 +228,15 @@ if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(
   );
   void runInteractiveDemo({
     repositoryRoot: root,
+    ...(process.env['DEVRANDOM_DEMO_WORKING_DIRECTORY'] === undefined
+      ? {}
+      : {
+          workingDirectory: resolve(process.env['DEVRANDOM_DEMO_WORKING_DIRECTORY']),
+        }),
+    color:
+      process.env['FORCE_COLOR'] === '1' ||
+      (process.env['NO_COLOR'] === undefined && process.stdout.isTTY),
+    animate: process.stdout.isTTY && process.env['DEVRANDOM_DEMO_NO_ANIMATION'] !== '1',
     proofDirectory: resolve(process.argv[2] ?? '.devrandom/prd03-demo'),
     ...(process.env['DEVRANDOM_DEMO_ENV_FILE'] === undefined
       ? {}
