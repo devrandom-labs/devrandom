@@ -135,15 +135,17 @@ export function derivePortableBehavior(
   return { kind: 'Rejected' };
 }
 
+/** Existing reviewed public verification components; proposal and publication share these exact bytes. */
+export const reviewedPortableInstructions: readonly string[] = Object.freeze([
+  'Run public verification before completion.',
+  'Run the public compatibility verifier before completion.',
+  'Inspect the public contract before editing and run public verification before completion.',
+  'Verify the expected public behavior after each change.',
+]);
+
 /** Portable C1 supports reviewed public verification instructions, never arbitrary natural-language policy. */
 export function safePortableInstruction(text: string, privateValues: readonly string[]): boolean {
-  const reviewed = new Set([
-    'Run public verification before completion.',
-    'Run the public compatibility verifier before completion.',
-    'Inspect the public contract before editing and run public verification before completion.',
-    'Verify the expected public behavior after each change.',
-  ]);
-  if (!reviewed.has(text)) return false;
+  if (!reviewedPortableInstructions.includes(text)) return false;
   const normalized = text.toLowerCase();
   return privateValues
     .filter((value) => value.length >= 4)
