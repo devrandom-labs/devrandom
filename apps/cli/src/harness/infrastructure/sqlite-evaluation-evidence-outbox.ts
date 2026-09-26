@@ -5,10 +5,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { taskBudgetCeilings } from '@devrandom/domain';
 import {
   decodeEvaluationEvidenceBatch,
+  decodeEvidenceArtifact,
   decodeProtectedEvaluationArtifact,
   decodePublicEvaluationArtifact,
   evaluationEvidenceAcknowledgementSchema,
   evaluationEvidenceUploadSchema,
+  publicEvaluationArtifactEnvelopeSchema,
   prepareEvaluationEvidenceBatch,
   type EvidenceArtifact,
   type EvaluationEvidenceEvent,
@@ -121,7 +123,7 @@ function validUpload(upload: unknown, binding: EvaluationEvidenceBinding): uploa
   );
 }
 
-function artifactReferences(event: EvaluationEvidenceEvent): readonly string[] {
+export function evaluationArtifactReferences(event: EvaluationEvidenceEvent): readonly string[] {
   switch (event.detail.kind) {
     case 'ModelExchange':
       return [event.detail.rawArtifactSaid];
@@ -161,7 +163,7 @@ function publicAndProtected(upload: Upload): Map<string, Custody> | undefined {
 
 function referencesHaveCustody(upload: Upload, custody: ReadonlyMap<string, Custody>): boolean {
   for (const event of upload.events) {
-    for (const artifactSaid of artifactReferences(event)) {
+    for (const artifactSaid of evaluationArtifactReferences(event)) {
       // A Research SourceRead is authorized by the hosted source inventory and
       // exact Run custody, not by a duplicate Evaluation artifact upload.
       if (event.detail.kind === 'SourceRead' && event.phase.kind === 'Research') continue;
@@ -468,6 +470,9 @@ export class SqliteEvaluationEvidenceOutbox {
           database.close();
           return { kind: 'Corrupt' };
         }
+        database.exec(
+          'CREATE TABLE IF NOT EXISTS raw_artifacts (artifact_said TEXT PRIMARY KEY, encoded_envelope TEXT NOT NULL, encoded_bytes INTEGER NOT NULL) STRICT',
+        );
         return { kind: 'Opened', outbox: new SqliteEvaluationEvidenceOutbox(database, binding) };
       } catch {
         database.close();
@@ -475,6 +480,125 @@ export class SqliteEvaluationEvidenceOutbox {
       }
     } catch {
       return { kind: 'Unavailable' };
+    }
+  }
+
+  /** Full-sync local custody before the first event that references these bytes. */
+  retainPublicArtifact(input: {
+    readonly artifact: EvidenceArtifact;
+    readonly bytes: Uint8Array;
+  }): { readonly kind: 'Stored' | 'Rejected' | 'QuotaExceeded' | 'Corrupt' } {
+    if (decodeEvidenceArtifact(input.artifact, input.bytes).kind !== 'Accepted')
+      return { kind: 'Rejected' };
+    const envelope = {
+      artifact: input.artifact,
+      bytesBase64Url: Buffer.from(input.bytes).toString('base64url'),
+    };
+    const encoded = JSON.stringify(envelope);
+    try {
+      this.#database.exec('BEGIN IMMEDIATE');
+      const existing: unknown = this.#database
+        .prepare('SELECT custody FROM artifacts WHERE artifact_said = ?')
+        .get(input.artifact.d);
+      if (existing !== undefined) {
+        this.#database.exec('ROLLBACK');
+        return typeof existing === 'object' &&
+          existing !== null &&
+          'custody' in existing &&
+          existing.custody === 'Public'
+          ? { kind: 'Stored' }
+          : { kind: 'Rejected' };
+      }
+      const raw: unknown = this.#database
+        .prepare('SELECT encoded_envelope FROM raw_artifacts WHERE artifact_said = ?')
+        .get(input.artifact.d);
+      if (raw !== undefined) {
+        this.#database.exec('ROLLBACK');
+        return typeof raw === 'object' &&
+          raw !== null &&
+          'encoded_envelope' in raw &&
+          raw.encoded_envelope === encoded
+          ? { kind: 'Stored' }
+          : { kind: 'Corrupt' };
+      }
+      const pending: unknown = this.#database
+        .prepare('SELECT COALESCE(SUM(encoded_bytes), 0) AS bytes FROM raw_artifacts')
+        .get();
+      const current = state(this.#database);
+      if (
+        current === undefined ||
+        typeof pending !== 'object' ||
+        pending === null ||
+        !('bytes' in pending) ||
+        typeof pending.bytes !== 'number'
+      )
+        throw new Error('raw custody corrupt');
+      const length = Buffer.byteLength(encoded);
+      if (
+        length > taskBudgetCeilings.artifactRequestBodyBytes ||
+        current.stored_bytes + pending.bytes + length > storageByteLimit
+      ) {
+        this.#database.exec('ROLLBACK');
+        return { kind: 'QuotaExceeded' };
+      }
+      this.#database
+        .prepare('INSERT INTO raw_artifacts VALUES (?, ?, ?)')
+        .run(input.artifact.d, encoded, length);
+      this.#database.exec('COMMIT');
+      return { kind: 'Stored' };
+    } catch {
+      try {
+        this.#database.exec('ROLLBACK');
+      } catch {
+        /* transaction already closed */
+      }
+      return { kind: 'Corrupt' };
+    }
+  }
+
+  unstagedPublicArtifacts():
+    | {
+        readonly kind: 'Found';
+        readonly artifacts: readonly {
+          readonly artifact: EvidenceArtifact;
+          readonly bytes: Uint8Array;
+        }[];
+      }
+    | { readonly kind: 'Corrupt' } {
+    try {
+      const artifacts: { artifact: EvidenceArtifact; bytes: Uint8Array }[] = [];
+      const rows: unknown[] = this.#database
+        .prepare(
+          'SELECT artifact_said, encoded_envelope, encoded_bytes FROM raw_artifacts ORDER BY artifact_said',
+        )
+        .all();
+      let total = 0;
+      for (const row of rows) {
+        if (
+          typeof row !== 'object' ||
+          row === null ||
+          !('artifact_said' in row) ||
+          !('encoded_envelope' in row) ||
+          !('encoded_bytes' in row) ||
+          typeof row.encoded_envelope !== 'string' ||
+          Buffer.byteLength(row.encoded_envelope) !== row.encoded_bytes
+        )
+          return { kind: 'Corrupt' };
+        const value: unknown = JSON.parse(row.encoded_envelope);
+        const decoded = decodePublicEvaluationArtifact(value);
+        if (
+          decoded.kind !== 'Accepted' ||
+          !Value.Check(publicEvaluationArtifactEnvelopeSchema, value)
+        )
+          return { kind: 'Corrupt' };
+        if (value.artifact.d !== row.artifact_said) return { kind: 'Corrupt' };
+        total += row.encoded_bytes;
+        if (total > storageByteLimit) return { kind: 'Corrupt' };
+        artifacts.push({ artifact: value.artifact, bytes: Uint8Array.from(decoded.bytes) });
+      }
+      return { kind: 'Found', artifacts };
+    } catch {
+      return { kind: 'Corrupt' };
     }
   }
 
@@ -626,7 +750,22 @@ export class SqliteEvaluationEvidenceOutbox {
         this.#database.exec('ROLLBACK');
         return { kind: 'Conflict' };
       }
-      if (current.stored_bytes + encodedBytes > storageByteLimit) {
+      const pendingRaw = this.unstagedPublicArtifacts();
+      if (pendingRaw.kind !== 'Found') throw new Error('raw custody corrupt');
+      const pendingBytes = pendingRaw.artifacts
+        .filter((item) => !fresh.has(item.artifact.d))
+        .reduce(
+          (total, item) =>
+            total +
+            Buffer.byteLength(
+              JSON.stringify({
+                artifact: item.artifact,
+                bytesBase64Url: Buffer.from(item.bytes).toString('base64url'),
+              }),
+            ),
+          0,
+        );
+      if (current.stored_bytes + encodedBytes + pendingBytes > storageByteLimit) {
         this.#database.exec('ROLLBACK');
         return { kind: 'QuotaExceeded' };
       }
@@ -642,7 +781,7 @@ export class SqliteEvaluationEvidenceOutbox {
       }
       const custody = new Map<string, Custody>(fresh);
       for (const event of upload.events) {
-        for (const artifactSaid of artifactReferences(event)) {
+        for (const artifactSaid of evaluationArtifactReferences(event)) {
           if (custody.has(artifactSaid)) continue;
           const row: unknown = this.#database
             .prepare('SELECT custody FROM artifacts WHERE artifact_said = ?')
@@ -674,6 +813,10 @@ export class SqliteEvaluationEvidenceOutbox {
         this.#database
           .prepare('INSERT INTO artifacts VALUES (?, ?, ?)')
           .run(said, kind, upload.batch.d);
+      for (const artifact of upload.publicArtifacts)
+        this.#database
+          .prepare('DELETE FROM raw_artifacts WHERE artifact_said = ?')
+          .run(artifact.artifact.d);
       this.#database
         .prepare(
           `UPDATE stream_state SET next_sequence = ?, chain_head_said = ?, stored_bytes = ? WHERE singleton = 1`,

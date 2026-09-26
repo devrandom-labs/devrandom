@@ -526,3 +526,43 @@ it('reopens only hosted-acknowledged protected ciphertext by exact SAID and reje
   expect(reopened.protectedArtifact(prepared.artifact.d)).toEqual({ kind: 'Corrupt' });
   reopened.close();
 });
+
+it('retains raw bytes before an event and recovers only unstaged artifacts after reopening', () => {
+  const stateRoot = root();
+  let outbox = open(stateRoot);
+  const bytes = new TextEncoder().encode('parent observation before event');
+  const prepared = prepareEvidenceArtifact(bytes, 'text/plain; charset=utf-8');
+  if (prepared.kind !== 'Prepared') throw new Error('artifact');
+  expect(outbox.retainPublicArtifact({ artifact: prepared.artifact, bytes })).toEqual({
+    kind: 'Stored',
+  });
+  outbox.close();
+  outbox = open(stateRoot);
+  const first = event(
+    0,
+    { kind: 'Genesis' },
+    { kind: 'ModelExchange', rawArtifactSaid: prepared.artifact.d },
+  );
+  expect(outbox.unstagedPublicArtifacts()).toEqual({
+    kind: 'Found',
+    artifacts: [{ artifact: prepared.artifact, bytes }],
+  });
+  expect(
+    outbox.stage({
+      commandId: randomUUID(),
+      fingerprint: 'sha256:' + '1'.repeat(64),
+      events: [first],
+      publicArtifacts: [{ artifact: prepared.artifact, bytes }],
+      protectedArtifacts: [],
+    }),
+  ).toMatchObject({ kind: 'Staged' });
+  expect(outbox.unstagedPublicArtifacts()).toEqual({ kind: 'Found', artifacts: [] });
+  expect(outbox.retainPublicArtifact({ artifact: prepared.artifact, bytes })).toEqual({
+    kind: 'Stored',
+  });
+  expect(outbox.unstagedPublicArtifacts()).toEqual({ kind: 'Found', artifacts: [] });
+  expect(
+    outbox.retainPublicArtifact({ artifact: prepared.artifact, bytes: new Uint8Array([1]) }),
+  ).toEqual({ kind: 'Rejected' });
+  outbox.close();
+});
