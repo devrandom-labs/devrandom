@@ -307,21 +307,39 @@ it('replays each of the nine budget dimensions but does not attest its measureme
   // A claimed provider SAID without an accepted source-bound event cannot close E3.
 });
 
-it.each([1, 51])(
-  'replays %i provider witnesses within the accepted reservation, preserving narrower reservations',
-  (count) => {
+it.each([
+  { count: 1, phaseOrder: 'same' },
+  { count: 51, phaseOrder: 'same' },
+  { count: 1, phaseOrder: 'reordered' },
+  { count: 1, phaseOrder: 'different' },
+])(
+  'replays $count provider witnesses with $phaseOrder phase fields and exact reservation',
+  ({ count, phaseOrder }) => {
     const trialEvent = (
       sequence: number,
       previous: Parameters<typeof event>[1],
       detail: Parameters<typeof event>[2],
     ) =>
-      event(sequence, previous, detail, {
-        kind: 'Trial',
-        manifestSaid: said('m'),
-        arm: 'H1',
-        repetition: 1,
-        attempt: 1,
-      });
+      event(
+        sequence,
+        previous,
+        detail,
+        detail.kind === 'ProviderUsageVerified' && phaseOrder !== 'same'
+          ? {
+              attempt: 1,
+              repetition: 1,
+              arm: 'H1',
+              manifestSaid: said(phaseOrder === 'different' ? 'n' : 'm'),
+              kind: 'Trial',
+            }
+          : {
+              kind: 'Trial',
+              manifestSaid: said('m'),
+              arm: 'H1',
+              repetition: 1,
+              attempt: 1,
+            },
+      );
     const names = [
       'providerRequests',
       'providerInputTokens',
@@ -391,6 +409,13 @@ it.each([1, 51])(
         },
       ),
     );
+    if (phaseOrder === 'different') {
+      expect(replayEvaluationBudgetCoverage({ events, reserved: budget })).toEqual({
+        kind: 'Incomplete',
+        reason: 'ProviderUsageUnlinked',
+      });
+      return;
+    }
     expect(
       replayEvaluationBudgetCoverage({ events, reserved: { ...budget, providerRequests: count } }),
     ).toMatchObject({

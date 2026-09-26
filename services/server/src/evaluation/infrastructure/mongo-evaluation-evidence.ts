@@ -272,7 +272,7 @@ export function replayEvaluationBudgetCoverage(input: {
         source?.detail.kind !== 'ModelExchange' ||
         source.sequence >= event.sequence ||
         source.harnessRevisionSaid !== event.harnessRevisionSaid ||
-        JSON.stringify(source.phase) !== JSON.stringify(event.phase) ||
+        !isDeepStrictEqual(source.phase, event.phase) ||
         receipt === undefined ||
         report === undefined ||
         receipt.sequence <= source.sequence ||
