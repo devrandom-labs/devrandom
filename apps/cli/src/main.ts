@@ -11,6 +11,7 @@ import {
 import { BaselineHarnessPreparation } from './harness/application/baseline-harness-preparation.js';
 import { BaselineHarnessAdmissionFile } from './harness/infrastructure/baseline-harness-admission-file.js';
 import { GitHarnessInspection } from './harness/infrastructure/git-harness-inspection.js';
+import { DockerCargoExecutionInventory } from './harness/infrastructure/docker-cargo-execution-inventory.js';
 import { HostHarnessExecutionInventory } from './harness/infrastructure/host-harness-execution-inventory.js';
 import { EnvironmentPiModelInspection } from './harness/infrastructure/model-profile-environment.js';
 import { HarnessEvaluation } from './harness/application/harness-evaluation.js';
@@ -39,6 +40,12 @@ import { TaskAuthorizationFile } from './mandate/infrastructure/task-authorizati
 import { BaselineRunAdmission } from './run/application/baseline-run-admission.js';
 import { TaskRunObservations } from './run/application/task-run-observation.js';
 import { BaselineRunSupervisorComposition } from './run/composition/baseline-run-supervisor.js';
+import { LinuxRunSupervisorComposition } from './run/composition/linux-run-supervisor.js';
+import { GitLinuxH1PreLease } from './run/infrastructure/git-linux-h1-prelease.js';
+import {
+  loadLinuxH1ProfileBundle,
+  type LinuxH1ProfileBundle,
+} from './run/infrastructure/linux-h1-profile-file.js';
 import { EnvironmentPiCredential } from './run/infrastructure/pi-credential-environment.js';
 import { managedWorktreeCapabilities } from './run/infrastructure/managed-worktree-tools.js';
 import { PreparedCompatibilityCampaignFile } from './run/infrastructure/prepared-compatibility-campaign-file.js';
@@ -122,7 +129,7 @@ function userTasks(): UserTasks {
   });
 }
 
-function taskRunPreparation(): TaskRunPreparation {
+function taskRunPreparation(linux?: LinuxH1ProfileBundle): TaskRunPreparation {
   const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
   const files = new IdentityFiles(configuration.stateDirectory);
   const authority = currentTaskAuthority();
@@ -150,7 +157,15 @@ function taskRunPreparation(): TaskRunPreparation {
       availableCapabilities: managedWorktreeCapabilities,
       repository: new GitHarnessInspection(
         process.cwd(),
-        new HostHarnessExecutionInventory(process.cwd()),
+        linux === undefined
+          ? new HostHarnessExecutionInventory(process.cwd())
+          : new DockerCargoExecutionInventory({
+              profile: linux.profile,
+              image: linux.image,
+              runtimeMounts: linux.runtimeMounts,
+              worktreeDirectory: process.cwd(),
+              cargoRealpath: linux.cargoRealpath,
+            }),
       ),
       model: new EnvironmentPiModelInspection({
         DEVRANDOM_MODEL_PROVIDER: process.env.DEVRANDOM_MODEL_PROVIDER,
@@ -164,6 +179,9 @@ function taskRunPreparation(): TaskRunPreparation {
       ),
       wait: (milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
     }),
+    ...(linux === undefined
+      ? {}
+      : { preLeaseProfile: new GitLinuxH1PreLease(process.cwd(), linux) }),
     localRun: new BaselineRunAdmission({
       records: new RunAdmissionFile(join(configuration.stateDirectory, 'run-admissions')),
       issuerAid: configuration.issuerAid,
@@ -179,6 +197,25 @@ function taskRunPreparation(): TaskRunPreparation {
 
 function taskRunExecution(): TaskRunExecution {
   const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+  const bundlePath = process.env.DEVRANDOM_LINUX_H1_BUNDLE;
+  const linux = bundlePath === undefined ? undefined : loadLinuxH1ProfileBundle(bundlePath);
+  const supervisionOptions = {
+    stateRoot: configuration.stateDirectory,
+    repositoryDirectory: process.cwd(),
+    issuerAid: configuration.issuerAid,
+    modelCredential: new EnvironmentPiCredential({
+      CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
+    }),
+    childEnvironment: {
+      path: process.env.PATH ?? '',
+      language: 'C' as const,
+    },
+    now: () => new Date().toISOString(),
+    sessionId: randomUUID,
+    modelTurnId: randomUUID,
+    wait: (milliseconds: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+  };
   return new TaskRunExecution({
     campaigns: {
       acquire: (taskLabel) =>
@@ -191,23 +228,20 @@ function taskRunExecution(): TaskRunExecution {
           randomUUID,
         ).acquire(taskLabel),
     },
-    preparation: taskRunPreparation(),
-    supervision: new BaselineRunSupervisorComposition({
-      stateRoot: configuration.stateDirectory,
-      repositoryDirectory: process.cwd(),
-      issuerAid: configuration.issuerAid,
-      modelCredential: new EnvironmentPiCredential({
-        CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
-      }),
-      childEnvironment: {
-        path: process.env.PATH ?? '',
-        language: 'C',
-      },
-      now: () => new Date().toISOString(),
-      sessionId: randomUUID,
-      modelTurnId: randomUUID,
-      wait: (milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
-    }),
+    preparation: taskRunPreparation(linux),
+    supervision:
+      linux === undefined
+        ? new BaselineRunSupervisorComposition(supervisionOptions)
+        : new LinuxRunSupervisorComposition({
+            ...supervisionOptions,
+            linux: {
+              profile: linux.profile,
+              image: linux.image,
+              runtimeMounts: linux.runtimeMounts,
+              effectiveLimitsReceipt: linux.effectiveLimitsReceipt,
+              parentDeathCleanupReceipt: linux.parentDeathCleanupReceipt,
+            },
+          }),
   });
 }
 

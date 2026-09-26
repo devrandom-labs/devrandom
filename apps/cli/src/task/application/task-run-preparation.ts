@@ -13,7 +13,7 @@ import type {
   LocalMandateCustody,
   PersonalAgentAid,
 } from '@devrandom/identity';
-import type { TaskProjection } from '@devrandom/protocol';
+import type { BaselineHarnessRevision, TaskProjection } from '@devrandom/protocol';
 
 import type {
   BaselineHarnessAuthority,
@@ -143,6 +143,12 @@ export interface TaskRunPreparationDependencies {
   readonly authority: TaskRunWorkAuthority;
   readonly localMandates: LocalTaskMandates;
   readonly localHarness: Pick<BaselineHarnessPreparation, 'prepare'>;
+  readonly preLeaseProfile?: {
+    verify(
+      task: TaskProjection,
+      harness: BaselineHarnessRevision,
+    ): Promise<{ readonly kind: 'Compatible' | 'Rejected' }>;
+  };
   readonly localRun: Pick<BaselineRunAdmission, 'admit'>;
 }
 
@@ -179,6 +185,19 @@ export class TaskRunPreparation {
     });
     if (harness.kind !== 'HarnessAdmitted') {
       return harness;
+    }
+    if (this.#dependencies.preLeaseProfile !== undefined) {
+      try {
+        const profile = await this.#dependencies.preLeaseProfile.verify(
+          inspection.task,
+          harness.projection.revision,
+        );
+        if (profile.kind !== 'Compatible') {
+          return { kind: 'RepositoryInspectionRejected', reason: 'EnvironmentUnsupported' };
+        }
+      } catch {
+        return { kind: 'RepositoryInspectionRejected', reason: 'EnvironmentUnsupported' };
+      }
     }
     const run = await this.#dependencies.localRun.admit({
       task: inspection.task,

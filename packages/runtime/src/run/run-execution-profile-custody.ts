@@ -84,7 +84,7 @@ export function digestRunRuntimePrompt(systemPrompt: string, taskPrompt: string)
   return `sha256:${hash.digest('hex')}`;
 }
 
-function instructionInventory(
+export function identifyRunH1InstructionInventory(
   instructions: readonly MaterializedInstruction[],
   expected: readonly HarnessInstructionResource[],
 ): Uint8Array | undefined {
@@ -133,7 +133,10 @@ export function inspectRunExecutionProfileBinding(input: {
     input.worktreeBranch !== `devrandom/run/${run.binding.runId}`
   )
     return { kind: 'Rejected', reason: 'RunBindingMismatch' };
-  const inventory = instructionInventory(input.instructions, input.instructionResources);
+  const inventory = identifyRunH1InstructionInventory(
+    input.instructions,
+    input.instructionResources,
+  );
   if (inventory === undefined || artifactSaid(inventory) !== profile.h1InstructionSaid)
     return { kind: 'Rejected', reason: 'InstructionMismatch' };
   if (
@@ -167,7 +170,10 @@ export function bindRunExecutionProfile(input: {
   });
   if (inspected.kind !== 'Compatible') return inspected;
   const profile = input.profile;
-  const inventory = instructionInventory(input.instructions, input.instructionResources);
+  const inventory = identifyRunH1InstructionInventory(
+    input.instructions,
+    input.instructionResources,
+  );
   if (inventory === undefined) return { kind: 'Rejected', reason: 'InstructionMismatch' };
   const profileBytes = Buffer.from(JSON.stringify(profile), 'utf8');
   const profileArtifactSaid = artifactSaid(profileBytes);

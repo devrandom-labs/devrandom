@@ -103,7 +103,7 @@ function completionConditionLine(
   return `${String(index + 1)}. id=${JSON.stringify(condition.id)} argv=${JSON.stringify(condition.argv)} timeoutSeconds=${String(condition.timeoutSeconds)} expectedExitCode=${String(condition.expected.code)}`;
 }
 
-function taskPrompt(task: TaskProjection): string {
+export function baselineTaskPrompt(task: TaskProjection): string {
   return [
     'Devrandom baseline Task',
     `Task ID: ${task.taskId}`,
@@ -217,7 +217,7 @@ export class BaselineExecutionInputMaterializer {
         return { kind: 'InstructionContentMismatch', path: instruction.path };
       }
     }
-    const prompt = taskPrompt(input.task);
+    const prompt = baselineTaskPrompt(input.task);
     if (
       this.#dependencies.protectedCredentials.inspect(utf8.encode(prompt)).kind === 'WithheldSecret'
     ) {

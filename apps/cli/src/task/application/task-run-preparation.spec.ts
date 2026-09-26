@@ -273,6 +273,20 @@ describe('Task Run mandate preparation', () => {
       exchange: runAuthority.exchange,
       hosted: runs,
     });
+
+    admitRun.mockClear();
+    const verifyProfile = vi.fn(() => Promise.resolve({ kind: 'Rejected' as const }));
+    await expect(
+      new TaskRunPreparation({
+        authority,
+        localMandates,
+        localHarness: { prepare: prepareHarness },
+        preLeaseProfile: { verify: verifyProfile },
+        localRun: { admit: admitRun },
+      }).prepare('repair-parser', { kind: 'Retained' }),
+    ).resolves.toEqual({ kind: 'RepositoryInspectionRejected', reason: 'EnvironmentUnsupported' });
+    expect(verifyProfile).toHaveBeenCalledExactlyOnceWith(task, harness.projection.revision);
+    expect(admitRun).not.toHaveBeenCalled();
   });
 
   it('does not touch local custody when authoritative Task inspection is rejected', async () => {

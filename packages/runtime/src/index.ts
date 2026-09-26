@@ -61,6 +61,7 @@ export {
 export { AcceptedRunLease, type AcceptedRunLeaseClock } from './run/accepted-run-lease.js';
 export {
   DockerRunEnvironment,
+  inspectRunParentDeathCleanupReceipt,
   type RunEnvironmentOpening,
   type RunEnvironmentOpeningInput,
   type RunEnvironmentProbe,
@@ -74,6 +75,7 @@ export {
 export {
   bindRunExecutionProfile,
   digestRunRuntimePrompt,
+  identifyRunH1InstructionInventory,
   inspectRunExecutionProfileBinding,
   runInstructionPrompt,
   type RunExecutionProfileBinding,

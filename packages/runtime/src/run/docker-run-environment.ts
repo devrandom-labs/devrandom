@@ -113,6 +113,30 @@ function artifactSaid(bytes: Uint8Array): string | undefined {
   return identified.kind === 'Prepared' ? identified.artifact.d : undefined;
 }
 
+/** Checks the exact prior parent-loss observation claimed by a Run profile. */
+export function inspectRunParentDeathCleanupReceipt(
+  profile: EvaluationExecutionProfile,
+  receipt: Uint8Array,
+): boolean {
+  if (artifactSaid(receipt) !== profile.parentDeathCleanupReceiptSaid) return false;
+  let cleanup: unknown;
+  try {
+    cleanup = JSON.parse(Buffer.from(receipt).toString('utf8'));
+  } catch {
+    return false;
+  }
+  return (
+    Value.Check(cleanupSchema, cleanup) &&
+    cleanup.imageDigest === profile.imageDigest &&
+    cleanup.runtimeDigest === profile.runtimeDigest &&
+    cleanup.architecture === profile.architecture &&
+    isDeepStrictEqual(cleanup.limits, profile.limits) &&
+    cleanup.workerContainer !== cleanup.nativeContainer &&
+    Number.isFinite(Date.parse(cleanup.observedAt)) &&
+    new Date(cleanup.observedAt).toISOString() === cleanup.observedAt
+  );
+}
+
 function receiptPart(raw: string): unknown {
   try {
     const received: unknown = JSON.parse(raw);
@@ -384,24 +408,7 @@ export class DockerRunEnvironment {
       input.environmentCompatibility.operatingSystem !== 'linux' ||
       input.environmentCompatibility.architecture !==
         (profile.architecture === 'aarch64' ? 'arm64' : 'x64') ||
-      artifactSaid(input.parentDeathCleanupReceipt) !== profile.parentDeathCleanupReceiptSaid
-    )
-      return { kind: 'ProfileDrift' };
-    let cleanup: unknown;
-    try {
-      cleanup = JSON.parse(Buffer.from(input.parentDeathCleanupReceipt).toString('utf8'));
-    } catch {
-      return { kind: 'ProfileDrift' };
-    }
-    if (
-      !Value.Check(cleanupSchema, cleanup) ||
-      cleanup.imageDigest !== profile.imageDigest ||
-      cleanup.runtimeDigest !== profile.runtimeDigest ||
-      cleanup.architecture !== profile.architecture ||
-      !isDeepStrictEqual(cleanup.limits, profile.limits) ||
-      cleanup.workerContainer === cleanup.nativeContainer ||
-      !Number.isFinite(Date.parse(cleanup.observedAt)) ||
-      new Date(cleanup.observedAt).toISOString() !== cleanup.observedAt
+      !inspectRunParentDeathCleanupReceipt(profile, input.parentDeathCleanupReceipt)
     )
       return { kind: 'ProfileDrift' };
     const runtimeMounts: readonly EvaluationMount[] = input.runtimeMounts.map((mount) => ({
