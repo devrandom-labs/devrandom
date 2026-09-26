@@ -15,6 +15,9 @@ import { DockerCargoExecutionInventory } from './harness/infrastructure/docker-c
 import { HostHarnessExecutionInventory } from './harness/infrastructure/host-harness-execution-inventory.js';
 import { EnvironmentPiModelInspection } from './harness/infrastructure/model-profile-environment.js';
 import { HarnessEvaluation } from './harness/application/harness-evaluation.js';
+import { reconcileStagedCesrManifest } from './harness/application/lock-cesr-comparison-manifest.js';
+import { EvaluationManifestCommandFile } from './harness/infrastructure/evaluation-manifest-command-file.js';
+import { SqliteCesrComparisonCases } from './harness/infrastructure/sqlite-cesr-comparison-cases.js';
 import { VerifiedFailureCampaign } from './harness/application/verified-failure-campaign.js';
 import { EvaluationCommandFile } from './harness/infrastructure/evaluation-command-file.js';
 import { EvaluationPolicyFile } from './harness/infrastructure/evaluation-policy-file.js';
@@ -320,6 +323,19 @@ const commands: DevrandomCommands = {
   harness: {
     evaluate: (label, runId, policyPath, signal) =>
       harnessEvaluation().evaluate(label, runId, policyPath, signal),
+    resumeManifest: async (evaluationId) => {
+      const configuration = loadUserIdentityConfiguration(userIdentityEnvironment(process.env));
+      const authorized = await currentTaskAuthority().acquireHostedWork();
+      if (authorized.kind !== 'Authorized') return { kind: 'Unavailable' };
+      return reconcileStagedCesrManifest(evaluationId, authorized.user.principal.aid, {
+        commands: new EvaluationManifestCommandFile(
+          join(configuration.stateDirectory, 'evaluation-manifests'),
+          randomUUID,
+        ),
+        cases: new SqliteCesrComparisonCases(configuration.stateDirectory),
+        hosted: authorized.evaluations,
+      });
+    },
   },
 };
 

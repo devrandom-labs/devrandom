@@ -10,6 +10,7 @@ import type { TaskCreation, TaskInspection, TaskListing } from './task/applicati
 import type { TaskRunExecutionOutcome } from './task/application/task-run-execution.js';
 import type { WorkAccessAcquisition } from './work-access/application/work-access-acquisition.js';
 import type { HarnessEvaluationOutcome } from './harness/application/harness-evaluation.js';
+import type { CesrManifestLockOutcome } from './harness/application/lock-cesr-comparison-manifest.js';
 import type {
   TaskRunObservationFailure,
   TaskRunStatus,
@@ -47,6 +48,7 @@ export interface DevrandomCommands extends UserIdentityCommands {
       policyPath: string,
       signal: AbortSignal,
     ): Promise<HarnessEvaluationOutcome>;
+    resumeManifest(evaluationId: string): Promise<CesrManifestLockOutcome>;
   };
 }
 
@@ -173,7 +175,32 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
       }
     });
 
+  harness
+    .command('manifest-resume')
+    .description('Reconcile a previously staged exact protected Evaluation manifest')
+    .argument('<evaluation-id>')
+    .action(async (evaluationId: string) => {
+      const outcome = await commands.harness.resumeManifest(evaluationId);
+      writeRenderedCommand(renderManifestResume(outcome), cliProcess);
+    });
+
   return program;
+}
+
+function renderManifestResume(outcome: CesrManifestLockOutcome): RenderedCommand {
+  if (outcome.kind === 'Locked')
+    return {
+      destination: 'stdout',
+      exitCode: 0,
+      text: `Evaluation ${outcome.evaluationId} exact manifest ${outcome.manifestSaid} locked.`,
+    };
+  if (outcome.kind === 'Blocked')
+    return {
+      destination: 'stderr',
+      exitCode: 6,
+      text: `Evaluation manifest blocked: ${outcome.gate}.`,
+    };
+  return { destination: 'stderr', exitCode: 5, text: 'Evaluation manifest unavailable.' };
 }
 
 function renderHarnessEvaluation(outcome: HarnessEvaluationOutcome): RenderedCommand {

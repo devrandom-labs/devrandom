@@ -1,5 +1,5 @@
 import { runWorkAccessFixture } from '../test/run-work-access-fixture.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   acquireFirstRunLease,
   ProtectedCredentials,
@@ -115,6 +115,7 @@ function commandFixture(): {
       },
       harness: {
         evaluate: () => Promise.resolve({ kind: 'Blocked', gate: 'Qualification' }),
+        resumeManifest: () => Promise.resolve({ kind: 'Blocked', gate: 'Manifest' }),
       },
     },
   };
@@ -158,6 +159,22 @@ function processFixture(): {
 }
 
 describe('devrandom command', () => {
+  it('routes a staged M retry through the public command and reports missing custody', async () => {
+    const { commands } = commandFixture();
+    const runtime = processFixture();
+    const evaluationId = '81d7f67f-d2f9-4fae-87cc-ac827de6f0d1';
+    const resumeManifest = vi.fn(() =>
+      Promise.resolve({ kind: 'Blocked' as const, gate: 'Manifest' as const }),
+    );
+    await createProgram(
+      { ...commands, harness: { ...commands.harness, resumeManifest } },
+      runtime.process,
+    ).parseAsync(['node', 'devrandom', 'harness', 'manifest-resume', evaluationId]);
+    expect(resumeManifest).toHaveBeenCalledWith(evaluationId);
+    expect(runtime.errors).toEqual(['Evaluation manifest blocked: Manifest.\n']);
+    expect(runtime.exitCodes).toEqual([6]);
+  });
+
   it('routes evaluate to the protected campaign and reports a qualification block without starting trials', async () => {
     const { commands } = commandFixture();
     const runtime = processFixture();
@@ -165,6 +182,7 @@ describe('devrandom command', () => {
     const evaluator = {
       ...commands,
       harness: {
+        ...commands.harness,
         evaluate: (label: string, runId: string, policyPath: string, signal: AbortSignal) => {
           invocations.push(`${label}:${runId}:${policyPath}:${String(signal.aborted)}`);
           return Promise.resolve({ kind: 'Blocked' as const, gate: 'Qualification' as const });
@@ -196,6 +214,7 @@ describe('devrandom command', () => {
     const evaluator = {
       ...commands,
       harness: {
+        ...commands.harness,
         evaluate: () =>
           Promise.resolve({
             kind: 'Blocked' as const,
