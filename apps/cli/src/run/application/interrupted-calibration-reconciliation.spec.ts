@@ -207,7 +207,7 @@ it.each(['Exact', 'ChangedSource', 'ModelStarted', 'SealRejected', 'RetrySeal'] 
         completionConditionId: c.identity,
         commandSaid: c.contentSaid,
         recordedAt: '2026-09-24T20:01:00.000Z',
-        outcome: { kind: 'Unresolved', reason: 'NotAttempted' },
+        outcome: { kind: 'Unresolved', reason: 'RunBlocked' },
       });
       if (p.kind !== 'Prepared') throw Error('receipt');
       return p.receipt;
@@ -389,6 +389,9 @@ it.each(['Exact', 'ChangedSource', 'ModelStarted', 'SealRejected', 'RetrySeal'] 
           'CheckpointVerified',
           'RunBlocked',
         ]);
+        expect(terminal[0]?.checkpoint?.verifierReceipts).toEqual(
+          predecessorCheckpoint.verifierReceipts,
+        );
         expect(terminal[0]?.checkpoint?.budget.consumed).toMatchObject({
           providerRequests: 7,
           runWallTimeSeconds: 274,
