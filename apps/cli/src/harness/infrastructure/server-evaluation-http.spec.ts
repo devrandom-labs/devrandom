@@ -159,7 +159,7 @@ it('rejects a changed admission identity or missing no-store before exposing the
   const receipt = {
     kind: 'Admitted',
     evaluationId: id('5'),
-    version: 1,
+    version: 12,
     lease: {
       evaluationId: id('5'),
       leaseId: id('6'),
@@ -170,6 +170,15 @@ it('rejects a changed admission identity or missing no-store before exposing the
     evidenceStreamId: id('7'),
     reservationSaid: said('r'),
   };
+  const repeated = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
+    Promise.resolve(
+      new Response(JSON.stringify(receipt), {
+        status: 201,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    ),
+  );
+  expect(await repeated.admit(command)).toEqual(receipt);
   const changed = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
     Promise.resolve(
       new Response(
@@ -312,6 +321,55 @@ it('binds a lease renewal receipt to the exact Evaluation and lease identities',
       }),
     );
   });
+  expect(await http.renewLease(renewal)).toEqual({ kind: 'Renewed', receipt });
+  const forged = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
+    Promise.resolve(
+      new Response(JSON.stringify({ ...receipt, lease: { ...receipt.lease, leaseId: id('8') } }), {
+        status: 200,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    ),
+  );
+  expect(await forged.renewLease(renewal)).toEqual({ kind: 'ResponseInvalid' });
+});
+
+it('keeps aggregate concurrency versions distinct from lease versions across renewals', async () => {
+  const evaluationId = id('5');
+  const leaseId = id('6');
+  let renewal = {
+    version: 1 as const,
+    commandId: id('7'),
+    fingerprint: command.fingerprint,
+    evaluationId,
+    leaseId,
+    expectedEvaluationVersion: 12,
+  };
+  let receipt = {
+    kind: 'Renewed' as const,
+    evaluationId,
+    version: 13,
+    lease: {
+      evaluationId,
+      leaseId,
+      version: 2,
+      serverTime: '2026-09-26T05:00:00.000Z',
+      expiresAt: '2026-09-26T05:00:45.000Z',
+    },
+  };
+  const http = new ServerEvaluationHttp(origin(), 'b'.repeat(43), (url, init) => {
+    expect(url).toBe(`http://127.0.0.1:3211/api/evaluations/${evaluationId}/lease`);
+    expect(init?.method).toBe('PUT');
+    expect(init?.body).toBe(JSON.stringify(renewal));
+    return Promise.resolve(
+      new Response(JSON.stringify(receipt), {
+        status: 200,
+        headers: { 'cache-control': 'no-store' },
+      }),
+    );
+  });
+  expect(await http.renewLease(renewal)).toEqual({ kind: 'Renewed', receipt });
+  renewal = { ...renewal, expectedEvaluationVersion: 13 };
+  receipt = { ...receipt, version: 14, lease: { ...receipt.lease, version: 3 } };
   expect(await http.renewLease(renewal)).toEqual({ kind: 'Renewed', receipt });
   const forged = new ServerEvaluationHttp(origin(), 'b'.repeat(43), () =>
     Promise.resolve(

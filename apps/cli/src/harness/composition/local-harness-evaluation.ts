@@ -355,16 +355,19 @@ export async function evaluateLocalHarness(
             {
               version: 1,
               commandId: randomUUID(),
-              fingerprint: digest(JSON.stringify([binding.evaluationId, current.position.version])),
+              fingerprint: digest(
+                JSON.stringify([binding.evaluationId, current.position.currentEvaluationVersion]),
+              ),
               evaluationId: binding.evaluationId,
               leaseId: binding.evaluationLeaseId,
-              expectedEvaluationVersion: current.position.version,
+              expectedEvaluationVersion: current.position.currentEvaluationVersion,
             },
             signal,
           );
           if (
             (renewed.kind !== 'Renewed' && renewed.kind !== 'AlreadyRenewed') ||
-            !('lease' in renewed.receipt)
+            !('lease' in renewed.receipt) ||
+            renewed.receipt.lease.version !== lease.version + 1
           )
             return false;
           lease = renewed.receipt.lease;

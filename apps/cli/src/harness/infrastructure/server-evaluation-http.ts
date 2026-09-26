@@ -194,7 +194,6 @@ export class ServerEvaluationHttp {
         !Value.Check(evaluationAdmissionReceiptSchema, response.body) ||
         response.body.kind !== 'Admitted' ||
         response.body.lease.evaluationId !== response.body.evaluationId ||
-        response.body.lease.version !== response.body.version ||
         !Number.isFinite(Date.parse(response.body.lease.serverTime)) ||
         !Number.isFinite(Date.parse(response.body.lease.expiresAt)) ||
         Date.parse(response.body.lease.expiresAt) <= Date.parse(response.body.lease.serverTime)
@@ -418,7 +417,6 @@ export class ServerEvaluationHttp {
         response.body.version !== command.expectedEvaluationVersion + 1 ||
         response.body.lease.evaluationId !== command.evaluationId ||
         response.body.lease.leaseId !== command.leaseId ||
-        response.body.lease.version !== response.body.version ||
         !Number.isFinite(Date.parse(response.body.lease.serverTime)) ||
         !Number.isFinite(Date.parse(response.body.lease.expiresAt)) ||
         Date.parse(response.body.lease.expiresAt) <= Date.parse(response.body.lease.serverTime)

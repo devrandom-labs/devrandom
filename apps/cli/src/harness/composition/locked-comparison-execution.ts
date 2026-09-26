@@ -204,16 +204,21 @@ export async function executeLockedComparison(
         const command = {
           version: 1 as const,
           commandId: randomUUID(),
-          fingerprint: fingerprint([binding.evaluationId, lease.leaseId, current.position.version]),
+          fingerprint: fingerprint([
+            binding.evaluationId,
+            lease.leaseId,
+            current.position.currentEvaluationVersion,
+          ]),
           evaluationId: binding.evaluationId,
           leaseId: lease.leaseId,
-          expectedEvaluationVersion: current.position.version,
+          expectedEvaluationVersion: current.position.currentEvaluationVersion,
         };
         const renewedAt = Date.now();
         const renewed = await hosted.renewLease(command, signal);
         if (
           (renewed.kind !== 'Renewed' && renewed.kind !== 'AlreadyRenewed') ||
-          !('lease' in renewed.receipt)
+          !('lease' in renewed.receipt) ||
+          renewed.receipt.lease.version !== lease.version + 1
         )
           return false;
         lease = renewed.receipt.lease;
@@ -1022,7 +1027,7 @@ export async function executeLockedComparison(
       version: 1 as const,
       commandId: randomUUID(),
       fingerprint: fingerprint(closed.closure),
-      expectedEvaluationVersion: position.position.version,
+      expectedEvaluationVersion: position.position.currentEvaluationVersion,
       closure: closed.closure,
       evidenceIndex: {
         artifact: index.artifact,

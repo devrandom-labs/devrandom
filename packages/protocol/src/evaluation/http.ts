@@ -246,6 +246,7 @@ export const evaluationAcceptedEvidencePageSchema = Type.Object(
 export const evaluationPositionSchema = Type.Object(
   {
     version: Type.Literal(1),
+    currentEvaluationVersion: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
     evaluationId: uuid,
     ownerAid: said,
     commandId: uuid,

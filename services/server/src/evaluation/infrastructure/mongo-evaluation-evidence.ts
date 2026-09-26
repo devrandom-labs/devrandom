@@ -415,6 +415,8 @@ export class MongoEvaluationEvidence
       if (evaluation === null) return { kind: 'Denied' };
       const { lease, acceptedThroughSequence, chainHeadSaid } = evaluation;
       if (
+        !Number.isSafeInteger(evaluation.version) ||
+        evaluation.version < 1 ||
         evaluation.closure !== undefined ||
         lease.evaluationId !== evaluationId ||
         !Number.isSafeInteger(lease.version) ||
@@ -447,6 +449,7 @@ export class MongoEvaluationEvidence
         kind: 'Read',
         position: {
           version: 1,
+          currentEvaluationVersion: evaluation.version,
           evaluationId,
           ownerAid,
           commandId: evaluation.command.commandId,

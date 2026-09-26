@@ -211,6 +211,7 @@ it.each([false, true])(
             kind: 'Read',
             position: {
               version: 1,
+              currentEvaluationVersion: 1,
               evaluationId: research.evaluationId,
               ownerAid: given.current.ownerAid,
               commandId: command.commandId,
@@ -472,6 +473,7 @@ it('composes owner-scoped current position and M lock, refusing an unreadable ac
         kind: 'Read' as const,
         position: {
           version: 1 as const,
+          currentEvaluationVersion: 2,
           evaluationId: given.binding.evaluationId,
           ownerAid: given.current.ownerAid,
           commandId: given.current.admission.commandId,
@@ -543,6 +545,7 @@ it('reuses immutable prefixes across provider custodians while rechecking curren
               kind: 'Read' as const,
               position: {
                 version: 1 as const,
+                currentEvaluationVersion: 2,
                 evaluationId: given.binding.evaluationId,
                 ownerAid: given.current.ownerAid,
                 commandId: given.current.admission.commandId,

@@ -99,7 +99,8 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
           'application/json',
         );
         if (reservation.kind !== 'Prepared') throw new Error('fixture reservation');
-        const leaseStarted = Date.now();
+        const leaseStarted = Date.now() - 30000;
+        let renewals = 0;
         let lease = {
           evaluationId: manifest.evaluationId,
           leaseId: binding.evaluationLeaseId,
@@ -171,6 +172,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
             } else if (url.pathname.endsWith('/position')) {
               reply({
                 version: 1,
+                currentEvaluationVersion: lease.version + 1,
                 evaluationId: manifest.evaluationId,
                 ownerAid: manifest.ownerAid,
                 commandId,
@@ -211,13 +213,26 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
               if (artifact === undefined) throw new Error('fixture missing artifact');
               reply({ version: 1, evaluationId: manifest.evaluationId, ...artifact });
             } else if (url.pathname.endsWith('/lease')) {
+              const chunks: Buffer[] = [];
+              for await (const chunk of request) chunks.push(Buffer.from(chunk as Uint8Array));
+              const renewal = JSON.parse(Buffer.concat(chunks).toString()) as {
+                expectedEvaluationVersion: number;
+              };
+              expect(renewal.expectedEvaluationVersion).toBe(lease.version + 1);
+              renewals++;
+              const renewedAt = Date.now();
               lease = {
                 ...lease,
-                version: 2,
-                serverTime: new Date().toISOString(),
-                expiresAt: new Date(Date.now() + 45000).toISOString(),
+                version: lease.version + 1,
+                serverTime: new Date(renewedAt).toISOString(),
+                expiresAt: new Date(renewedAt + 45000).toISOString(),
               };
-              reply({ kind: 'Renewed', evaluationId: manifest.evaluationId, version: 2, lease });
+              reply({
+                kind: 'Renewed',
+                evaluationId: manifest.evaluationId,
+                version: lease.version + 1,
+                lease,
+              });
             } else throw new Error('unexpected fixture HTTP route');
           })().catch(() => {
             response.statusCode = 500;
@@ -454,6 +469,7 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
                 event.detail.kind === 'ArtifactCaptured' && event.detail.custody === 'Public',
             ),
         ).toBe(true);
+        expect(renewals).toBeGreaterThanOrEqual(2);
         rejectCiphertext = false;
         expect(await executeLockedComparison(input)).toEqual({
           kind: 'RecoveryRequired',

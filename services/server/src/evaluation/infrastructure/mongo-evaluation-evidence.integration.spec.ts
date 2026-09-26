@@ -616,6 +616,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
       version: 1,
       evaluationId,
       ownerAid,
+      currentEvaluationVersion: current.version,
       commandId: current.command.commandId,
       streamId,
       reservationSaid: current.reservationSaid,
@@ -854,6 +855,35 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
       body: JSON.stringify({ ...command, commandId: randomUUID() }),
     });
     expect(stale.status).toBe(409);
+    const fresh = await fetch(`${address}/api/evaluations/${evaluationId}/position`, { headers });
+    const position = (await fresh.json()) as { version: number; currentEvaluationVersion: number };
+    expect(position.version).toBe(1);
+    expect(position.currentEvaluationVersion).toBe(state.version + 1);
+    const secondAt = Date.now();
+    await evaluations.updateOne(
+      { _id: evaluationId },
+      {
+        $set: {
+          'lease.serverTime': new Date(secondAt - 35000).toISOString(),
+          'lease.expiresAt': new Date(secondAt + 10000).toISOString(),
+        },
+      },
+    );
+    const second = await fetch(endpoint, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        ...command,
+        commandId: randomUUID(),
+        expectedEvaluationVersion: position.currentEvaluationVersion,
+      }),
+    });
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({
+      kind: 'Renewed',
+      version: state.version + 2,
+      lease: { version: state.lease.version + 2 },
+    });
   });
 
   it('reads a prior reservation by exact owner and command before any new allocation', async () => {
