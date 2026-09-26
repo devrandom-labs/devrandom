@@ -5640,6 +5640,7 @@
                           "d",
                           "title",
                           "objective",
+                          "repository",
                           "deliverables",
                           "completionConditions",
                           "constraints",
@@ -5648,8 +5649,7 @@
                           "budgets",
                           "expiresAt",
                           "evolutionClasses",
-                          "checkpointExpectations",
-                          "repository"
+                          "checkpointExpectations"
                         ],
                         "properties": {
                           "version": {
@@ -5671,6 +5671,48 @@
                             "minLength": 1,
                             "maxLength": 8000,
                             "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+                          },
+                          "repository": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "required": ["objectFormat", "commit", "tree"],
+                                "properties": {
+                                  "objectFormat": {
+                                    "type": "string",
+                                    "const": "sha1"
+                                  },
+                                  "commit": {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{40}$"
+                                  },
+                                  "tree": {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{40}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "required": ["objectFormat", "commit", "tree"],
+                                "properties": {
+                                  "objectFormat": {
+                                    "type": "string",
+                                    "const": "sha256"
+                                  },
+                                  "commit": {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{64}$"
+                                  },
+                                  "tree": {
+                                    "type": "string",
+                                    "pattern": "^[a-f0-9]{64}$"
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            ]
                           },
                           "deliverables": {
                             "type": "array",
@@ -6256,48 +6298,6 @@
                               ]
                             },
                             "maxItems": 96
-                          },
-                          "repository": {
-                            "anyOf": [
-                              {
-                                "type": "object",
-                                "required": ["objectFormat", "commit", "tree"],
-                                "properties": {
-                                  "objectFormat": {
-                                    "type": "string",
-                                    "const": "sha1"
-                                  },
-                                  "commit": {
-                                    "type": "string",
-                                    "pattern": "^[a-f0-9]{40}$"
-                                  },
-                                  "tree": {
-                                    "type": "string",
-                                    "pattern": "^[a-f0-9]{40}$"
-                                  }
-                                },
-                                "additionalProperties": false
-                              },
-                              {
-                                "type": "object",
-                                "required": ["objectFormat", "commit", "tree"],
-                                "properties": {
-                                  "objectFormat": {
-                                    "type": "string",
-                                    "const": "sha256"
-                                  },
-                                  "commit": {
-                                    "type": "string",
-                                    "pattern": "^[a-f0-9]{64}$"
-                                  },
-                                  "tree": {
-                                    "type": "string",
-                                    "pattern": "^[a-f0-9]{64}$"
-                                  }
-                                },
-                                "additionalProperties": false
-                              }
-                            ]
                           }
                         },
                         "additionalProperties": false
@@ -7056,6 +7056,7 @@
                             "d",
                             "title",
                             "objective",
+                            "repository",
                             "deliverables",
                             "completionConditions",
                             "constraints",
@@ -7064,8 +7065,7 @@
                             "budgets",
                             "expiresAt",
                             "evolutionClasses",
-                            "checkpointExpectations",
-                            "repository"
+                            "checkpointExpectations"
                           ],
                           "properties": {
                             "version": {
@@ -7087,6 +7087,48 @@
                               "minLength": 1,
                               "maxLength": 8000,
                               "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+                            },
+                            "repository": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": ["objectFormat", "commit", "tree"],
+                                  "properties": {
+                                    "objectFormat": {
+                                      "type": "string",
+                                      "const": "sha1"
+                                    },
+                                    "commit": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{40}$"
+                                    },
+                                    "tree": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{40}$"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": ["objectFormat", "commit", "tree"],
+                                  "properties": {
+                                    "objectFormat": {
+                                      "type": "string",
+                                      "const": "sha256"
+                                    },
+                                    "commit": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{64}$"
+                                    },
+                                    "tree": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{64}$"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
                             },
                             "deliverables": {
                               "type": "array",
@@ -7676,48 +7718,6 @@
                                 ]
                               },
                               "maxItems": 96
-                            },
-                            "repository": {
-                              "anyOf": [
-                                {
-                                  "type": "object",
-                                  "required": ["objectFormat", "commit", "tree"],
-                                  "properties": {
-                                    "objectFormat": {
-                                      "type": "string",
-                                      "const": "sha1"
-                                    },
-                                    "commit": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{40}$"
-                                    },
-                                    "tree": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{40}$"
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "required": ["objectFormat", "commit", "tree"],
-                                  "properties": {
-                                    "objectFormat": {
-                                      "type": "string",
-                                      "const": "sha256"
-                                    },
-                                    "commit": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{64}$"
-                                    },
-                                    "tree": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{64}$"
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                }
-                              ]
                             }
                           },
                           "additionalProperties": false
@@ -8464,6 +8464,7 @@
                             "d",
                             "title",
                             "objective",
+                            "repository",
                             "deliverables",
                             "completionConditions",
                             "constraints",
@@ -8472,8 +8473,7 @@
                             "budgets",
                             "expiresAt",
                             "evolutionClasses",
-                            "checkpointExpectations",
-                            "repository"
+                            "checkpointExpectations"
                           ],
                           "properties": {
                             "version": {
@@ -8495,6 +8495,48 @@
                               "minLength": 1,
                               "maxLength": 8000,
                               "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+                            },
+                            "repository": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": ["objectFormat", "commit", "tree"],
+                                  "properties": {
+                                    "objectFormat": {
+                                      "type": "string",
+                                      "const": "sha1"
+                                    },
+                                    "commit": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{40}$"
+                                    },
+                                    "tree": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{40}$"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": ["objectFormat", "commit", "tree"],
+                                  "properties": {
+                                    "objectFormat": {
+                                      "type": "string",
+                                      "const": "sha256"
+                                    },
+                                    "commit": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{64}$"
+                                    },
+                                    "tree": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{64}$"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
                             },
                             "deliverables": {
                               "type": "array",
@@ -9084,48 +9126,6 @@
                                 ]
                               },
                               "maxItems": 96
-                            },
-                            "repository": {
-                              "anyOf": [
-                                {
-                                  "type": "object",
-                                  "required": ["objectFormat", "commit", "tree"],
-                                  "properties": {
-                                    "objectFormat": {
-                                      "type": "string",
-                                      "const": "sha1"
-                                    },
-                                    "commit": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{40}$"
-                                    },
-                                    "tree": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{40}$"
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "required": ["objectFormat", "commit", "tree"],
-                                  "properties": {
-                                    "objectFormat": {
-                                      "type": "string",
-                                      "const": "sha256"
-                                    },
-                                    "commit": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{64}$"
-                                    },
-                                    "tree": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{64}$"
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                }
-                              ]
                             }
                           },
                           "additionalProperties": false
@@ -11090,6 +11090,7 @@
                             "d",
                             "title",
                             "objective",
+                            "repository",
                             "deliverables",
                             "completionConditions",
                             "constraints",
@@ -11098,8 +11099,7 @@
                             "budgets",
                             "expiresAt",
                             "evolutionClasses",
-                            "checkpointExpectations",
-                            "repository"
+                            "checkpointExpectations"
                           ],
                           "properties": {
                             "version": {
@@ -11121,6 +11121,48 @@
                               "minLength": 1,
                               "maxLength": 8000,
                               "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+                            },
+                            "repository": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": ["objectFormat", "commit", "tree"],
+                                  "properties": {
+                                    "objectFormat": {
+                                      "type": "string",
+                                      "const": "sha1"
+                                    },
+                                    "commit": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{40}$"
+                                    },
+                                    "tree": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{40}$"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "required": ["objectFormat", "commit", "tree"],
+                                  "properties": {
+                                    "objectFormat": {
+                                      "type": "string",
+                                      "const": "sha256"
+                                    },
+                                    "commit": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{64}$"
+                                    },
+                                    "tree": {
+                                      "type": "string",
+                                      "pattern": "^[a-f0-9]{64}$"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              ]
                             },
                             "deliverables": {
                               "type": "array",
@@ -11710,48 +11752,6 @@
                                 ]
                               },
                               "maxItems": 96
-                            },
-                            "repository": {
-                              "anyOf": [
-                                {
-                                  "type": "object",
-                                  "required": ["objectFormat", "commit", "tree"],
-                                  "properties": {
-                                    "objectFormat": {
-                                      "type": "string",
-                                      "const": "sha1"
-                                    },
-                                    "commit": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{40}$"
-                                    },
-                                    "tree": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{40}$"
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "required": ["objectFormat", "commit", "tree"],
-                                  "properties": {
-                                    "objectFormat": {
-                                      "type": "string",
-                                      "const": "sha256"
-                                    },
-                                    "commit": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{64}$"
-                                    },
-                                    "tree": {
-                                      "type": "string",
-                                      "pattern": "^[a-f0-9]{64}$"
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                }
-                              ]
                             }
                           },
                           "additionalProperties": false

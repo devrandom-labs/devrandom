@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { createTask } from '../application/create-task.js';
 
 import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
+import {
+  decodeTaskProjection,
+  prepareTaskCommandV2,
+  taskEvaluationBudgetCeilings,
+} from '@devrandom/protocol';
 import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -58,6 +63,64 @@ async function server(configurationInput: TaskRoutesConfiguration) {
 }
 
 describe('Task HTTP routes', () => {
+  it('returns a canonically ordered signed v2 revision through the real HTTP serializer', async () => {
+    const old = taskCommandFixture();
+    const { d: oldSaid, repository, ...contract } = old.revision;
+    expect(oldSaid).toMatch(/^E[A-Za-z0-9_-]{43}$/u);
+    const prepared = prepareTaskCommandV2(
+      {
+        ...contract,
+        version: 2,
+        label: old.label,
+        repository: { kind: 'gitCommit', commit: repository.commit },
+        constraints: {
+          ...contract.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience: {
+            corpusSaid: `E${'c'.repeat(43)}`,
+            repositoryResourceSaid: `E${'r'.repeat(43)}`,
+            disclosure: 'AuthorizedAnalogy',
+          },
+        },
+        requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
+        budgets: { ...contract.budgets, ...taskEvaluationBudgetCeilings },
+      },
+      old.commandId,
+      repository,
+    );
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') throw new Error('v2 Task fixture rejected');
+    const v2 = {
+      ...task,
+      revisionSaid: prepared.command.revision.d,
+      revision: prepared.command.revision,
+    };
+    const defaults = configuration();
+    const instance = await server(
+      configuration({
+        conversation: {
+          ...defaults.conversation,
+          create: () => Promise.resolve({ kind: 'TaskCreated', task: v2 }),
+          inspect: () => Promise.resolve({ kind: 'TaskFound', task: v2 }),
+        },
+      }),
+    );
+    try {
+      const response = await instance.inject({
+        method: 'GET',
+        url: `/api/tasks/by-label/${old.label}`,
+        headers: { authorization: `Bearer ${bearerSecret}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(decodeTaskProjection(response.json())).toEqual({
+        kind: 'Accepted',
+        projection: v2,
+      });
+    } finally {
+      await instance.close();
+    }
+  });
+
   it('rejects a mixed-case Task label without normalizing or creating a Task', async () => {
     const create = vi.fn<TaskRoutesConfiguration['conversation']['create']>(() =>
       Promise.resolve({ kind: 'TaskCreated', task }),
