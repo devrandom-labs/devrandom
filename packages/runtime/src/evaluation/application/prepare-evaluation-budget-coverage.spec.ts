@@ -464,3 +464,136 @@ describe('trusted parent Evaluation budget coverage', () => {
     });
   });
 });
+
+it('binds diagnosis elapsed receipts to the authenticated Research usage event and recomputes duration', async () => {
+  const given = fixture();
+  const usage = given.events.find((item) => item.detail.kind === 'ProviderUsageVerified');
+  if (usage === undefined) throw new Error('fixture');
+  const context = {
+    harnessRevisionSaid: binding.harnessRevisionSaid,
+    phase: { kind: 'Research' as const, policySaid: said('p'), role: 'DiagnosticRefiner' as const },
+  };
+  const source = event(0, undefined, usage.detail, context);
+  const receipt = {
+    version: 1,
+    kind: 'EvaluationResearchElapsed',
+    method: 'ParentMonotonicResearch',
+    evaluationId: binding.evaluationId,
+    streamId: binding.evidenceStreamId,
+    harnessRevisionSaid: context.harnessRevisionSaid,
+    phase: context.phase,
+    usageEventSaid: source.d,
+    startedMonotonicMicroseconds: 1000,
+    finishedMonotonicMicroseconds: 2000,
+    elapsedMilliseconds: 1,
+    debitedSeconds: 1,
+  };
+  const check = async (value: unknown) => {
+    const bytes = Buffer.from(JSON.stringify(value));
+    const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+    if (prepared.kind !== 'Prepared') throw new Error('fixture');
+    given.artifacts.set(prepared.artifact.d, { artifact: prepared.artifact, bytes });
+    const captured = event(
+      1,
+      source,
+      { kind: 'ArtifactCaptured', artifactSaid: prepared.artifact.d, custody: 'Public' },
+      context,
+    );
+    const debit = event(
+      2,
+      captured,
+      {
+        kind: 'EvaluationBudgetDebited',
+        budget: 'runWallTimeSeconds',
+        amount: 1,
+        consumed: 1,
+        receiptArtifactSaid: prepared.artifact.d,
+        sourceEventSaid: source.d,
+      },
+      context,
+    );
+    given.open.mockResolvedValue({
+      kind: 'Acknowledged',
+      events: [source, captured, debit],
+      throughSequence: 2,
+      headSaid: debit.d,
+    });
+    return prepareEvaluationBudgetCoverage(
+      { ...given.input, binding: { ...binding, ...context } },
+      given.dependencies,
+    );
+  };
+  expect(await check(receipt)).toMatchObject({ kind: 'Incomplete', frontier: 'MissingDimension' });
+  expect(await check({ ...receipt, elapsedMilliseconds: 0 })).toMatchObject({
+    kind: 'Incomplete',
+    frontier: 'ReceiptAuthority',
+  });
+  expect(await check({ ...receipt, usageEventSaid: said('z') })).toMatchObject({
+    kind: 'Incomplete',
+    frontier: 'ReceiptAuthority',
+  });
+  expect(await check({ ...receipt, phase: binding.phase })).toMatchObject({
+    kind: 'Incomplete',
+    frontier: 'ReceiptAuthority',
+  });
+});
+
+it('keeps zero native-command evidence scoped to its own phase', async () => {
+  const given = fixture();
+  const context = {
+    harnessRevisionSaid: binding.harnessRevisionSaid,
+    phase: { kind: 'Research' as const, policySaid: said('p'), role: 'CandidateWorker' as const },
+  };
+  const append = (detail: unknown) => {
+    const next = event(given.events.length, given.events.at(-1), detail, context);
+    given.events.push(next);
+    return next;
+  };
+  const proposal = append({
+    kind: 'ToolProposed',
+    proposalIndex: 0,
+    toolCallId: 'research-test',
+    inputArtifactSaid: said('i'),
+  });
+  const bytes = Buffer.from(
+    JSON.stringify({
+      kind: 'EvaluationToolElapsed',
+      proposalEventSaid: proposal.d,
+      toolCallId: 'research-test',
+      proposalIndex: 0,
+      toolName: 'run_tests',
+      outcomeKind: 'Completed',
+      childCommandDuration: 'GatewayRoundTripUpperBound',
+      startedMonotonicMicroseconds: 1,
+      finishedMonotonicMicroseconds: 1001,
+      elapsedMilliseconds: 1,
+      childCommandDebitedSeconds: 1,
+    }),
+  );
+  const raw = prepareEvidenceArtifact(bytes, 'application/json');
+  if (raw.kind !== 'Prepared') throw new Error('fixture');
+  given.artifacts.set(raw.artifact.d, { artifact: raw.artifact, bytes });
+  append({ kind: 'ArtifactCaptured', artifactSaid: raw.artifact.d, custody: 'Public' });
+  append({
+    kind: 'EvaluationBudgetDebited',
+    budget: 'toolProposals',
+    amount: 1,
+    consumed: 2,
+    receiptArtifactSaid: raw.artifact.d,
+    sourceEventSaid: proposal.d,
+  });
+  append({
+    kind: 'EvaluationBudgetDebited',
+    budget: 'aggregateChildCommandTimeSeconds',
+    amount: 1,
+    consumed: 1,
+    receiptArtifactSaid: raw.artifact.d,
+    sourceEventSaid: proposal.d,
+  });
+  expect(
+    await prepareEvaluationBudgetCoverage(
+      { ...given.input, binding: { ...binding, ...context } },
+      given.dependencies,
+    ),
+  ).toMatchObject({ kind: 'Prepared' });
+});

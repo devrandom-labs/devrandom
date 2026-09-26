@@ -15,6 +15,8 @@ import {
   type EvaluationEvidenceEvent,
 } from '@devrandom/protocol';
 
+import { measureFinalizationElapsed, type CodingElapsedInterval } from './finalization-elapsed.js';
+
 /** Authenticated exact-read view of the hosted Evaluation stream, through its acknowledged head. */
 export interface EvaluationAcceptedPrefix {
   open(binding: EvaluationExecutionBinding): Promise<
@@ -105,6 +107,9 @@ function incomplete(frontier: Frontier): EvaluationBudgetCoveragePreparation {
 
 interface UntrustedMeasurement {
   readonly version?: unknown;
+  readonly codingWallReceiptSaids?: unknown;
+  readonly throughSequence?: unknown;
+  readonly throughHeadSaid?: unknown;
   readonly kind?: unknown;
   readonly evaluationId?: unknown;
   readonly streamId?: unknown;
@@ -231,6 +236,24 @@ function sourceMatches(
       latestSourceRead.detail.sourceSaid === receipt.beforeSourceSaid
     );
   }
+  if (receipt.kind === 'EvaluationResearchElapsed')
+    return (
+      source.phase.kind === 'Research' &&
+      source.detail.kind === 'ProviderUsageVerified' &&
+      receipt.method === 'ParentMonotonicResearch' &&
+      receipt.usageEventSaid === source.d &&
+      receipt.evaluationId === source.evaluationId &&
+      receipt.streamId === source.streamId &&
+      receipt.harnessRevisionSaid === source.harnessRevisionSaid &&
+      isDeepStrictEqual(receipt.phase, source.phase)
+    );
+  if (receipt.kind === 'EvaluationFinalizationElapsed')
+    return (
+      source.detail.kind === 'ArtifactCaptured' &&
+      receipt.method === 'ParentMonotonicComparisonLessCodingIntervals' &&
+      receipt.throughSequence === source.sequence &&
+      receipt.throughHeadSaid === source.d
+    );
   return (
     source.detail.kind === 'ArtifactCaptured' &&
     receipt.kind === 'EvaluationWallElapsed' &&
@@ -308,6 +331,11 @@ function validMeasurement(budget: Budget, receipt: UntrustedMeasurement, amount:
     }
     return true;
   }
+  if (budget === 'runWallTimeSeconds' && receipt.kind === 'EvaluationFinalizationElapsed')
+    return (
+      safeCount(receipt.elapsedMilliseconds) &&
+      amount === Math.max(1, Math.ceil(receipt.elapsedMilliseconds / 1000))
+    );
   if (budget === 'runWallTimeSeconds')
     return (
       validElapsed(receipt) &&
@@ -407,7 +435,9 @@ export async function prepareEvaluationBudgetCoverage(
   const providerUsage = new Map<string, string>();
   const providerOrdinalByPhase = new Map<string, number>();
   const orderedUsage: string[] = [];
-  let nativeCommandObserved = false;
+  const nativeCommandPhases = new Set<string>();
+  const noNativeCommandPhases = new Set<string>();
+  const researchElapsedUsage = new Set<string>();
   const readRaw = async (artifactSaid: string): Promise<UntrustedMeasurement | undefined> => {
     const cached = measurementCache.get(artifactSaid);
     if (cached !== undefined) return cached;
@@ -493,7 +523,11 @@ export async function prepareEvaluationBudgetCoverage(
     phase.add(budget);
     phaseBudgets.set(phaseKey(event), phase);
     if (budget === 'aggregateChildCommandTimeSeconds' && receipt.kind === 'EvaluationToolElapsed')
-      nativeCommandObserved = true;
+      nativeCommandPhases.add(phaseKey(event));
+    if (budget === 'aggregateChildCommandTimeSeconds' && receipt.kind === 'EvaluationChildCommands')
+      noNativeCommandPhases.add(phaseKey(event));
+    if (budget === 'runWallTimeSeconds' && receipt.kind === 'EvaluationResearchElapsed')
+      researchElapsedUsage.add(source.d);
     if (
       budget === 'toolProposals' &&
       typeof receipt.toolName === 'string' &&
@@ -513,8 +547,59 @@ export async function prepareEvaluationBudgetCoverage(
         return incomplete('ReceiptCustody');
       }
     }
+    if (budget === 'runWallTimeSeconds' && receipt.kind === 'EvaluationFinalizationElapsed') {
+      const coding = events.filter(
+        (item) =>
+          item.sequence < source.sequence &&
+          item.phase.kind === 'Trial' &&
+          item.detail.kind === 'EvaluationBudgetDebited' &&
+          item.detail.budget === 'runWallTimeSeconds',
+      );
+      if (
+        coding.length !== 18 ||
+        new Set(coding.map(phaseKey)).size !== 18 ||
+        !Array.isArray(receipt.codingWallReceiptSaids) ||
+        !isDeepStrictEqual(
+          receipt.codingWallReceiptSaids,
+          coding.map((item) =>
+            item.detail.kind === 'EvaluationBudgetDebited' ? item.detail.receiptArtifactSaid : '',
+          ),
+        ) ||
+        !safeCount(receipt.startedMonotonicMicroseconds) ||
+        !safeCount(receipt.finishedMonotonicMicroseconds)
+      )
+        return incomplete('ReceiptAuthority');
+      const intervals: CodingElapsedInterval[] = [];
+      for (const coded of coding) {
+        if (coded.detail.kind !== 'EvaluationBudgetDebited') return incomplete('ReceiptAuthority');
+        const raw = await readRaw(coded.detail.receiptArtifactSaid);
+        if (
+          raw?.kind !== 'EvaluationWallElapsed' ||
+          !safeCount(raw.startedMonotonicMicroseconds) ||
+          !safeCount(raw.finishedMonotonicMicroseconds)
+        )
+          return incomplete('ReceiptAuthority');
+        intervals.push({
+          artifactSaid: coded.detail.receiptArtifactSaid,
+          startedMonotonicMicroseconds: raw.startedMonotonicMicroseconds,
+          finishedMonotonicMicroseconds: raw.finishedMonotonicMicroseconds,
+        });
+      }
+      const measured = measureFinalizationElapsed(
+        receipt.startedMonotonicMicroseconds,
+        receipt.finishedMonotonicMicroseconds,
+        intervals,
+      );
+      if (
+        measured.kind !== 'Measured' ||
+        measured.elapsedMilliseconds !== receipt.elapsedMilliseconds
+      )
+        return incomplete('ReceiptAuthority');
+    }
     if (
-      budget === 'runWallTimeSeconds' ||
+      (budget === 'runWallTimeSeconds' &&
+        receipt.kind !== 'EvaluationFinalizationElapsed' &&
+        receipt.kind !== 'EvaluationResearchElapsed') ||
       (budget === 'aggregateChildCommandTimeSeconds' && receipt.kind === 'EvaluationChildCommands')
     ) {
       if (source.detail.kind !== 'ArtifactCaptured') return incomplete('ReceiptAuthority');
@@ -650,8 +735,8 @@ export async function prepareEvaluationBudgetCoverage(
   )
     return incomplete('MissingDimension');
   if (
-    nativeCommandObserved &&
-    [...measurementCache.values()].some((receipt) => receipt.kind === 'EvaluationChildCommands')
+    [...noNativeCommandPhases].some((phase) => nativeCommandPhases.has(phase)) ||
+    [...researchElapsedUsage].some((usage) => !providerUsage.has(usage))
   )
     return incomplete('ReceiptAuthority');
   const prepared = prepareEvaluationEvidenceEvent({
