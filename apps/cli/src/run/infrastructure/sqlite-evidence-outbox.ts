@@ -1629,9 +1629,8 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
         return { kind: 'Rejected' };
       const references = new Set(events.flatMap(({ event }) => evidenceArtifactReferences(event)));
       for (const said of checkpoint.checkpoint.outputArtifactSaids) references.add(said);
-      if (checkpoint.checkpoint.version === 1)
-        for (const file of checkpoint.checkpoint.repository.changedFiles)
-          references.add(file.contentSaid);
+      // CheckpointFileContent identities are verified by a fresh Git capture before continuation;
+      // they are not EvidenceArtifact identifiers and have no raw-artifact envelope here.
       for (const receipt of checkpoint.checkpoint.verifierReceipts)
         if (receipt.outcome.kind === 'Accepted' || receipt.outcome.kind === 'Rejected')
           for (const said of receipt.outcome.outputArtifactSaids) references.add(said);

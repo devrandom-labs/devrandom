@@ -24,6 +24,8 @@ import {
 } from '@devrandom/domain';
 import {
   evidenceArtifactReferences,
+  identifyCheckpointFileContent,
+  type VerifiedCheckpoint,
   preparePublicVerifierReceipt,
   prepareVerifiedCheckpoint,
   type EvidenceEventDetail,
@@ -87,6 +89,7 @@ function checkpoint(
   finalSequence: number,
   chainHeadSaid: string,
   reason: 'HarnessCompatibilityFailure' | 'OutboxBackpressure' = 'HarnessCompatibilityFailure',
+  changedFiles: Extract<VerifiedCheckpoint, { version: 1 }>['repository']['changedFiles'] = [],
 ) {
   if (run.lease.kind !== 'Held') {
     throw new Error('fixture Run must hold an incarnation');
@@ -124,7 +127,7 @@ function checkpoint(
         objectFormat: run.binding.repository.objectFormat,
         baseCommit: run.binding.repository.commit,
         baseTree: run.binding.repository.tree,
-        changedFiles: [],
+        changedFiles,
       },
       outputArtifactSaids: [],
       verifierReceipts: [receipt.receipt],
@@ -934,134 +937,155 @@ describe('SQLite evidence outbox', () => {
     opened.recorder.close();
   });
 
-  it('durably records the exact sealed server cursor only after every local event is acknowledged', async () => {
-    const run = runFixture();
-    const root = await stateRoot();
-    const opened = new SqliteEvidenceOutboxes(() => '2026-09-24T20:00:04.000Z').open({
-      run,
-      stateRoot: root,
-    });
-    if (opened.kind !== 'Opened') throw new Error('fixture outbox must open');
-    const started = opened.recorder.record({
-      occurredAt: '2026-09-24T20:00:02.000Z',
-      producer: { kind: 'RunSupervisor' },
-      event: { kind: 'RunStarted', fromRunVersion: run.version },
-    });
-    if (started.kind !== 'Recorded') throw new Error('fixture start must record');
-    const verified = checkpoint(run, 1, 0, started.event.d);
-    expect(
-      opened.recorder.storeCheckpoint({
-        checkpoint: verified,
-        completionConditionIds: ['public-test'],
-      }),
-    ).toMatchObject({ kind: 'Stored' });
-    expect(
-      opened.recorder.record({
-        occurredAt: '2026-09-24T20:00:03.000Z',
-        producer: { kind: 'EvidenceRecorder' },
-        event: { kind: 'CheckpointVerified', checkpointSaid: verified.d },
-      }),
-    ).toMatchObject({ kind: 'Recorded' });
-    const firstPage = opened.recorder.page();
-    if (firstPage.kind !== 'Page') throw new Error('checkpoint page must exist');
-    expect(
-      opened.recorder.acknowledge({
-        version: 1,
-        disposition: { kind: 'Accepted' },
-        runId: run.binding.runId,
-        evidenceStreamId: run.binding.evidenceStreamId,
-        batchSaid: firstPage.page.batch.d,
-        acceptedThroughSequence: firstPage.page.batch.endingSequence,
-        chainHeadSaid: firstPage.page.events.at(-1)?.d ?? '',
-        receivedAt: '2026-09-24T20:00:04.000Z',
-      }),
-    ).toMatchObject({ kind: 'Acknowledged' });
-    const firstEventSaids = firstPage.page.events.map((event) => event.d);
-    expect(retainedEventSaids(root, run.binding.runId)).toEqual(firstEventSaids);
-    expect(opened.recorder.sealAcknowledgement()).toEqual({ kind: 'NotFound' });
-    const accepted = opened.recorder.record({
-      occurredAt: '2026-09-24T20:00:05.000Z',
-      producer: { kind: 'EvidenceRecorder' },
-      event: { kind: 'CheckpointAccepted', checkpointSaid: verified.d },
-    });
-    if (accepted.kind !== 'Recorded') throw new Error('checkpoint acceptance must record');
-    const finalPage = opened.recorder.page();
-    if (finalPage.kind !== 'Page') throw new Error('final page must exist');
-    expect(
-      opened.recorder.acknowledge({
-        version: 1,
-        disposition: { kind: 'Accepted' },
-        runId: run.binding.runId,
-        evidenceStreamId: run.binding.evidenceStreamId,
-        batchSaid: finalPage.page.batch.d,
-        acceptedThroughSequence: finalPage.page.batch.endingSequence,
-        chainHeadSaid: accepted.event.d,
-        receivedAt: '2026-09-24T20:00:06.000Z',
-      }),
-    ).toMatchObject({ kind: 'Acknowledged' });
-    const completeEventSaids = [
-      ...firstEventSaids,
-      ...finalPage.page.events.map((event) => event.d),
-    ];
-    expect(retainedEventSaids(root, run.binding.runId)).toEqual(completeEventSaids);
-    expect(opened.recorder.sealAcknowledgement()).toEqual({ kind: 'NotFound' });
-    const projection = {
-      version: 1 as const,
-      runId: run.binding.runId,
-      evidenceStreamId: run.binding.evidenceStreamId,
-      cursor: {
-        kind: 'Accepted' as const,
-        eventCount: 3,
-        acceptedThroughSequence: 2,
-        chainHeadSaid: accepted.event.d,
-      },
-      checkpoint: { kind: 'Accepted' as const, checkpointSaid: verified.d },
-      seal: {
-        kind: 'Sealed' as const,
-        sealExchangeSaid: said('s'),
-        eventCount: 3,
-        finalSequence: 2,
-        chainHeadSaid: accepted.event.d,
-        sealedAt: '2026-09-24T20:00:07.000Z',
-      },
-    };
-
-    expect(opened.recorder.recordSealAcknowledgement(projection)).toEqual({
-      kind: 'Recorded',
-      projection,
-    });
-    expect(opened.recorder.recordSealAcknowledgement(projection)).toEqual({
-      kind: 'AlreadyRecorded',
-      projection,
-    });
-    expect(opened.recorder.sealAcknowledgement()).toEqual({ kind: 'Read', projection });
-    opened.recorder.close();
-    expect(retainedEventSaids(root, run.binding.runId)).toEqual(completeEventSaids);
-    const blocked: Run = {
-      ...run,
-      lifecycle: {
-        kind: 'Active',
-        phase: {
-          kind: 'Blocked',
-          reason: 'HarnessCompatibilityFailure',
-          checkpointSaid: verified.d,
-        },
-      },
-    };
-    const reader = new SqliteEvidenceOutboxes(() => '2026-09-24T20:01:00.000Z');
-    const events = [...firstPage.page.events, ...finalPage.page.events];
-    expect(
-      reader.readPredecessor({ run: blocked, stateRoot: root, stream: projection, events }),
-    ).toMatchObject({ kind: 'Read', custody: { checkpoint: verified, events } });
-    expect(
-      reader.readPredecessor({
-        run: blocked,
+  it.each([false, true])(
+    'reads sealed custody with changed files=%s without confusing file identity with raw artifact identity',
+    async (withChangedFile) => {
+      const run = runFixture();
+      const root = await stateRoot();
+      const opened = new SqliteEvidenceOutboxes(() => '2026-09-24T20:00:04.000Z').open({
+        run,
         stateRoot: root,
-        stream: projection,
-        events: events.slice(1),
-      }),
-    ).toEqual({ kind: 'Rejected' });
-  });
+      });
+      if (opened.kind !== 'Opened') throw new Error('fixture outbox must open');
+      const started = opened.recorder.record({
+        occurredAt: '2026-09-24T20:00:02.000Z',
+        producer: { kind: 'RunSupervisor' },
+        event: { kind: 'RunStarted', fromRunVersion: run.version },
+      });
+      if (started.kind !== 'Recorded') throw new Error('fixture start must record');
+      const content = identifyCheckpointFileContent(Buffer.from('persisted changed source'));
+      if (content.kind !== 'Identified') throw new Error('content fixture');
+      const verified = checkpoint(
+        run,
+        1,
+        0,
+        started.event.d,
+        'HarnessCompatibilityFailure',
+        withChangedFile
+          ? [
+              {
+                path: 'src/lib.rs',
+                disposition: 'Modified',
+                mode: '100644',
+                contentSaid: content.contentSaid,
+              },
+            ]
+          : [],
+      );
+      expect(
+        opened.recorder.storeCheckpoint({
+          checkpoint: verified,
+          completionConditionIds: ['public-test'],
+        }),
+      ).toMatchObject({ kind: 'Stored' });
+      expect(
+        opened.recorder.record({
+          occurredAt: '2026-09-24T20:00:03.000Z',
+          producer: { kind: 'EvidenceRecorder' },
+          event: { kind: 'CheckpointVerified', checkpointSaid: verified.d },
+        }),
+      ).toMatchObject({ kind: 'Recorded' });
+      const firstPage = opened.recorder.page();
+      if (firstPage.kind !== 'Page') throw new Error('checkpoint page must exist');
+      expect(
+        opened.recorder.acknowledge({
+          version: 1,
+          disposition: { kind: 'Accepted' },
+          runId: run.binding.runId,
+          evidenceStreamId: run.binding.evidenceStreamId,
+          batchSaid: firstPage.page.batch.d,
+          acceptedThroughSequence: firstPage.page.batch.endingSequence,
+          chainHeadSaid: firstPage.page.events.at(-1)?.d ?? '',
+          receivedAt: '2026-09-24T20:00:04.000Z',
+        }),
+      ).toMatchObject({ kind: 'Acknowledged' });
+      const firstEventSaids = firstPage.page.events.map((event) => event.d);
+      expect(retainedEventSaids(root, run.binding.runId)).toEqual(firstEventSaids);
+      expect(opened.recorder.sealAcknowledgement()).toEqual({ kind: 'NotFound' });
+      const accepted = opened.recorder.record({
+        occurredAt: '2026-09-24T20:00:05.000Z',
+        producer: { kind: 'EvidenceRecorder' },
+        event: { kind: 'CheckpointAccepted', checkpointSaid: verified.d },
+      });
+      if (accepted.kind !== 'Recorded') throw new Error('checkpoint acceptance must record');
+      const finalPage = opened.recorder.page();
+      if (finalPage.kind !== 'Page') throw new Error('final page must exist');
+      expect(
+        opened.recorder.acknowledge({
+          version: 1,
+          disposition: { kind: 'Accepted' },
+          runId: run.binding.runId,
+          evidenceStreamId: run.binding.evidenceStreamId,
+          batchSaid: finalPage.page.batch.d,
+          acceptedThroughSequence: finalPage.page.batch.endingSequence,
+          chainHeadSaid: accepted.event.d,
+          receivedAt: '2026-09-24T20:00:06.000Z',
+        }),
+      ).toMatchObject({ kind: 'Acknowledged' });
+      const completeEventSaids = [
+        ...firstEventSaids,
+        ...finalPage.page.events.map((event) => event.d),
+      ];
+      expect(retainedEventSaids(root, run.binding.runId)).toEqual(completeEventSaids);
+      expect(opened.recorder.sealAcknowledgement()).toEqual({ kind: 'NotFound' });
+      const projection = {
+        version: 1 as const,
+        runId: run.binding.runId,
+        evidenceStreamId: run.binding.evidenceStreamId,
+        cursor: {
+          kind: 'Accepted' as const,
+          eventCount: 3,
+          acceptedThroughSequence: 2,
+          chainHeadSaid: accepted.event.d,
+        },
+        checkpoint: { kind: 'Accepted' as const, checkpointSaid: verified.d },
+        seal: {
+          kind: 'Sealed' as const,
+          sealExchangeSaid: said('s'),
+          eventCount: 3,
+          finalSequence: 2,
+          chainHeadSaid: accepted.event.d,
+          sealedAt: '2026-09-24T20:00:07.000Z',
+        },
+      };
+
+      expect(opened.recorder.recordSealAcknowledgement(projection)).toEqual({
+        kind: 'Recorded',
+        projection,
+      });
+      expect(opened.recorder.recordSealAcknowledgement(projection)).toEqual({
+        kind: 'AlreadyRecorded',
+        projection,
+      });
+      expect(opened.recorder.sealAcknowledgement()).toEqual({ kind: 'Read', projection });
+      opened.recorder.close();
+      expect(retainedEventSaids(root, run.binding.runId)).toEqual(completeEventSaids);
+      const blocked: Run = {
+        ...run,
+        lifecycle: {
+          kind: 'Active',
+          phase: {
+            kind: 'Blocked',
+            reason: 'HarnessCompatibilityFailure',
+            checkpointSaid: verified.d,
+          },
+        },
+      };
+      const reader = new SqliteEvidenceOutboxes(() => '2026-09-24T20:01:00.000Z');
+      const events = [...firstPage.page.events, ...finalPage.page.events];
+      expect(
+        reader.readPredecessor({ run: blocked, stateRoot: root, stream: projection, events }),
+      ).toMatchObject({ kind: 'Read', custody: { checkpoint: verified, events } });
+      expect(
+        reader.readPredecessor({
+          run: blocked,
+          stateRoot: root,
+          stream: projection,
+          events: events.slice(1),
+        }),
+      ).toEqual({ kind: 'Rejected' });
+    },
+  );
 
   it.each(['Observation', 'EffectFailed'] as const)(
     'atomically publishes bounded artifact bytes before %s may reference them',
