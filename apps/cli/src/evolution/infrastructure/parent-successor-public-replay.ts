@@ -21,7 +21,7 @@ interface ReplayObservation {
   readonly observation: unknown;
   readonly rawObservationSaid: string;
   readonly cleanupReceiptSaid: string;
-  readonly verdict: 'Pass';
+  readonly verdict: 'Pass' | 'Fail';
 }
 
 interface ReplayDocument {
@@ -248,13 +248,15 @@ export class ParentSuccessorPublicReplay implements SuccessorPublicReplay {
           typeof entry.rawObservationSaid !== 'string' ||
           typeof entry.cleanupReceiptSaid !== 'string' ||
           entry.id !== condition.id ||
-          entry.verdict !== 'Pass' ||
+          (entry.verdict !== 'Pass' && entry.verdict !== 'Fail') ||
           Object.keys(entry).sort().join(',') !==
             'cleanupReceiptSaid,id,observation,rawObservationSaid,stimulusSaid,verdict' ||
           ![entry.stimulusSaid, entry.rawObservationSaid, entry.cleanupReceiptSaid].every((value) =>
             said.test(value),
           ) ||
-          observedPublicCase(condition.expected, entry.observation) !== true
+          observedPublicCase(condition.expected, entry.observation) === undefined ||
+          entry.verdict !==
+            (observedPublicCase(condition.expected, entry.observation) === true ? 'Pass' : 'Fail')
         )
           return { kind: 'Rejected' };
         const stimulus = prepareEvidenceArtifact(

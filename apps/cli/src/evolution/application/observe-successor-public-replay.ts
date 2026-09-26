@@ -200,7 +200,7 @@ export async function observeSuccessorPublicReplay(
       >['observation'];
       readonly rawObservationSaid: string;
       readonly cleanupReceiptSaid: string;
-      readonly verdict: 'Pass';
+      readonly verdict: 'Pass' | 'Fail';
     }[] = [];
     for (const condition of input.publicConditions) {
       if (input.signal.aborted) return { kind: 'Blocked', gate: 'PublicObservation' };
@@ -220,7 +220,7 @@ export async function observeSuccessorPublicReplay(
         observed.protectedObservation !== undefined ||
         !said.test(observed.rawObservationSaid) ||
         !said.test(observed.cleanupReceiptSaid) ||
-        observedPublicCase(condition.expected, observed.observation) !== true
+        observedPublicCase(condition.expected, observed.observation) === undefined
       )
         return { kind: 'Blocked', gate: 'PublicObservation' };
       observations.push({
@@ -229,7 +229,8 @@ export async function observeSuccessorPublicReplay(
         observation: observed.observation,
         rawObservationSaid: observed.rawObservationSaid,
         cleanupReceiptSaid: observed.cleanupReceiptSaid,
-        verdict: 'Pass',
+        verdict:
+          observedPublicCase(condition.expected, observed.observation) === true ? 'Pass' : 'Fail',
       });
     }
     const catalogueBytes = Buffer.from(JSON.stringify(input.publicConditions), 'utf8');

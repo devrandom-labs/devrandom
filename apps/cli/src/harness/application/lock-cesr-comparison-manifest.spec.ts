@@ -193,7 +193,7 @@ function basis(): CesrManifestBasis {
         leaseId: id('4'),
         version: 1,
         serverTime: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        expiresAt: new Date(Date.now() + 40_000).toISOString(),
       },
       evidenceStreamId: id('5'),
       reservationSaid: said('r'),
@@ -321,4 +321,34 @@ describe('E3 CESR M lock sequencing', () => {
     ).toMatchObject({ kind: 'Locked', evaluationId: given.admission.evaluationId });
     expect(open.mock.calls.map(([input]) => input.mode)).toEqual(['Create', 'Reopen']);
   });
+});
+
+it('uses a renewed exact lease and current Evaluation version after research evidence', async () => {
+  const given = basis();
+  const boundary = await ports();
+  const renewed = {
+    ...given.admission.lease,
+    version: 2,
+    serverTime: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 45000).toISOString(),
+  };
+  const input = {
+    ...given,
+    admission: {
+      ...given.admission,
+      lease: { ...given.admission.lease, expiresAt: new Date(Date.now() - 1000).toISOString() },
+    },
+    currentPosition: { evaluationId: given.admission.evaluationId, version: 80, lease: renewed },
+  };
+  expect(await lockCesrComparisonManifest(input, boundary)).toMatchObject({ kind: 'Locked' });
+  expect(boundary.lock.mock.calls[0]?.[0].expectedEvaluationVersion).toBe(80);
+  expect(
+    await lockCesrComparisonManifest(
+      {
+        ...input,
+        currentPosition: { ...input.currentPosition, lease: { ...renewed, leaseId: id('9') } },
+      },
+      boundary,
+    ),
+  ).toMatchObject({ kind: 'Blocked' });
 });

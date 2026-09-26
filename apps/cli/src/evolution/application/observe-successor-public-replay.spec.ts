@@ -120,7 +120,7 @@ describe('parent successor public replay', () => {
     expect(ready.retain).toHaveBeenCalledOnce();
   });
 
-  it('never retains a passing replay when native observation disagrees or usage is unavailable', async () => {
+  it('retains the actual negative public observation during behavioral rehearsal', async () => {
     const ready = fixture();
     ready.observation.observe.mockResolvedValueOnce({
       kind: 'Observed',
@@ -129,16 +129,20 @@ describe('parent successor public replay', () => {
       rawObservationSaid: said('o'),
       cleanupReceiptSaid: said('c'),
     });
-    expect(
-      await observeSuccessorPublicReplay(ready.input, {
-        construction: ready.construction,
-        observation: ready.observation,
-        custody: { retain: ready.retain },
-        catalogue: ready.catalogue,
-        behavior: ready.behavior,
-      }),
-    ).toEqual({ kind: 'Blocked', gate: 'PublicObservation' });
-    expect(ready.retain).not.toHaveBeenCalled();
+    const result = await observeSuccessorPublicReplay(ready.input, {
+      construction: ready.construction,
+      observation: ready.observation,
+      custody: { retain: ready.retain },
+      catalogue: ready.catalogue,
+      behavior: ready.behavior,
+    });
+    expect(result.kind).toBe('Observed');
+    if (result.kind === 'Observed')
+      expect(JSON.parse(Buffer.from(result.bytes).toString())).toMatchObject({
+        observations: [
+          { verdict: 'Fail', observation: { kind: 'Rejected', error: 'InvalidFrame' } },
+        ],
+      });
   });
 
   it('refuses a drifted public Task source before build or receipt custody', async () => {

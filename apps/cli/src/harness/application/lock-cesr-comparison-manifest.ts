@@ -40,6 +40,11 @@ export interface CesrManifestBasis {
   readonly hypothesis: EvolutionHypothesis;
   readonly candidates: readonly SuccessorHarnessRevision[];
   readonly admission: Admitted;
+  readonly currentPosition?: {
+    readonly evaluationId: string;
+    readonly version: number;
+    readonly lease: Admitted['lease'];
+  };
   readonly sourceDirectory: string;
   readonly sourceGitCommit: string;
   readonly sourceGitTree: string;
@@ -143,6 +148,7 @@ export async function reconcileStagedCesrManifest(
 
 function prerequisites(basis: CesrManifestBasis): boolean {
   const { policy, qualified, hypothesis, candidates, admission } = basis;
+  const current = basis.currentPosition ?? admission;
   return (
     decodeEvaluationPolicy(policy).kind === 'Accepted' &&
     decodeEvaluationExecutionProfile(basis.profile).kind === 'Accepted' &&
@@ -181,8 +187,17 @@ function prerequisites(basis: CesrManifestBasis): boolean {
     ) &&
     admission.lease.evaluationId === admission.evaluationId &&
     admission.lease.version === admission.version &&
-    Date.parse(admission.lease.expiresAt) > Date.now() &&
-    admission.lease.expiresAt !== admission.lease.serverTime
+    current.evaluationId === admission.evaluationId &&
+    current.lease.evaluationId === admission.evaluationId &&
+    current.lease.leaseId === admission.lease.leaseId &&
+    Number.isSafeInteger(current.version) &&
+    current.version >= admission.version &&
+    Number.isSafeInteger(current.lease.version) &&
+    current.lease.version >= admission.lease.version &&
+    current.lease.version <= current.version &&
+    Date.parse(current.lease.expiresAt) > Date.now() &&
+    Date.parse(current.lease.expiresAt) > Date.parse(current.lease.serverTime) &&
+    Date.parse(current.lease.expiresAt) - Date.parse(current.lease.serverTime) <= 45000
   );
 }
 
@@ -338,7 +353,7 @@ export async function lockCesrComparisonManifest(
     if (encoded.kind !== 'Encoded') return { kind: 'Blocked', gate: 'Manifest' };
     const staged = await ports.commands.stage({
       version: 1,
-      expectedEvaluationVersion: basis.admission.version,
+      expectedEvaluationVersion: basis.currentPosition?.version ?? basis.admission.version,
       leaseId: basis.admission.lease.leaseId,
       manifest: M.manifest,
       verifierBundle: sealed.bundle,

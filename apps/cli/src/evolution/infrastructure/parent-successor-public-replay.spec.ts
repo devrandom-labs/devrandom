@@ -13,7 +13,10 @@ const condition = {
   },
 };
 
-function fixture() {
+function fixture(failed = false) {
+  const observation = failed
+    ? { kind: 'Rejected' as const, error: 'InvalidFrame' as const }
+    : condition.expected;
   const catalogue = prepareEvidenceArtifact(
     Buffer.from(JSON.stringify([condition])),
     'application/json',
@@ -25,7 +28,7 @@ function fixture() {
       executableSaid: said('x'),
       stimulusSaid: stimulus.artifact.d,
       caseScope: 'Public',
-      observation: condition.expected,
+      observation,
       stdout: 'DV1|P|Current:' + said('p'),
       effectiveLimitsDigest: 'sha256:' + '1'.repeat(64),
     }),
@@ -85,10 +88,10 @@ function fixture() {
         {
           id: condition.id,
           stimulusSaid: stimulus.artifact.d,
-          observation: condition.expected,
+          observation,
           rawObservationSaid: raw.artifact.d,
           cleanupReceiptSaid: cleanup.artifact.d,
-          verdict: 'Pass',
+          verdict: failed ? 'Fail' : 'Pass',
         },
       ],
     }),
@@ -148,7 +151,26 @@ describe('parent public replay verification', () => {
     });
   });
 
-  it('rejects a substituted receipt, missing custody, or failed observation even with a self-consistent SAID', async () => {
+  it('accepts an independently verified negative rehearsal without claiming task success', async () => {
+    const ready = fixture(true);
+    const verifier = new ParentSuccessorPublicReplay({
+      custody: ready.custody,
+      executables: { open: () => Promise.resolve('/tmp/frozen-native') },
+      conditions: [condition],
+      h1Commit: '1'.repeat(40),
+      h1Tree: '2'.repeat(40),
+      capturedSourceSaid: said('s'),
+      reviewedRecipeSaid: said('r'),
+      toolchainSaid: said('t'),
+      containerProfileSaid: said('v'),
+    });
+    expect(await verifier.verify(ready.request)).toMatchObject({
+      kind: 'Confirmed',
+      receiptArtifactSaid: ready.request.receiptArtifactSaid,
+    });
+  });
+
+  it('rejects a substituted receipt, missing custody, or forged observation verdict even with a self-consistent SAID', async () => {
     const ready = fixture();
     const verifier = new ParentSuccessorPublicReplay({
       custody: ready.custody,

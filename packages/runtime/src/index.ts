@@ -231,3 +231,5 @@ export { inspectConcentrateProviderReport } from './evaluation/infrastructure/co
 
 export * from './evaluation/application/finalization-elapsed.js';
 export { assessProtectedCesrCase } from './evaluation/application/assess-protected-cesr-case.js';
+export { piResearchContext } from './pi/research-context.js';
+export { GitCandidateTreatmentCustody } from './evaluation/infrastructure/git-candidate-treatment-custody.js';
