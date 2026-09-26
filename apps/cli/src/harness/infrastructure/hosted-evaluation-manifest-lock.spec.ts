@@ -133,16 +133,14 @@ it.each(['ownerAid', 'manifestSaid', 'policySaid', 'leaseId'] as const)(
   'rejects higher version with substituted %s',
   async (field) => {
     const { manifest, lease, receipt } = fixture();
-    const inspectManifestLock = vi
-      .fn()
-      .mockResolvedValue({
-        kind: 'Locked',
-        receipt: {
-          ...receipt,
-          currentLeaseVersion: lease.version + 2,
-          [field]: field === 'leaseId' ? id('9') : said('x'),
-        },
-      });
+    const inspectManifestLock = vi.fn().mockResolvedValue({
+      kind: 'Locked',
+      receipt: {
+        ...receipt,
+        currentLeaseVersion: lease.version + 2,
+        [field]: field === 'leaseId' ? id('9') : said('x'),
+      },
+    });
     const record = vi.fn();
     expect(
       await new HostedEvaluationManifestLock({ inspectManifestLock }, { record }).inspect({
