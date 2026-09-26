@@ -1,12 +1,19 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import { continueRun, createEvidenceStream, type Run } from '@devrandom/domain';
+import {
+  continueRun,
+  continueCalibrationRun,
+  createEvidenceStream,
+  type Run,
+} from '@devrandom/domain';
 import {
   decodeRunProjection,
   decodeRunSuccessorSegment,
   verifyContinuationPredecessor,
   type ActiveHarnessPointer,
   type RunContinuationRequest,
+  type RetainedRunContinuationRequest,
+  type CalibrationRunContinuationRequest,
   type RunContinuationReceipt,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -29,7 +36,9 @@ export interface HostedRunContinuations {
 export interface RunContinuationCommands {
   acquire(input: {
     readonly runId: string;
-    readonly command: Omit<RunContinuationRequest, 'successorIncarnationId' | 'successorStreamId'>;
+    readonly command:
+      | Omit<RetainedRunContinuationRequest, 'successorIncarnationId' | 'successorStreamId'>
+      | Omit<CalibrationRunContinuationRequest, 'successorIncarnationId' | 'successorStreamId'>;
   }): Promise<
     | { readonly kind: 'Recorded'; readonly command: RunContinuationRequest }
     | { readonly kind: 'Rejected' | 'Unavailable' }
@@ -87,7 +96,6 @@ export async function resumeTask(
     signal.throwIfAborted();
     const { run, task, activation, predecessor } = input;
     if (
-      run.binding.purpose.kind !== 'Retained' ||
       run.lifecycle.kind !== 'Active' ||
       run.lifecycle.phase.kind !== 'Blocked' ||
       run.lease.kind !== 'Held' ||
@@ -97,12 +105,16 @@ export async function resumeTask(
       task.taskId !== run.binding.taskId ||
       task.revisionSaid !== run.binding.taskRevisionSaid ||
       task.harnessLineageId !== run.binding.harnessLineageId ||
-      activation.kind !== 'Committed' ||
-      activation.disposition !== 'Activated' ||
       activation.taskId !== task.taskId ||
       activation.taskRevisionSaid !== task.revisionSaid ||
       activation.harnessLineageId !== task.harnessLineageId ||
-      activation.activeRevisionSaid === run.binding.initialHarnessRevisionSaid
+      (run.binding.purpose.kind === 'Retained'
+        ? activation.kind !== 'Committed' ||
+          activation.disposition !== 'Activated' ||
+          activation.activeRevisionSaid === run.binding.initialHarnessRevisionSaid
+        : activation.kind !== 'Initial' ||
+          activation.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+          run.lifecycle.phase.reason !== 'ContextLimitReached')
     )
       return { kind: 'BindingRejected' };
     const authority = await dependencies.authority.verify(run);
@@ -179,15 +191,26 @@ export async function resumeTask(
       return { kind: 'ArtifactMismatch' };
     const prepared = await dependencies.commands.acquire({
       runId: run.binding.runId,
-      command: {
-        version: 1,
-        expectedRunVersion: run.version,
-        predecessorCheckpointSaid: predecessor.checkpoint.d,
-        predecessorSealSaid: stream.seal.sealExchangeSaid,
-        predecessorHeadSaid: stream.cursor.chainHeadSaid,
-        expectedActivePointerVersion: activation.pointerVersion,
-        expectedActivationReceiptSaid: activation.decisionReceiptSaid,
-      },
+      command:
+        activation.kind === 'Initial'
+          ? {
+              version: 2,
+              kind: 'CalibrationContinuation',
+              expectedRunVersion: run.version,
+              predecessorCheckpointSaid: predecessor.checkpoint.d,
+              predecessorSealSaid: stream.seal.sealExchangeSaid,
+              predecessorHeadSaid: stream.cursor.chainHeadSaid,
+              expectedHarnessRevisionSaid: run.binding.initialHarnessRevisionSaid,
+            }
+          : {
+              version: 1,
+              expectedRunVersion: run.version,
+              predecessorCheckpointSaid: predecessor.checkpoint.d,
+              predecessorSealSaid: stream.seal.sealExchangeSaid,
+              predecessorHeadSaid: stream.cursor.chainHeadSaid,
+              expectedActivePointerVersion: activation.pointerVersion,
+              expectedActivationReceiptSaid: activation.decisionReceiptSaid,
+            },
     });
     if (prepared.kind !== 'Recorded') return { kind: 'Unavailable' };
     signal.throwIfAborted();
@@ -204,7 +227,7 @@ export async function resumeTask(
     const decoded = decodeRunProjection(admitted.receipt.run);
     if (segment.kind !== 'Accepted' || decoded.kind !== 'Accepted')
       return { kind: 'AdmissionRejected' };
-    const expected = continueRun(run, {
+    const replacement = {
       expectedRunVersion: prepared.command.expectedRunVersion,
       serverTime: segment.segment.admittedAt,
       predecessor: {
@@ -218,14 +241,29 @@ export async function resumeTask(
         evidenceStreamId: prepared.command.successorStreamId,
         harnessRevisionSaid: activation.activeRevisionSaid,
       },
-      activation: {
-        pointerVersion: activation.pointerVersion,
-        activeRevisionSaid: activation.activeRevisionSaid,
-        decisionReceiptSaid: activation.decisionReceiptSaid,
-      },
-      effects: 'Settled',
-    });
+      effects: 'Settled' as const,
+    };
+    const expected =
+      activation.kind === 'Initial'
+        ? continueCalibrationRun(run, {
+            ...replacement,
+            baseline: { pointerVersion: 1, harnessRevisionSaid: activation.activeRevisionSaid },
+          })
+        : continueRun(run, {
+            ...replacement,
+            activation: {
+              pointerVersion: activation.pointerVersion,
+              activeRevisionSaid: activation.activeRevisionSaid,
+              decisionReceiptSaid: activation.decisionReceiptSaid,
+            },
+          });
     if (
+      (activation.kind === 'Initial'
+        ? segment.segment.version !== 2 ||
+          segment.segment.baseline.harnessRevisionSaid !== activation.activeRevisionSaid
+        : segment.segment.version !== 1 ||
+          segment.segment.activation.decisionReceiptSaid !== activation.decisionReceiptSaid ||
+          segment.segment.activation.pointerVersion !== activation.pointerVersion) ||
       expected.kind !== 'Admitted' ||
       !isDeepStrictEqual(expected.run, decoded.run) ||
       segment.segment.runId !== run.binding.runId ||

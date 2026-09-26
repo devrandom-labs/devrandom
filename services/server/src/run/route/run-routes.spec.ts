@@ -70,6 +70,36 @@ async function server(configurationInput: RunRoutesConfiguration) {
 }
 
 describe('Run HTTP routes', () => {
+  it('reads an exact continuation segment under the authenticated owner and run:read scope', async () => {
+    const read = vi.fn().mockResolvedValue({ kind: 'NotFound' });
+    const authorize = vi.fn().mockResolvedValue({ kind: 'RunAccessAuthorized', owner });
+    const instance = await server(
+      Object.assign(configuration({ access: { authorize } }), {
+        successors: { read },
+      }),
+    );
+    const runId = runFixture().binding.runId;
+    const segmentSaid = `E${'s'.repeat(43)}`;
+    try {
+      const address = await instance.listen({ host: '127.0.0.1', port: 0 });
+      const response = await fetch(`${address}/api/runs/${runId}/continuations/${segmentSaid}`, {
+        headers: { authorization: `Bearer ${bearerSecret}` },
+      });
+      expect(response.status).toBe(404);
+      expect(authorize).toHaveBeenCalledExactlyOnceWith({
+        bearerSecret,
+        scope: 'run:read',
+        observedAt: '2026-09-24T20:00:00.000Z',
+      });
+      expect(read).toHaveBeenCalledExactlyOnceWith({
+        ownerAid: owner.ownerAid,
+        runId,
+        segmentSaid,
+      });
+    } finally {
+      await instance.close();
+    }
+  });
   it('rejects replacement-incarnation admission without an acknowledged sealed checkpoint', async () => {
     const run = runFixture();
     const admit = vi.fn(() =>

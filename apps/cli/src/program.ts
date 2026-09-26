@@ -255,9 +255,9 @@ export function createProgram(commands: DevrandomCommands, cliProcess: CliProces
     });
   task
     .command('resume')
-    .description('Continue the same Run from verified durable evidence under committed H2')
+    .description('Continue the same Run from verified evidence under original H1 or committed H2')
     .argument('<label>')
-    .option('--run <id>', 'the original retained Run ID; defaults to the latest accepted Run')
+    .option('--run <id>', 'the original Run ID; defaults to the latest accepted Run')
     .option(
       '--pause-after-checkpoint',
       'seal the first changed checkpoint and await external termination',

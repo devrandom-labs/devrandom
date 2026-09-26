@@ -24,12 +24,17 @@ export interface RunContinuationInput {
   readonly effects: 'Settled' | 'Unresolved';
 }
 
+export interface CalibrationRunContinuationInput extends Omit<RunContinuationInput, 'activation'> {
+  readonly baseline: { readonly pointerVersion: 1; readonly harnessRevisionSaid: string };
+}
+
 export type RunContinuation =
   | { readonly kind: 'Admitted' | 'Equivalent'; readonly run: Run }
   | { readonly kind: 'VersionConflict'; readonly currentVersion: number }
   | {
       readonly kind:
         | 'RunNotRetained'
+        | 'RunNotCalibration'
         | 'RunNotPaused'
         | 'CheckpointConflict'
         | 'LeaseConflict'
@@ -42,6 +47,33 @@ export type RunContinuation =
 
 /** Replace exactly one expired incarnation of the same retained Run after a sealed pause. */
 export function continueRun(run: Run, input: RunContinuationInput): RunContinuation {
+  if (run.binding.purpose.kind !== 'Retained') return { kind: 'RunNotRetained' };
+  return continueIncarnation(run, input);
+}
+
+/** Recover the same calibration attempt, preserving H1 and its cumulative authority budget. */
+export function continueCalibrationRun(
+  run: Run,
+  input: CalibrationRunContinuationInput,
+): RunContinuation {
+  if (run.binding.purpose.kind !== 'PreparedCompatibilityCalibration')
+    return { kind: 'RunNotCalibration' };
+  return continueIncarnation(run, input);
+}
+
+function continueIncarnation(
+  run: Run,
+  input: RunContinuationInput | CalibrationRunContinuationInput,
+): RunContinuation {
+  const calibration = 'baseline' in input;
+  if (
+    calibration &&
+    (input.baseline.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+      input.successor.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+      (run.currentExecution !== undefined &&
+        run.currentExecution.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid))
+  )
+    return { kind: 'ActivationConflict' };
   if (
     run.currentExecution?.segmentSaid === input.successor.segmentSaid &&
     run.lease.kind === 'Held' &&
@@ -52,13 +84,14 @@ export function continueRun(run: Run, input: RunContinuationInput): RunContinuat
     return { kind: 'Equivalent', run };
   if (run.version !== input.expectedRunVersion)
     return { kind: 'VersionConflict', currentVersion: run.version };
-  if (run.binding.purpose.kind !== 'Retained') return { kind: 'RunNotRetained' };
   if (
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Blocked' ||
-    (run.lifecycle.phase.reason !== 'CheckpointPause' &&
-      (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
-        run.currentExecution !== undefined))
+    (calibration
+      ? run.lifecycle.phase.reason !== 'ContextLimitReached'
+      : run.lifecycle.phase.reason !== 'CheckpointPause' &&
+        (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
+          run.currentExecution !== undefined))
   )
     return { kind: 'RunNotPaused' };
   if (run.lifecycle.phase.checkpointSaid !== input.predecessor.checkpointSaid)
@@ -83,11 +116,12 @@ export function continueRun(run: Run, input: RunContinuationInput): RunContinuat
     return { kind: 'TimeInvalid' };
   if (expiresAt > observedAt) return { kind: 'LeaseStillHeld' };
   if (
-    !Number.isSafeInteger(input.activation.pointerVersion) ||
-    input.activation.pointerVersion < 2 ||
-    input.activation.activeRevisionSaid !== input.successor.harnessRevisionSaid ||
-    input.successor.harnessRevisionSaid === run.binding.initialHarnessRevisionSaid ||
-    input.activation.decisionReceiptSaid.length === 0
+    'activation' in input &&
+    (!Number.isSafeInteger(input.activation.pointerVersion) ||
+      input.activation.pointerVersion < 2 ||
+      input.activation.activeRevisionSaid !== input.successor.harnessRevisionSaid ||
+      input.successor.harnessRevisionSaid === run.binding.initialHarnessRevisionSaid ||
+      input.activation.decisionReceiptSaid.length === 0)
   )
     return { kind: 'ActivationConflict' };
   if (input.effects !== 'Settled') return { kind: 'UnresolvedEffects' };

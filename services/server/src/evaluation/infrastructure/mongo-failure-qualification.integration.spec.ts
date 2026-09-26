@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { type TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify from 'fastify';
-import { MongoClient, Binary } from 'mongodb';
+import { MongoClient, Binary, type Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -12,6 +12,7 @@ import {
   blockRun,
   createEvidenceStream,
   createRun,
+  continueCalibrationRun,
   openTask,
   recordRunCalibration,
   sealEvidenceStream,
@@ -29,6 +30,8 @@ import {
   preparePublicVerifierReceipt,
   prepareTaskCommand,
   prepareVerifiedCheckpoint,
+  prepareRunSuccessorSegment,
+  decodeRunSuccessorSegment,
   taskCommandFingerprint,
   type EvidenceEvent,
   type EvidenceEventDetail,
@@ -41,6 +44,10 @@ import { projectTask } from '../../task/application/task-projection.js';
 import { MongoTaskBootstrap } from '../../task/infrastructure/mongo-task-bootstrap.js';
 import { tasksCollectionName } from '../../task/infrastructure/mongo-tasks.js';
 import { encodeTaskDocument, type TaskDocument } from '../../task/infrastructure/task-document.js';
+import {
+  runSuccessorSegmentsCollectionName,
+  type RunSuccessorSegmentDocument,
+} from '../../run/infrastructure/mongo-run-continuations.js';
 import { MongoRunBootstrap } from '../../run/infrastructure/mongo-run-bootstrap.js';
 import { runsCollectionName } from '../../run/infrastructure/mongo-runs.js';
 import { encodeRunDocument, type RunDocument } from '../../run/infrastructure/run-document.js';
@@ -271,6 +278,9 @@ function eventWriter(run: Run, incarnationId: string) {
     add(detail: EvidenceEventDetail): EvidenceEvent {
       const predecessor = events.at(-1);
       const sequence = events.length;
+      const time =
+        Date.parse(run.lease.kind === 'Held' ? run.lease.acquiredAt : receivedAt) +
+        (sequence + 1) * 1_000;
       const prepared = prepareEvidenceEvent({
         version: 1,
         sequence,
@@ -285,8 +295,8 @@ function eventWriter(run: Run, incarnationId: string) {
         harnessRevisionSaid: harnessSaid,
         personalAgentAid: agentAid,
         taskMandateSaid: mandateSaid,
-        occurredAt: `2026-09-24T20:00:${String(sequence + 1).padStart(2, '0')}.000Z`,
-        recordedAt: `2026-09-24T20:00:${String(sequence + 1).padStart(2, '0')}.001Z`,
+        occurredAt: new Date(time).toISOString(),
+        recordedAt: new Date(time + 1).toISOString(),
         producer: { kind: 'RunSupervisor' },
         event: detail,
       });
@@ -302,15 +312,21 @@ function checkpointFor(
   incarnationId: string,
   events: readonly EvidenceEvent[],
   verifierReceipts: readonly PublicVerifierReceipt[],
-  disposition: RunCalibrationDisposition | { readonly kind: 'Retained' },
+  disposition: RunCalibrationDisposition | { readonly kind: 'Retained' | 'ContextLimit' },
 ): VerifiedCheckpoint {
   const head = events.at(-1);
   if (head === undefined) throw new Error('Missing checkpoint head');
   const runState =
-    disposition.kind === 'Retained'
+    disposition.kind === 'Retained' || disposition.kind === 'ContextLimit'
       ? {
           kind: 'Active' as const,
-          phase: { kind: 'Blocked' as const, reason: 'HarnessCompatibilityFailure' as const },
+          phase: {
+            kind: 'Blocked' as const,
+            reason:
+              disposition.kind === 'ContextLimit'
+                ? ('ContextLimitReached' as const)
+                : ('HarnessCompatibilityFailure' as const),
+          },
           verification: { kind: 'NotSubmitted' as const },
         }
       : disposition.kind === 'Confirmed'
@@ -353,15 +369,187 @@ function checkpointFor(
       budget: { consumed: zeroBudget(), remaining: taskBudgetCeilings },
       runState,
       continuation:
-        disposition.kind === 'Retained'
-          ? { kind: 'LaterHarnessCompatibilityResolutionRequired' }
-          : { kind: 'NoContinuation' },
+        disposition.kind === 'ContextLimit'
+          ? { kind: 'ExternalResolutionRequired', reason: 'ContextLimitReached' }
+          : disposition.kind === 'Retained'
+            ? { kind: 'LaterHarnessCompatibilityResolutionRequired' }
+            : { kind: 'NoContinuation' },
     },
     commandIds,
   );
   if (prepared.kind !== 'Prepared')
     throw new Error(`Checkpoint fixture failed: ${prepared.reason}`);
   return prepared.checkpoint;
+}
+
+async function continueCalibrationFixture(
+  database: Db,
+  running: Run,
+  incarnationId: string,
+  preparedProfile: ReturnType<typeof profile>,
+): Promise<Run> {
+  const writer = eventWriter(running, incarnationId);
+  writer.add({ kind: 'RunStarted', fromRunVersion: running.version });
+  writer.add({
+    kind: 'RunExecutionProfileBound',
+    executionProfileSaid: preparedProfile.profile.d,
+    profileArtifactSaid: preparedProfile.artifact.d,
+    worktreeBranch: `devrandom/run/${running.binding.runId}`,
+  });
+  const unresolved = commandIds.map((completionConditionId, index) => {
+    const prepared = preparePublicVerifierReceipt({
+      version: 1,
+      completionConditionId,
+      commandSaid: commandSaids[index],
+      recordedAt: receivedAt,
+      outcome: { kind: 'Unresolved', reason: 'RunBlocked' },
+    });
+    if (prepared.kind !== 'Prepared') throw new Error('Unresolved receipt fixture');
+    return prepared.receipt;
+  });
+  const checkpoint = checkpointFor(running, incarnationId, writer.events, unresolved, {
+    kind: 'ContextLimit',
+  });
+  const head = writer.add({
+    kind: 'RunBlocked',
+    reason: 'ContextLimitReached',
+    checkpointSaid: checkpoint.d,
+  });
+  const blocked = blockRun(running, {
+    reason: 'ContextLimitReached',
+    checkpointSaid: checkpoint.d,
+  });
+  if (blocked.kind !== 'Blocked') throw new Error('Predecessor block failed');
+  const batch = prepareEvidenceBatch({
+    version: 1,
+    runId: running.binding.runId,
+    evidenceStreamId: running.binding.evidenceStreamId,
+    events: writer.events,
+  });
+  const created = createEvidenceStream({
+    streamId: running.binding.evidenceStreamId,
+    runId: running.binding.runId,
+    ownerAid,
+    taskId,
+    taskRevisionSaid: running.binding.taskRevisionSaid,
+    incarnationId,
+    harnessRevisionSaid: harnessSaid,
+    personalAgentAid: agentAid,
+    taskMandateSaid: mandateSaid,
+    combinedByteCeiling: taskBudgetCeilings.evidencePlusArtifactsPerRunBytes,
+  });
+  if (batch.kind !== 'Prepared' || created.kind !== 'Created')
+    throw new Error('Predecessor batch failed');
+  const accepted = acceptEvidenceBatch(created.stream, {
+    batchSaid: batch.batch.d,
+    startingSequence: 0,
+    endingSequence: head.sequence,
+    predecessor: { kind: 'Genesis' },
+    eventSaids: writer.events.map((event) => event.d),
+    encodedBytes: batch.batch.encodedByteCount,
+    checkpoint: {
+      kind: 'Present',
+      checkpointSaid: checkpoint.d,
+      lifecycle: blocked.run.lifecycle,
+      submissionVerification: blocked.run.submissionVerification,
+    },
+  });
+  if (accepted.kind !== 'Accepted') throw new Error('Predecessor accept failed');
+  const sealSaid = said('q');
+  const sealed = sealEvidenceStream(accepted.stream, {
+    exchangeSaid: sealSaid,
+    eventCount: writer.events.length,
+    finalSequence: head.sequence,
+    chainHeadSaid: head.d,
+    sealedAt: receivedAt,
+  });
+  if (sealed.kind !== 'Sealed') throw new Error('Predecessor seal failed');
+  await database
+    .collection<EvidenceStreamDocument>(evidenceCollectionNames.streams)
+    .insertOne(encodeEvidenceStreamDocument(sealed.stream));
+  await database
+    .collection<EvidenceCheckpointDocument>(evidenceCollectionNames.checkpoints)
+    .insertOne(
+      encodeEvidenceCheckpointDocument(
+        {
+          ownerAid,
+          evidenceStreamId: running.binding.evidenceStreamId,
+          batchSaid: batch.batch.d,
+          checkpoint,
+          receivedAt,
+        },
+        commandIds,
+      ),
+    );
+  await database.collection<EvidenceEventDocument>(evidenceCollectionNames.events).insertMany(
+    writer.events.map((event) =>
+      encodeEvidenceEventDocument({
+        ownerAid,
+        evidenceStreamId: running.binding.evidenceStreamId,
+        batchSaid: batch.batch.d,
+        event,
+        receivedAt,
+      }),
+    ),
+  );
+  const prepared = prepareRunSuccessorSegment({
+    version: 2,
+    kind: 'CalibrationContinuationSegment',
+    runId: running.binding.runId,
+    taskId,
+    taskRevisionSaid: running.binding.taskRevisionSaid,
+    ownerAid,
+    personalAgentAid: agentAid,
+    taskMandateSaid: mandateSaid,
+    fromRunVersion: blocked.run.version,
+    predecessor: {
+      incarnationId,
+      evidenceStreamId: running.binding.evidenceStreamId,
+      checkpointSaid: checkpoint.d,
+      sealExchangeSaid: sealSaid,
+      finalSequence: head.sequence,
+      chainHeadSaid: head.d,
+    },
+    successor: {
+      incarnationId: randomUUID(),
+      evidenceStreamId: randomUUID(),
+      harnessRevisionSaid: harnessSaid,
+    },
+    baseline: { pointerVersion: 1, harnessRevisionSaid: harnessSaid },
+    consumedBudget: blocked.run.consumedBudget,
+    admittedAt: '2026-09-24T20:01:00.000Z',
+  });
+  if (prepared.kind !== 'Prepared' || prepared.segment.kind !== 'CalibrationContinuationSegment')
+    throw new Error('Segment fixture failed');
+  const segment = prepared.segment;
+  const continued = continueCalibrationRun(blocked.run, {
+    expectedRunVersion: blocked.run.version,
+    serverTime: segment.admittedAt,
+    predecessor: segment.predecessor,
+    successor: { ...segment.successor, segmentSaid: segment.d },
+    baseline: segment.baseline,
+    effects: 'Settled',
+  });
+  if (continued.kind !== 'Admitted')
+    throw new Error(`Continuation fixture failed: ${continued.kind}`);
+  await database
+    .collection<RunSuccessorSegmentDocument>(runSuccessorSegmentsCollectionName)
+    .insertOne({
+      _id: segment.d,
+      ownerAid,
+      runId: running.binding.runId,
+      segment,
+      acceptedAt: new Date(segment.admittedAt),
+    });
+  const started = startRunExecution(continued.run, {
+    incarnationId: segment.successor.incarnationId,
+    leaseObservedAt: '2026-09-24T20:01:01.000Z',
+    worktree: { repository: repo },
+    evidence: { kind: 'Genesis', streamId: segment.successor.evidenceStreamId },
+  });
+  if (started.kind !== 'Started')
+    throw new Error(`Continued start fixture failed: ${started.kind}`);
+  return started.run;
 }
 
 describeMongo('Mongo six-Run failure qualification custody', () => {
@@ -409,7 +597,20 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
       legacyObservedExitCode: 101 as const,
     };
     for (const ordinal of [1, 2, 3, 4, 5, 6] as const) {
-      const { run: running, incarnationId } = runFor(ordinal, command.revision.d);
+      const initial = runFor(ordinal, command.revision.d);
+      const running =
+        ordinal === 1
+          ? await continueCalibrationFixture(
+              database,
+              initial.run,
+              initial.incarnationId,
+              preparedProfile,
+            )
+          : initial.run;
+      const incarnationId =
+        running.lease.kind === 'Held' ? running.lease.incarnationId : initial.incarnationId;
+      const streamId =
+        running.currentExecution?.evidenceStreamId ?? running.binding.evidenceStreamId;
       if (ordinal === 1) firstCalibrationRunId = running.binding.runId;
       const excluded = ordinal === 5;
       const verifierReceipts = receipts(excluded);
@@ -467,7 +668,7 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
         throw new Error('Run settlement fixture failed');
       const run = settled.run;
       const createdStream = createEvidenceStream({
-        streamId: run.binding.evidenceStreamId,
+        streamId: streamId,
         runId: run.binding.runId,
         ownerAid,
         taskId,
@@ -490,7 +691,7 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
       const preparedBatch = prepareEvidenceBatch({
         version: 1,
         runId: run.binding.runId,
-        evidenceStreamId: run.binding.evidenceStreamId,
+        evidenceStreamId: streamId,
         events: writer.events,
       });
       if (preparedBatch.kind !== 'Prepared') throw new Error('Batch fixture failed');
@@ -530,7 +731,7 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
           encodeEvidenceCheckpointDocument(
             {
               ownerAid,
-              evidenceStreamId: run.binding.evidenceStreamId,
+              evidenceStreamId: streamId,
               batchSaid: preparedBatch.batch.d,
               checkpoint,
               receivedAt,
@@ -545,7 +746,7 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
             encodeEvidenceArtifactDocument({
               ownerAid,
               runId: run.binding.runId,
-              evidenceStreamId: run.binding.evidenceStreamId,
+              evidenceStreamId: running.binding.evidenceStreamId,
               artifact: raw.artifact,
               bytes: raw.bytes,
               acceptedAt: receivedAt,
@@ -556,7 +757,7 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
         writer.events.map((event) =>
           encodeEvidenceEventDocument({
             ownerAid,
-            evidenceStreamId: run.binding.evidenceStreamId,
+            evidenceStreamId: streamId,
             batchSaid: preparedBatch.batch.d,
             event,
             receivedAt,
@@ -668,6 +869,97 @@ describeMongo('Mongo six-Run failure qualification custody', () => {
         .replaceOne({ _id: checkpointDocument._id }, checkpointDocument, { upsert: true });
       await server.close();
     }
+  });
+
+  it('rejects a continued calibration when its exact predecessor segment is absent', async () => {
+    const segments = database.collection<RunSuccessorSegmentDocument>(
+      runSuccessorSegmentsCollectionName,
+    );
+    const original = await segments.findOne({ runId: firstCalibrationRunId });
+    if (original === null) throw new Error('Missing continuation fixture');
+    try {
+      await segments.deleteOne({ _id: original._id });
+      await expect(
+        new MongoFailureQualification(database).assess(qualificationInput),
+      ).resolves.toEqual({ kind: 'Blocked', gate: 'Evidence' });
+    } finally {
+      await segments.insertOne(original);
+    }
+  });
+
+  it('rejects foreign bindings, changed H1, predecessor substitution, forks and orphan raw custody', async () => {
+    const segments = database.collection<RunSuccessorSegmentDocument>(
+      runSuccessorSegmentsCollectionName,
+    );
+    const original = await segments.findOne({ runId: firstCalibrationRunId });
+    if (original === null) throw new Error('Missing continuation fixture');
+    const decoded = decodeRunSuccessorSegment(original.segment);
+    if (decoded.kind !== 'Accepted') throw new Error('Invalid continuation fixture');
+    const body = Object.fromEntries(Object.entries(decoded.segment).filter(([key]) => key !== 'd'));
+    const variants = [
+      { ...body, ownerAid: said('z') },
+      {
+        ...body,
+        baseline: { pointerVersion: 1, harnessRevisionSaid: said('z') },
+        successor: { ...decoded.segment.successor, harnessRevisionSaid: said('z') },
+      },
+      { ...body, predecessor: { ...decoded.segment.predecessor, chainHeadSaid: said('z') } },
+      { ...body, predecessor: { ...decoded.segment.predecessor, evidenceStreamId: randomUUID() } },
+    ];
+    for (const variant of variants) {
+      const prepared = prepareRunSuccessorSegment(variant);
+      if (prepared.kind !== 'Prepared') throw new Error('Invalid negative segment fixture');
+      try {
+        await segments.deleteOne({ _id: original._id });
+        await segments.insertOne({
+          ...original,
+          _id: prepared.segment.d,
+          segment: prepared.segment,
+        });
+        await expect(
+          new MongoFailureQualification(database).assess(qualificationInput),
+        ).resolves.toEqual({ kind: 'Blocked', gate: 'Evidence' });
+      } finally {
+        await segments.deleteOne({ _id: prepared.segment.d });
+        await segments.replaceOne({ _id: original._id }, original, { upsert: true });
+      }
+    }
+    const fork = prepareRunSuccessorSegment({
+      ...body,
+      successor: {
+        ...decoded.segment.successor,
+        incarnationId: randomUUID(),
+        evidenceStreamId: randomUUID(),
+      },
+    });
+    if (fork.kind !== 'Prepared') throw new Error('Invalid fork fixture');
+    try {
+      await segments.insertOne({ ...original, _id: fork.segment.d, segment: fork.segment });
+      await expect(
+        new MongoFailureQualification(database).assess(qualificationInput),
+      ).resolves.toEqual({ kind: 'Blocked', gate: 'Evidence' });
+    } finally {
+      await segments.deleteOne({ _id: fork.segment.d });
+    }
+    const artifacts = database.collection<EvidenceArtifactDocument>(
+      evidenceCollectionNames.artifacts,
+    );
+    const raw = await artifacts.findOne({
+      runId: firstCalibrationRunId,
+      'artifact.d': profileArtifactSaid,
+    });
+    if (raw === null) throw new Error('Missing original raw custody');
+    try {
+      await artifacts.updateOne({ _id: raw._id }, { $set: { evidenceStreamId: randomUUID() } });
+      await expect(
+        new MongoFailureQualification(database).assess(qualificationInput),
+      ).resolves.toEqual({ kind: 'Blocked', gate: 'Evidence' });
+    } finally {
+      await artifacts.replaceOne({ _id: raw._id }, raw);
+    }
+    await expect(
+      new MongoFailureQualification(database).assess(qualificationInput),
+    ).resolves.toEqual({ kind: 'Qualified' });
   });
 
   it('qualifies six distinct, sealed exact-read Runs, then rejects corruption and a missing ordinal', async () => {

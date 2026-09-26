@@ -31,6 +31,7 @@ export class MongoEvidenceTimelines implements EvidenceTimelines {
   async read(input: {
     readonly ownerAid: string;
     readonly runId: string;
+    readonly evidenceStreamId?: string;
     readonly limit: number;
     readonly afterSequence: number | null;
   }) {
@@ -40,11 +41,14 @@ export class MongoEvidenceTimelines implements EvidenceTimelines {
         return { kind: 'EvidenceRunNotFound' } as const;
       }
       const run = decodeRunDocument(runDocument).run;
+      const evidenceStreamId = input.evidenceStreamId ?? run.binding.evidenceStreamId;
       const streamDocument = await this.#streams.findOne({
-        _id: run.binding.evidenceStreamId,
+        _id: evidenceStreamId,
         'binding.ownerAid': input.ownerAid,
+        'binding.runId': input.runId,
       });
       if (streamDocument === null) {
+        if (input.evidenceStreamId !== undefined) return { kind: 'EvidenceRunNotFound' } as const;
         return {
           kind: 'EvidenceTimelineNotStarted',
           runId: run.binding.runId,

@@ -13,7 +13,7 @@ import Value from 'typebox/value';
 
 import type { HostedTaskInspection } from '../../task/application/user-tasks.js';
 import type {
-  HostedRunInspection,
+  HostedRunStatuses,
   HostedRunTimelineInspection,
 } from '../../run/application/task-run-observation.js';
 import type { EvidenceTimelineQuery } from '@devrandom/protocol';
@@ -81,7 +81,7 @@ export interface RunQualification {
     readonly originRunId: string;
     readonly executionProfileSaid: string;
     readonly expectedActiveRevisionSaid: string;
-    readonly runs: { inspect(runId: string): Promise<HostedRunInspection> };
+    readonly runs: HostedRunStatuses;
     readonly evidence: HostedQualificationEvidence;
     readonly signal: AbortSignal;
   }): Promise<
@@ -119,7 +119,7 @@ export interface HarnessEvaluationDependencies {
           readonly kind: 'Authorized';
           readonly ownerAid: string;
           readonly tasks: { inspect(label: string): Promise<HostedTaskInspection> };
-          readonly runs: { inspect(runId: string): Promise<HostedRunInspection> };
+          readonly runs: HostedRunStatuses;
           readonly evidence: HostedQualificationEvidence;
           readonly evaluations: {
             prepare(

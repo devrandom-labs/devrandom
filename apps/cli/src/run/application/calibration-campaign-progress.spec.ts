@@ -1,6 +1,8 @@
 import { governorAid, personalAgentAid } from '@devrandom/identity';
 import {
   prepareEvidenceEvent,
+  prepareRunSuccessorSegment,
+  type RunSuccessorSegment,
   type EvidenceEvent,
   type EvidenceTimelinePage,
   type RunProjection,
@@ -210,18 +212,30 @@ function fixture(count = 1, classification: 'Confirmed' | 'Excluded' | 'Rejected
       run === undefined ? { kind: 'ServerUnavailable' as const } : { kind: 'Found' as const, run },
     );
   });
+  const segments = new Map<string, RunSuccessorSegment>();
+  const historical = new Map<string, EvidenceTimelinePage>();
   const progress = new VerifiedCalibrationCampaignProgress({
     authority: {
       acquireHostedWork: () =>
         Promise.resolve({
           kind: 'Authorized',
           tasks: { inspect: () => Promise.resolve({ kind: 'Inspected', task }) },
-          runs: { inspect: inspectRuns },
+          runs: {
+            inspect: inspectRuns,
+            readSuccessorSegment: (_runId, segmentSaid) => {
+              const segment = segments.get(segmentSaid);
+              return Promise.resolve(
+                segment === undefined ? { kind: 'ResponseInvalid' } : { kind: 'Found', segment },
+              );
+            },
+          },
           evidence: {
-            inspect: (runId) =>
+            inspect: (runId, query) =>
               Promise.resolve({
                 kind: 'Found',
-                page: required(pages[runs.findIndex((run) => run.runId === runId)]),
+                page:
+                  historical.get(query.evidenceStreamId ?? '') ??
+                  required(pages[runs.findIndex((run) => run.runId === runId)]),
               }),
           },
           grantExpiresAt: '2026-09-24T22:00:00.000Z',
@@ -248,7 +262,7 @@ function fixture(count = 1, classification: 'Confirmed' | 'Excluded' | 'Rejected
     },
     now: () => Date.parse('2026-09-24T21:00:00.000Z'),
   });
-  return { runs, admissions, entries, pages, progress, inspectRuns };
+  return { runs, admissions, entries, pages, progress, inspectRuns, segments, historical };
 }
 
 describe('verified partial calibration campaign', () => {
@@ -404,4 +418,150 @@ describe('verified partial calibration campaign', () => {
       excluded: 0,
     });
   });
+});
+
+it('counts one sealed same-H1 continuation only after verifying its original accepted chain', async () => {
+  const f = fixture();
+  const original = required(f.runs[0]);
+  const finalPage = required(f.pages[0]);
+  if (original.lease.kind !== 'Held') throw new Error('lease');
+  const predecessorEvents: EvidenceEvent[] = [];
+  for (const detail of [
+    { kind: 'RunStarted', fromRunVersion: 0 },
+    { kind: 'RunBlocked', reason: 'ContextLimitReached', checkpointSaid: said('q') },
+    { kind: 'CheckpointAccepted', checkpointSaid: said('q') },
+  ] as const) {
+    const seed = required(finalPage.events[0]).event;
+    const { d: oldSaid, ...body } = seed;
+    expect(oldSaid).toBeTruthy();
+    const event = prepareEvidenceEvent({
+      ...body,
+      sequence: predecessorEvents.length,
+      predecessor:
+        predecessorEvents.length === 0
+          ? { kind: 'Genesis' }
+          : { kind: 'Previous', eventSaid: required(predecessorEvents.at(-1)).d },
+      producer:
+        detail.kind === 'CheckpointAccepted'
+          ? { kind: 'EvidenceRecorder' }
+          : { kind: 'RunSupervisor' },
+      event: detail,
+    });
+    if (event.kind !== 'Prepared') throw new Error('event');
+    predecessorEvents.push(event.event);
+  }
+  const head = required(predecessorEvents.at(-1)).d;
+  const predecessorPage: EvidenceTimelinePage = {
+    ...finalPage,
+    stream: {
+      ...finalPage.stream,
+      cursor: { kind: 'Accepted', acceptedThroughSequence: 2, eventCount: 3, chainHeadSaid: head },
+      checkpoint: { kind: 'Accepted', checkpointSaid: said('q') },
+      seal: {
+        kind: 'Sealed',
+        sealExchangeSaid: said('s'),
+        finalSequence: 2,
+        eventCount: 3,
+        chainHeadSaid: head,
+        sealedAt: '2026-09-24T20:01:00.000Z',
+      },
+    },
+    events: predecessorEvents.map((event) => ({ version: 1, event, receivedAt: event.recordedAt })),
+  };
+  const prepared = prepareRunSuccessorSegment({
+    version: 2,
+    kind: 'CalibrationContinuationSegment',
+    runId: original.runId,
+    taskId: original.taskId,
+    taskRevisionSaid: original.taskRevisionSaid,
+    ownerAid: original.ownerAid,
+    personalAgentAid: original.personalAgentAid,
+    taskMandateSaid: original.taskMandateSaid,
+    fromRunVersion: 2,
+    predecessor: {
+      incarnationId: original.lease.incarnationId,
+      evidenceStreamId: original.evidenceStreamId,
+      checkpointSaid: said('q'),
+      sealExchangeSaid: said('s'),
+      finalSequence: 2,
+      chainHeadSaid: head,
+    },
+    successor: {
+      incarnationId: id('8'),
+      evidenceStreamId: id('7'),
+      harnessRevisionSaid: original.harnessRevisionSaid,
+    },
+    baseline: { pointerVersion: 1, harnessRevisionSaid: original.harnessRevisionSaid },
+    consumedBudget: original.budget.consumed,
+    admittedAt: '2026-09-24T20:02:00.000Z',
+  });
+  if (prepared.kind !== 'Prepared') throw new Error('segment');
+  const events: EvidenceEvent[] = [];
+  for (const { event } of finalPage.events) {
+    const { d: oldSaid, ...body } = event;
+    expect(oldSaid).toBeTruthy();
+    const next = prepareEvidenceEvent({
+      ...body,
+      incarnationId: id('8'),
+      predecessor:
+        events.length === 0
+          ? { kind: 'Genesis' }
+          : { kind: 'Previous', eventSaid: required(events.at(-1)).d },
+    });
+    if (next.kind !== 'Prepared') throw new Error('event');
+    events.push(next.event);
+  }
+  const finalHead = required(events.at(-1)).d;
+  if (finalPage.stream.cursor.kind !== 'Accepted' || finalPage.stream.seal.kind !== 'Sealed')
+    throw new Error('stream');
+  f.pages[0] = {
+    ...finalPage,
+    stream: {
+      ...finalPage.stream,
+      evidenceStreamId: id('7'),
+      cursor: { ...finalPage.stream.cursor, chainHeadSaid: finalHead },
+      seal: { ...finalPage.stream.seal, chainHeadSaid: finalHead },
+    },
+    events: events.map((event) => ({ version: 1, event, receivedAt: event.recordedAt })),
+  };
+  f.runs[0] = {
+    ...original,
+    runVersion: 4,
+    currentExecution: {
+      segmentSaid: prepared.segment.d,
+      evidenceStreamId: id('7'),
+      harnessRevisionSaid: original.harnessRevisionSaid,
+    },
+    lease: { ...original.lease, incarnationId: id('8'), segmentSaid: prepared.segment.d },
+  };
+  f.segments.set(prepared.segment.d, prepared.segment);
+  f.historical.set(original.evidenceStreamId, predecessorPage);
+  await expect(f.progress.inspect('receipt', campaignId)).resolves.toMatchObject({
+    kind: 'Ready',
+    nextOrdinal: 2,
+    confirmed: 1,
+  });
+  const { d: segmentSaid, ...segmentBody } = prepared.segment;
+  const second = prepareRunSuccessorSegment({
+    ...segmentBody,
+    predecessor: { ...segmentBody.predecessor, evidenceStreamId: id('6') },
+  });
+  if (second.kind !== 'Prepared') throw new Error('second segment');
+  const continued = required(f.runs[0]);
+  if (continued.lease.kind !== 'Held' || continued.currentExecution === undefined)
+    throw new Error('continued');
+  f.segments.set(second.segment.d, second.segment);
+  f.runs[0] = {
+    ...continued,
+    currentExecution: { ...continued.currentExecution, segmentSaid: second.segment.d },
+    lease: { ...continued.lease, segmentSaid: second.segment.d },
+  };
+  await expect(f.progress.inspect('receipt', campaignId)).resolves.toEqual({ kind: 'Unavailable' });
+  expect(segmentSaid).toBe(prepared.segment.d);
+  f.runs[0] = continued;
+  f.historical.set(original.evidenceStreamId, {
+    ...predecessorPage,
+    events: predecessorPage.events.slice(1),
+  });
+  await expect(f.progress.inspect('receipt', campaignId)).resolves.toEqual({ kind: 'Unavailable' });
 });

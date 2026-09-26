@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import { runSuccessorSegmentSchema } from '@devrandom/protocol';
+import {
+  decodeRunSuccessorSegment,
+  retainedRunSuccessorSegmentSchema,
+  runSuccessorSegmentSchema,
+} from '@devrandom/protocol';
 import type { Db } from 'mongodb';
 
 import { typeboxMongoSchema } from '../../infrastructure/typebox-mongo-schema.js';
@@ -20,6 +24,16 @@ export const runSuccessorSegmentValidator = Object.freeze({
       },
       segment: typeboxMongoSchema(runSuccessorSegmentSchema),
       acceptedAt: { bsonType: 'date' },
+    },
+  },
+});
+
+export const retainedRunSuccessorSegmentValidator = Object.freeze({
+  $jsonSchema: {
+    ...runSuccessorSegmentValidator.$jsonSchema,
+    properties: {
+      ...runSuccessorSegmentValidator.$jsonSchema.properties,
+      segment: typeboxMongoSchema(retainedRunSuccessorSegmentSchema),
     },
   },
 });
@@ -104,6 +118,63 @@ export class MongoRunContinuationBootstrap {
       existing.unique !== true
     )
       throw new RunSuccessorSegmentStorageDrift();
+    await this.verify();
+  }
+
+  /** Explicit additive migration; preserves every existing segment and rejects unrelated drift. */
+  async allowCalibrationContinuation(): Promise<void> {
+    const collection = await this.#database
+      .listCollections({ name: runSuccessorSegmentsCollectionName }, { nameOnly: false })
+      .next();
+    if (collection === null) {
+      await this.bootstrap();
+      return;
+    }
+    if (isDeepStrictEqual(collection.options?.validator, runSuccessorSegmentValidator)) {
+      await this.verify();
+      return;
+    }
+    if (
+      collection.options?.validationLevel !== 'strict' ||
+      collection.options.validationAction !== 'error' ||
+      !isDeepStrictEqual(collection.options.validator, retainedRunSuccessorSegmentValidator)
+    )
+      throw new RunSuccessorSegmentStorageDrift();
+    const indexes = decodeIndexes(
+      await this.#database.collection(runSuccessorSegmentsCollectionName).listIndexes().toArray(),
+    );
+    if (
+      indexes.length !== 2 ||
+      !indexes.some((index) => index.name === '_id_') ||
+      !indexes.some(
+        (index) =>
+          index.name === runSuccessorSegmentIndex.name &&
+          index.unique === true &&
+          isDeepStrictEqual(index.key, runSuccessorSegmentIndex.key),
+      )
+    )
+      throw new RunSuccessorSegmentStorageDrift();
+    for await (const document of this.#database
+      .collection<{ _id: string; runId: string; ownerAid: string; segment: unknown }>(
+        runSuccessorSegmentsCollectionName,
+      )
+      .find({})) {
+      const decoded = decodeRunSuccessorSegment(document['segment']);
+      if (
+        decoded.kind !== 'Accepted' ||
+        decoded.segment.version !== 1 ||
+        document['_id'] !== decoded.segment.d ||
+        document['runId'] !== decoded.segment.runId ||
+        document['ownerAid'] !== decoded.segment.ownerAid
+      )
+        throw new RunSuccessorSegmentStorageDrift();
+    }
+    await this.#database.command({
+      collMod: runSuccessorSegmentsCollectionName,
+      validator: runSuccessorSegmentValidator,
+      validationLevel: 'strict',
+      validationAction: 'error',
+    });
     await this.verify();
   }
 

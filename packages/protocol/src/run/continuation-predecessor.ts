@@ -25,9 +25,12 @@ export function verifyContinuationPredecessor(input: {
   if (
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Blocked' ||
-    (run.lifecycle.phase.reason !== 'CheckpointPause' &&
-      (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
-        run.currentExecution !== undefined)) ||
+    (run.binding.purpose.kind === 'PreparedCompatibilityCalibration'
+      ? run.lifecycle.phase.reason !== 'ContextLimitReached' ||
+        predecessorRevision !== run.binding.initialHarnessRevisionSaid
+      : run.lifecycle.phase.reason !== 'CheckpointPause' &&
+        (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
+          run.currentExecution !== undefined)) ||
     run.lifecycle.phase.checkpointSaid !== checkpoint.d ||
     run.lease.kind !== 'Held' ||
     stream.binding.streamId !== predecessorStreamId ||
@@ -47,6 +50,10 @@ export function verifyContinuationPredecessor(input: {
     stream.provisional.checkpointSaid !== checkpoint.d ||
     decodeVerifiedCheckpoint(checkpoint, input.completionConditionIds).kind !== 'Accepted' ||
     checkpoint.runId !== run.binding.runId ||
+    !isDeepStrictEqual(checkpoint.purpose, run.binding.purpose) ||
+    checkpoint.harnessLineageId !== run.binding.harnessLineageId ||
+    checkpoint.governorAid !== run.binding.governorAid ||
+    checkpoint.promotionMandateSaid !== run.binding.promotionMandateSaid ||
     checkpoint.incarnationId !== run.lease.incarnationId ||
     checkpoint.harnessRevisionSaid !== predecessorRevision ||
     checkpoint.taskId !== run.binding.taskId ||
@@ -56,10 +63,13 @@ export function verifyContinuationPredecessor(input: {
     checkpoint.runState.kind !== 'Active' ||
     checkpoint.runState.phase.kind !== 'Blocked' ||
     checkpoint.runState.phase.reason !== run.lifecycle.phase.reason ||
-    checkpoint.continuation.kind !==
-      (run.lifecycle.phase.reason === 'HarnessCompatibilityFailure'
-        ? 'LaterHarnessCompatibilityResolutionRequired'
-        : 'LaterRuntimeRecoveryRequired') ||
+    (run.binding.purpose.kind === 'PreparedCompatibilityCalibration'
+      ? checkpoint.continuation.kind !== 'ExternalResolutionRequired' ||
+        checkpoint.continuation.reason !== 'ContextLimitReached'
+      : checkpoint.continuation.kind !==
+        (run.lifecycle.phase.reason === 'HarnessCompatibilityFailure'
+          ? 'LaterHarnessCompatibilityResolutionRequired'
+          : 'LaterRuntimeRecoveryRequired')) ||
     !isDeepStrictEqual(checkpoint.budget.consumed, run.consumedBudget) ||
     !isDeepStrictEqual(stream.provisional.lifecycle, run.lifecycle) ||
     events.length !== stream.cursor.acceptedThrough + 1 ||

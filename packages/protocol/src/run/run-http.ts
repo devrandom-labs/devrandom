@@ -287,7 +287,9 @@ export function decodeRunProjection(input: unknown): RunProjectionDecoding {
     (input.currentExecution !== undefined &&
       (input.lease.kind !== 'Held' ||
         input.lease.segmentSaid !== input.currentExecution.segmentSaid ||
-        input.currentExecution.harnessRevisionSaid === input.harnessRevisionSaid ||
+        (input.purpose.kind === 'PreparedCompatibilityCalibration'
+          ? input.currentExecution.harnessRevisionSaid !== input.harnessRevisionSaid
+          : input.currentExecution.harnessRevisionSaid === input.harnessRevisionSaid) ||
         input.currentExecution.evidenceStreamId === input.evidenceStreamId)) ||
     (input.lease.kind === 'Held' &&
       (input.currentExecution === undefined) !== (input.lease.segmentSaid === undefined)) ||

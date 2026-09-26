@@ -352,7 +352,6 @@ function invalidIndex(
   if (
     index.budget.anchors.some((anchor, position) => anchor.dimension !== dimensions[position]) ||
     !unique(index.budget.anchors.map((anchor) => anchor.finalDebitEventSaid)) ||
-    !unique(index.budget.anchors.map((anchor) => anchor.receiptArtifactSaid)) ||
     index.budget.anchors.some(
       (anchor) => anchor.finalDebitEventSaid === index.budget.coverageEventSaid,
     )

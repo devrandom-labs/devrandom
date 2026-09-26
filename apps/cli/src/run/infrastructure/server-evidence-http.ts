@@ -77,6 +77,8 @@ export class ServerEvidenceHttp implements HostedEvidence, HostedEvidenceSeals, 
       return { kind: 'InputInvalid' };
     }
     const parameters = new URLSearchParams();
+    if (query.evidenceStreamId !== undefined)
+      parameters.set('evidenceStreamId', query.evidenceStreamId);
     if (query.limit !== undefined) parameters.set('limit', String(query.limit));
     if (query.cursor !== undefined) parameters.set('cursor', query.cursor);
     const suffix = parameters.size === 0 ? '' : `?${parameters.toString()}`;

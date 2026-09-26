@@ -30,6 +30,10 @@ export async function inspectEvidenceTimeline(
   dependencies: InspectEvidenceTimelineDependencies,
 ): Promise<InspectEvidenceTimelineOutcome> {
   const limit = input.query.limit ?? 25;
+  const streamScope =
+    input.query.evidenceStreamId === undefined
+      ? {}
+      : { evidenceStreamId: input.query.evidenceStreamId };
   let afterSequence: number | null = null;
   if (input.query.cursor !== undefined) {
     const decoded = dependencies.cursor.decode({
@@ -37,6 +41,7 @@ export async function inspectEvidenceTimeline(
       runId: input.runId,
       limit,
       cursor: input.query.cursor,
+      ...streamScope,
     });
     if (decoded.kind === 'CursorRejected') {
       return { kind: 'EvidenceTimelineCursorRejected' };
@@ -48,6 +53,7 @@ export async function inspectEvidenceTimeline(
     runId: input.runId,
     limit,
     afterSequence,
+    ...streamScope,
   });
   if (reading.kind === 'EvidenceTimelineNotStarted') {
     return {
@@ -83,6 +89,7 @@ export async function inspectEvidenceTimeline(
           runId: input.runId,
           limit,
           afterSequence: continuationSequence,
+          ...streamScope,
         })
       : null;
   const candidate: EvidenceTimelinePage = {

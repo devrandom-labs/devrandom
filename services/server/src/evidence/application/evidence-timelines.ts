@@ -21,6 +21,7 @@ export interface EvidenceTimelines {
     readonly ownerAid: string;
     readonly runId: string;
     readonly limit: number;
+    readonly evidenceStreamId?: string;
     readonly afterSequence: number | null;
   }): Promise<EvidenceTimelineReading>;
 }

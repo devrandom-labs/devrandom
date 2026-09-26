@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import { createEvidenceStream, continueRun } from '@devrandom/domain';
+import { createEvidenceStream, continueRun, continueCalibrationRun } from '@devrandom/domain';
 import {
   decodeRunSuccessorSegment,
   evidenceArtifactReferences,
@@ -133,6 +133,7 @@ export class MongoRunContinuations implements RunContinuationCommitments {
       const decoded = decodeRunSuccessorSegment(existing.segment);
       return decoded.kind === 'Accepted' &&
         existing._id === decoded.segment.d &&
+        decoded.segment.fromRunVersion === input.command.expectedRunVersion &&
         run.currentExecution?.segmentSaid === existing._id &&
         run.lease.kind === 'Held' &&
         run.lease.incarnationId === input.command.successorIncarnationId &&
@@ -140,9 +141,15 @@ export class MongoRunContinuations implements RunContinuationCommitments {
         decoded.segment.predecessor.sealExchangeSaid === input.command.predecessorSealSaid &&
         decoded.segment.predecessor.chainHeadSaid === input.command.predecessorHeadSaid &&
         decoded.segment.successor.evidenceStreamId === input.command.successorStreamId &&
-        decoded.segment.activation.pointerVersion === input.command.expectedActivePointerVersion &&
-        decoded.segment.activation.decisionReceiptSaid ===
-          input.command.expectedActivationReceiptSaid
+        (input.command.version === 2
+          ? decoded.segment.version === 2 &&
+            decoded.segment.baseline.harnessRevisionSaid ===
+              input.command.expectedHarnessRevisionSaid
+          : decoded.segment.version === 1 &&
+            decoded.segment.activation.pointerVersion ===
+              input.command.expectedActivePointerVersion &&
+            decoded.segment.activation.decisionReceiptSaid ===
+              input.command.expectedActivationReceiptSaid)
         ? { kind: 'Equivalent', run, segment: decoded.segment }
         : rejected();
     }
@@ -151,7 +158,9 @@ export class MongoRunContinuations implements RunContinuationCommitments {
       run.version !== input.command.expectedRunVersion ||
       !isDeepStrictEqual(run.binding, input.run.binding) ||
       run.binding.ownerAid !== input.ownerAid ||
-      run.binding.purpose.kind !== 'Retained'
+      (input.command.version === 2
+        ? run.binding.purpose.kind !== 'PreparedCompatibilityCalibration'
+        : run.binding.purpose.kind !== 'Retained')
     )
       return rejected();
     const pointer = await this.#pointers.findOne(
@@ -161,11 +170,19 @@ export class MongoRunContinuations implements RunContinuationCommitments {
     if (
       pointer === null ||
       pointer.version !== input.activation.pointerVersion ||
-      pointer.version !== input.command.expectedActivePointerVersion ||
+      (input.command.version === 1 &&
+        pointer.version !== input.command.expectedActivePointerVersion) ||
       pointer.activeRevisionSaid !== input.activation.activeRevisionSaid ||
       pointer.taskRevisionSaid !== run.binding.taskRevisionSaid ||
       pointer.harnessLineageId !== run.binding.harnessLineageId ||
-      input.activation.decisionReceiptSaid !== input.command.expectedActivationReceiptSaid
+      (input.command.version === 2
+        ? input.activation.kind !== 'Initial' ||
+          pointer.pendingCommandId !== undefined ||
+          pointer.version !== 1 ||
+          pointer.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+          input.command.expectedHarnessRevisionSaid !== run.binding.initialHarnessRevisionSaid
+        : input.activation.kind !== 'Committed' ||
+          input.activation.decisionReceiptSaid !== input.command.expectedActivationReceiptSaid)
     )
       return rejected();
     const predecessorStreamId =
@@ -189,6 +206,13 @@ export class MongoRunContinuations implements RunContinuationCommitments {
     );
     if (checkpointDocument === null) return rejected();
     const task = decodeTaskDocument(taskDocument).task;
+    if (
+      task.lifecycle.kind !== 'Open' ||
+      task.revisionSaid !== run.binding.taskRevisionSaid ||
+      task.harnessLineageId !== run.binding.harnessLineageId ||
+      Date.parse(task.revision.expiresAt) <= Date.parse(input.observedAt)
+    )
+      return rejected();
     const completionConditionIds = task.revision.completionConditions.map(
       (condition) => condition.id,
     );
@@ -240,8 +264,26 @@ export class MongoRunContinuations implements RunContinuationCommitments {
     const remainingBytes = run.binding.budget.evidencePlusArtifactsPerRunBytes - consumedBytes;
     if (!Number.isSafeInteger(remainingBytes) || remainingBytes <= 0) return rejected();
     const prepared = prepareRunSuccessorSegment({
-      version: 1,
-      kind: 'RunSuccessorSegment',
+      ...(input.command.version === 2
+        ? {
+            version: 2,
+            kind: 'CalibrationContinuationSegment',
+            baseline: {
+              pointerVersion: 1,
+              harnessRevisionSaid: input.activation.activeRevisionSaid,
+            },
+          }
+        : {
+            version: 1,
+            kind: 'RunSuccessorSegment',
+            activation:
+              input.activation.kind === 'Committed'
+                ? {
+                    pointerVersion: input.activation.pointerVersion,
+                    decisionReceiptSaid: input.activation.decisionReceiptSaid,
+                  }
+                : undefined,
+          }),
       runId: run.binding.runId,
       taskId: run.binding.taskId,
       taskRevisionSaid: run.binding.taskRevisionSaid,
@@ -262,15 +304,11 @@ export class MongoRunContinuations implements RunContinuationCommitments {
         evidenceStreamId: input.command.successorStreamId,
         harnessRevisionSaid: input.activation.activeRevisionSaid,
       },
-      activation: {
-        pointerVersion: input.activation.pointerVersion,
-        decisionReceiptSaid: input.activation.decisionReceiptSaid,
-      },
       consumedBudget: run.consumedBudget,
       admittedAt: input.observedAt,
     });
     if (prepared.kind !== 'Prepared') return rejected();
-    const continued = continueRun(run, {
+    const continuation = {
       expectedRunVersion: input.command.expectedRunVersion,
       serverTime: input.observedAt,
       predecessor: {
@@ -284,13 +322,27 @@ export class MongoRunContinuations implements RunContinuationCommitments {
         evidenceStreamId: input.command.successorStreamId,
         harnessRevisionSaid: input.activation.activeRevisionSaid,
       },
-      activation: {
-        pointerVersion: input.activation.pointerVersion,
-        activeRevisionSaid: input.activation.activeRevisionSaid,
-        decisionReceiptSaid: input.activation.decisionReceiptSaid,
-      },
-      effects: 'Settled',
-    });
+      effects: 'Settled' as const,
+    };
+    const continued =
+      input.command.version === 2
+        ? continueCalibrationRun(run, {
+            ...continuation,
+            baseline: {
+              pointerVersion: 1,
+              harnessRevisionSaid: input.activation.activeRevisionSaid,
+            },
+          })
+        : input.activation.kind === 'Committed'
+          ? continueRun(run, {
+              ...continuation,
+              activation: {
+                pointerVersion: input.activation.pointerVersion,
+                activeRevisionSaid: input.activation.activeRevisionSaid,
+                decisionReceiptSaid: input.activation.decisionReceiptSaid,
+              },
+            })
+          : { kind: 'ActivationConflict' as const };
     if (continued.kind !== 'Admitted' || continued.run.lease.kind !== 'Held') return rejected();
     const newStream = createEvidenceStream({
       ...stream.binding,

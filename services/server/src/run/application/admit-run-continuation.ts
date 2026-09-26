@@ -17,7 +17,7 @@ export interface RunContinuationCommitments {
     readonly ownerAid: string;
     readonly run: Run;
     readonly command: RunContinuationRequest;
-    readonly activation: Extract<ActiveHarnessPointer, { kind: 'Committed' }>;
+    readonly activation: ActiveHarnessPointer;
     readonly observedAt: string;
   }): Promise<
     | {
@@ -91,11 +91,22 @@ export async function admitRunContinuation(
   if (active.kind === 'Unavailable') return { kind: 'Unavailable' };
   if (
     active.kind !== 'Read' ||
-    active.pointer.kind !== 'Committed' ||
-    active.pointer.disposition !== 'Activated' ||
     active.pointer.taskId !== run.binding.taskId ||
     active.pointer.taskRevisionSaid !== run.binding.taskRevisionSaid ||
-    active.pointer.harnessLineageId !== run.binding.harnessLineageId ||
+    active.pointer.harnessLineageId !== run.binding.harnessLineageId
+  )
+    return { kind: 'Rejected' };
+  if (input.command.version === 2) {
+    if (
+      run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
+      active.pointer.kind !== 'Initial' ||
+      active.pointer.activeRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+      input.command.expectedHarnessRevisionSaid !== run.binding.initialHarnessRevisionSaid
+    )
+      return { kind: 'Rejected' };
+  } else if (
+    active.pointer.kind !== 'Committed' ||
+    active.pointer.disposition !== 'Activated' ||
     active.pointer.pointerVersion !== input.command.expectedActivePointerVersion ||
     active.pointer.decisionReceiptSaid !== input.command.expectedActivationReceiptSaid
   )

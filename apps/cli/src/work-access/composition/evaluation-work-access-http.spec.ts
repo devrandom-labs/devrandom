@@ -454,6 +454,9 @@ async function exerciseRollover(scenario: 'continuity' | 'slow-proof-sequencing'
     // These callbacks are retained before rollover and reused by later H0 qualification.
     // Missing fixture history is intentional; each actual GET must use the new bearer.
     expect(await capturedQualification.runs.inspect(runId)).toEqual({ kind: 'ResponseInvalid' });
+    expect(await capturedQualification.runs.readSuccessorSegment(runId, event.event.d)).toEqual({
+      kind: 'ResponseInvalid',
+    });
     expect(await capturedQualification.evidence.inspect(runId, { limit: 100 })).toEqual({
       kind: 'ResponseInvalid',
     });
@@ -465,7 +468,7 @@ async function exerciseRollover(scenario: 'continuity' | 'slow-proof-sequencing'
     });
     expect(acquisitions).toBeGreaterThan(1);
     expect([...ledger.values()].every((item) => item.charged <= 2000)).toBe(true);
-    expect([...ledger.values()].reduce((sum, item) => sum + item.charged, 0)).toBe(2105);
+    expect([...ledger.values()].reduce((sum, item) => sum + item.charged, 0)).toBe(2106);
     expect([...ledger.values()].filter((item) => item.released).length).toBe(acquisitions - 1);
     expect(commandBodies).toEqual(new Set([JSON.stringify(upload)]));
     expect(observations).toBeGreaterThan(0);

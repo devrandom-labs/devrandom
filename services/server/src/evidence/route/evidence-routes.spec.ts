@@ -460,7 +460,7 @@ describe('Evidence HTTP routes', () => {
 
     const response = await server.inject({
       method: 'GET',
-      url: `/api/runs/${runId}/timeline?limit=7&cursor=opaque.cursor`,
+      url: `/api/runs/${runId}/timeline?limit=7&cursor=opaque.cursor&evidenceStreamId=${evidenceStreamId}`,
       headers: { authorization: `Bearer ${bearer}` },
     });
 
@@ -473,7 +473,7 @@ describe('Evidence HTTP routes', () => {
     expect(inspectTimeline).toHaveBeenCalledWith({
       ownerAid,
       runId,
-      query: { limit: 7, cursor: 'opaque.cursor' },
+      query: { limit: 7, cursor: 'opaque.cursor', evidenceStreamId },
     });
     await server.close();
   });

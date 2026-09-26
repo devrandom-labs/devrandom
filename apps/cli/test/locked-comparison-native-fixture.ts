@@ -39,6 +39,7 @@ export async function nativeComparisonFixture(
     readonly commit: string;
     readonly tree: string;
     readonly runtimePromptDigest: string;
+    readonly taskBudgets?: typeof taskBudgetCeilings;
   },
 ) {
   const profile = prepareEvaluationExecutionProfile({
@@ -144,9 +145,9 @@ export async function nativeComparisonFixture(
     },
     capabilities: { available: capabilities, unavailable: [] },
     budgetCeilings: {
-      task: taskBudgetCeilings,
+      task: repository?.taskBudgets ?? taskBudgetCeilings,
       server: taskBudgetCeilings,
-      mandate: taskBudgetCeilings,
+      mandate: repository?.taskBudgets ?? taskBudgetCeilings,
     },
   });
   if (baseline.kind !== 'Prepared') throw new Error('baseline fixture');

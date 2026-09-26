@@ -8,6 +8,32 @@ const ownerAid = `E${'a'.repeat(43)}`;
 const runId = '1cc482f1-98e9-4454-8e4c-5566cb47ce3d';
 
 describe('HMAC evidence timeline cursor', () => {
+  it('rejects moving a historical cursor between streams of the same Run', () => {
+    const cursor = new HmacEvidenceTimelineCursor(randomBytes(32));
+    const evidenceStreamId = 'a1975db1-6130-41c2-b9dd-c8ec8bc12c94';
+    const encoded = cursor.encode({
+      ownerAid,
+      runId,
+      evidenceStreamId,
+      limit: 25,
+      afterSequence: 17,
+    });
+    expect(
+      cursor.decode({ ownerAid, runId, evidenceStreamId, limit: 25, cursor: encoded }),
+    ).toEqual({ kind: 'CursorAccepted', afterSequence: 17 });
+    expect(cursor.decode({ ownerAid, runId, limit: 25, cursor: encoded })).toEqual({
+      kind: 'CursorRejected',
+    });
+    expect(
+      cursor.decode({
+        ownerAid,
+        runId,
+        evidenceStreamId: 'e3810b6b-5866-44d3-8fb8-6bcb1f47bb63',
+        limit: 25,
+        cursor: encoded,
+      }),
+    ).toEqual({ kind: 'CursorRejected' });
+  });
   it('round-trips only for the same owner, Run, and page limit', () => {
     const cursor = new HmacEvidenceTimelineCursor(randomBytes(32));
     const encoded = cursor.encode({ ownerAid, runId, limit: 25, afterSequence: 17 });

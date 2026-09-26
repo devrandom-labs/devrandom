@@ -40,7 +40,7 @@ describe('immutable same-Run successor segment', () => {
   it('binds predecessor seal, activation, new incarnation and carried budget by SAID', () => {
     const prepared = prepareRunSuccessorSegment(input());
     expect(prepared.kind).toBe('Prepared');
-    if (prepared.kind !== 'Prepared') return;
+    if (prepared.kind !== 'Prepared' || prepared.segment.version !== 1) return;
     expect(decodeRunSuccessorSegment(prepared.segment)).toEqual({
       kind: 'Accepted',
       segment: prepared.segment,
@@ -63,5 +63,29 @@ describe('immutable same-Run successor segment', () => {
         successor: { ...input().successor, incarnationId: input().predecessor.incarnationId },
       }),
     ).toEqual({ kind: 'Rejected' });
+  });
+});
+
+it('binds calibration continuation to exact H1 without inventing activation', () => {
+  const { activation, ...common } = input();
+  expect(activation.pointerVersion).toBe(2);
+  const draft = {
+    ...common,
+    version: 2,
+    kind: 'CalibrationContinuationSegment',
+    baseline: { pointerVersion: 1, harnessRevisionSaid: common.successor.harnessRevisionSaid },
+  };
+  const prepared = prepareRunSuccessorSegment(draft);
+  expect(prepared.kind).toBe('Prepared');
+  if (prepared.kind !== 'Prepared') throw new Error('calibration segment');
+  expect(decodeRunSuccessorSegment(prepared.segment).kind).toBe('Accepted');
+  expect(
+    prepareRunSuccessorSegment({
+      ...draft,
+      baseline: { ...draft.baseline, harnessRevisionSaid: said('x') },
+    }),
+  ).toEqual({ kind: 'Rejected' });
+  expect(prepareRunSuccessorSegment({ ...draft, activation: input().activation })).toEqual({
+    kind: 'Rejected',
   });
 });

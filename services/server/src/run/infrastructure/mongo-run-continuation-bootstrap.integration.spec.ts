@@ -9,6 +9,7 @@ import {
   MongoRunContinuationBootstrap,
   RunSuccessorSegmentStorageDrift,
   runSuccessorSegmentIndex,
+  retainedRunSuccessorSegmentValidator,
 } from './mongo-run-continuation-bootstrap.js';
 import {
   runSuccessorSegmentsCollectionName,
@@ -108,5 +109,40 @@ integration('Run successor segment Mongo custody', () => {
       validationAction: 'error',
     });
     await expect(bootstrap.verify()).rejects.toEqual(new RunSuccessorSegmentStorageDrift());
+  });
+  it('migrates only the exact historical validator without rewriting retained segments', async () => {
+    await database.collection(runSuccessorSegmentsCollectionName).drop();
+    await database.createCollection(runSuccessorSegmentsCollectionName, {
+      validator: retainedRunSuccessorSegmentValidator,
+      validationLevel: 'strict',
+      validationAction: 'error',
+    });
+    const collection = database.collection<RunSuccessorSegmentDocument>(
+      runSuccessorSegmentsCollectionName,
+    );
+    await collection.createIndex(runSuccessorSegmentIndex.key, {
+      name: runSuccessorSegmentIndex.name,
+      unique: true,
+    });
+    const original = segment(randomUUID(), randomUUID());
+    const document = {
+      _id: original.d,
+      ownerAid: original.ownerAid,
+      runId: original.runId,
+      segment: original,
+      acceptedAt: new Date(original.admittedAt),
+    };
+    await collection.insertOne(document);
+    await expect(bootstrap.verify()).rejects.toEqual(new RunSuccessorSegmentStorageDrift());
+    await bootstrap.allowCalibrationContinuation();
+    await bootstrap.allowCalibrationContinuation();
+    expect(await collection.findOne({ _id: original.d })).toEqual(document);
+    await database.command({
+      collMod: runSuccessorSegmentsCollectionName,
+      validator: { $jsonSchema: { bsonType: 'object' } },
+    });
+    await expect(bootstrap.allowCalibrationContinuation()).rejects.toEqual(
+      new RunSuccessorSegmentStorageDrift(),
+    );
   });
 });

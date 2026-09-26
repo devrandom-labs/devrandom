@@ -182,6 +182,30 @@ describe('exact closure evidence index', () => {
     });
   });
 
+  it('allows one raw receipt to anchor distinct budget dimensions while rejecting reused debit events', () => {
+    const input = fixture();
+    const provider = required(input.budget.anchors[0]);
+    for (const anchor of input.budget.anchors.slice(1, 4)) {
+      anchor.receiptArtifactSaid = provider.receiptArtifactSaid;
+      anchor.sourceEventSaid = provider.sourceEventSaid;
+    }
+    const source = required(input.budget.anchors[7]);
+    const bytes = required(input.budget.anchors[8]);
+    bytes.receiptArtifactSaid = source.receiptArtifactSaid;
+    bytes.sourceEventSaid = source.sourceEventSaid;
+    const prepared = prepareEvaluationClosureEvidenceIndex(input);
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') return;
+    expect(decodeEvaluationClosureEvidenceIndex(prepared.artifact, prepared.bytes)).toMatchObject({
+      kind: 'Accepted',
+    });
+    required(input.budget.anchors[1]).finalDebitEventSaid = provider.finalDebitEventSaid;
+    expect(prepareEvaluationClosureEvidenceIndex(input)).toEqual({
+      kind: 'Rejected',
+      reason: 'BudgetInvalid',
+    });
+  });
+
   it('rejects schedule gaps, duplicate artifact SAIDs and missing budget dimensions', () => {
     const absent = fixture();
     expect(

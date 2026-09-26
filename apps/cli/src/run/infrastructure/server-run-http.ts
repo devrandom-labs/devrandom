@@ -13,6 +13,7 @@ import {
   runLeaseRenewalHeaderNames,
   runLeaseTimesAreValid,
   runParametersSchema,
+  runSuccessorSegmentParametersSchema,
   runProblemSchema,
   runProjectionSchema,
   type RunAdmissionCommand,
@@ -217,6 +218,31 @@ export class ServerRunHttp implements HostedRuns, HostedRunStatuses {
     }
   }
 
+  async readSuccessorSegment(
+    runId: string,
+    segmentSaid: string,
+  ): ReturnType<NonNullable<HostedRunStatuses['readSuccessorSegment']>> {
+    if (!Value.Check(runSuccessorSegmentParametersSchema, { runId, segmentSaid }))
+      return { kind: 'InputInvalid' };
+    try {
+      const response = await this.#request(
+        `/api/runs/${encodeURIComponent(runId)}/continuations/${encodeURIComponent(segmentSaid)}`,
+        { method: 'GET' },
+      );
+      if (response.status !== 200) return this.#rejected(response);
+      const decoded = decodeRunSuccessorSegment(response.body);
+      if (
+        decoded.kind !== 'Accepted' ||
+        decoded.segment.d !== segmentSaid ||
+        decoded.segment.runId !== runId
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: 'Found', segment: decoded.segment };
+    } catch (cause) {
+      return failure(cause);
+    }
+  }
+
   async admitContinuation(
     runId: string,
     command: RunContinuationRequest,
@@ -250,8 +276,12 @@ export class ServerRunHttp implements HostedRuns, HostedRunStatuses {
         segment.segment.predecessor.checkpointSaid !== command.predecessorCheckpointSaid ||
         segment.segment.predecessor.sealExchangeSaid !== command.predecessorSealSaid ||
         segment.segment.predecessor.chainHeadSaid !== command.predecessorHeadSaid ||
-        segment.segment.activation.pointerVersion !== command.expectedActivePointerVersion ||
-        segment.segment.activation.decisionReceiptSaid !== command.expectedActivationReceiptSaid
+        (command.version === 1
+          ? segment.segment.version !== 1 ||
+            segment.segment.activation.pointerVersion !== command.expectedActivePointerVersion ||
+            segment.segment.activation.decisionReceiptSaid !== command.expectedActivationReceiptSaid
+          : segment.segment.version !== 2 ||
+            segment.segment.baseline.harnessRevisionSaid !== command.expectedHarnessRevisionSaid)
       )
         return { kind: 'ResponseInvalid' };
       return { kind: expected, receipt };

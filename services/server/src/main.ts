@@ -117,6 +117,7 @@ import type { CurrentRunMandates } from './run/application/run-authority.js';
 import { MongoRunBootstrap } from './run/infrastructure/mongo-run-bootstrap.js';
 import { MongoRunContinuationBootstrap } from './run/infrastructure/mongo-run-continuation-bootstrap.js';
 import { MongoRunContinuations } from './run/infrastructure/mongo-run-continuations.js';
+import { MongoRunSuccessorSegments } from './run/infrastructure/mongo-run-successor-segments.js';
 import { MongoRuns } from './run/infrastructure/mongo-runs.js';
 import { workAccessRunAuthorizer } from './run/infrastructure/work-access-run-authorizer.js';
 import type { RunRoutesConfiguration } from './run/route/run-routes.js';
@@ -473,6 +474,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
       },
     };
     const runRoutesConfiguration: RunRoutesConfiguration = {
+      successors: new MongoRunSuccessorSegments(hostedDatabase),
       access: workAccessRunAuthorizer(attempts),
       continuation: {
         admit: (input) =>
