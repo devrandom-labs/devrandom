@@ -18,6 +18,8 @@ import {
 
 import { signifyIssuerActivationReceiptExchange } from './activation-receipt-exchange.js';
 import { governorAid, issuerAid, personalAgentAid } from './keri-identifier.js';
+import { signifyLocalPromotionExchanges } from './local-promotion-exchanges.js';
+import { GOVERNOR_ALIAS, PERSONAL_AGENT_ALIAS } from './local-principal-custody.js';
 import { signifyIssuerPromotionExchanges } from './promotion-exchange-inspection.js';
 import { completeSignifyOperation } from './signify-operation.js';
 
@@ -88,6 +90,118 @@ async function signedExchange(
 }
 
 describeKeria('real KERIA promotion signatures and issuer activation receipt', () => {
+  it('delivers exact local personal-agent and distinct Governor EXNs through recovered managed aliases', async () => {
+    await ready();
+    const localClient = await controller();
+    const issuerClient = await controller();
+    const localAgent = await identifier(localClient, PERSONAL_AGENT_ALIAS);
+    const localGovernor = await identifier(localClient, GOVERNOR_ALIAS);
+    const remoteIssuer = await identifier(
+      issuerClient,
+      `prd03-local-promotion-issuer-${randomUUID()}`,
+    );
+    await resolve(localClient, remoteIssuer.oobi, 'promotion-issuer');
+    await resolve(issuerClient, localAgent.oobi, 'promotion-agent');
+    await resolve(issuerClient, localGovernor.oobi, 'promotion-governor');
+
+    const selection = preparePromotionSelectionRecord({
+      taskId: randomUUID(),
+      taskRevisionSaid: said('t'),
+      harnessLineageId: randomUUID(),
+      expectedIncumbentRevisionSaid: said('h'),
+      expectedPointerVersion: 1,
+      evaluationManifestSaid: said('m'),
+      evaluationClosureSaid: said('e'),
+      hypothesisSaid: said('i'),
+      selection: { kind: 'RetainIncumbent' },
+    });
+    if (selection.kind !== 'Prepared') throw new Error(selection.reason);
+    const common = {
+      taskId: selection.record.taskId,
+      taskRevisionSaid: selection.record.taskRevisionSaid,
+      harnessLineageId: selection.record.harnessLineageId,
+      expectedIncumbentRevisionSaid: selection.record.expectedIncumbentRevisionSaid,
+      expectedPointerVersion: 1,
+      evaluationManifestSaid: selection.record.evaluationManifestSaid,
+      evaluationClosureSaid: selection.record.evaluationClosureSaid,
+      disposition: { kind: 'RetainIncumbent' as const, selectionEvidenceSaid: selection.record.d },
+    };
+    const recipientAid = issuerAid(remoteIssuer.aid);
+    const proposal = {
+      version: 1 as const,
+      kind: 'PromotionProposal' as const,
+      ...common,
+      hypothesisSaid: selection.record.hypothesisSaid,
+    };
+    const local = signifyLocalPromotionExchanges(localClient);
+    const proposalInput = {
+      kind: 'Proposal' as const,
+      senderAlias: PERSONAL_AGENT_ALIAS,
+      sourceAid: personalAgentAid(localAgent.aid),
+      recipientAid,
+      preparedAt: Date.now(),
+      payload: proposal,
+    };
+    const preparedProposal = await local.prepare(proposalInput);
+    const deliveredProposal = await local.deliver({ ...proposalInput, ...preparedProposal });
+    expect(deliveredProposal.exchangeSaid).toBe(preparedProposal.exchangeSaid);
+    const decision = {
+      version: 1 as const,
+      kind: 'GovernorPromotionDecision' as const,
+      ...common,
+      exactPromotionMandateSaid: said('a'),
+      agentProposalExchangeSaid: deliveredProposal.exchangeSaid,
+    };
+    const decisionInput = {
+      kind: 'GovernorDecision' as const,
+      senderAlias: GOVERNOR_ALIAS,
+      sourceAid: governorAid(localGovernor.aid),
+      recipientAid,
+      preparedAt: Date.now(),
+      payload: decision,
+    };
+    const preparedDecision = await local.prepare(decisionInput);
+    const deliveredDecision = await local.deliver({ ...decisionInput, ...preparedDecision });
+    expect(deliveredDecision.exchangeSaid).toBe(preparedDecision.exchangeSaid);
+    expect(await local.deliver({ ...decisionInput, ...preparedDecision })).toEqual(
+      preparedDecision,
+    );
+
+    const expected = {
+      proposal: {
+        exchangeSaid: deliveredProposal.exchangeSaid,
+        sourceAid: proposalInput.sourceAid,
+        recipientAid,
+        payload: proposal,
+      },
+      decision: {
+        exchangeSaid: deliveredDecision.exchangeSaid,
+        sourceAid: decisionInput.sourceAid,
+        recipientAid,
+        payload: decision,
+      },
+    };
+    const inspector = signifyIssuerPromotionExchanges(issuerClient);
+    let inspected: Awaited<ReturnType<typeof inspector.inspect>> = { kind: 'Pending' };
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      inspected = await inspector.inspect(expected);
+      if (inspected.kind === 'Verified') break;
+      if (inspected.kind !== 'Pending') throw new Error(`local EXN rejected: ${inspected.kind}`);
+      await delay(500);
+    }
+    expect(inspected).toMatchObject({
+      kind: 'Verified',
+      agentAid: proposalInput.sourceAid,
+      governorAid: decisionInput.sourceAid,
+    });
+    await expect(
+      inspector.inspect({
+        ...expected,
+        decision: { ...expected.decision, sourceAid: governorAid(localAgent.aid) },
+      }),
+    ).resolves.toMatchObject({ kind: 'Rejected' });
+  }, 300_000);
+
   it('verifies distinct signed agent/Governor sources and the exact issuer receipt', async () => {
     await ready();
     const agentClient = await controller();
