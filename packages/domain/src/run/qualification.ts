@@ -25,6 +25,13 @@ export interface SealedRunObservation {
   readonly seal: AcknowledgedRunSeal;
 }
 
+/** Produced by exact-read verification of the retained FailureObserved event and its public receipts. */
+export interface RetainedFailureObservation {
+  readonly runId: string;
+  readonly eventSaid: string;
+  readonly category: PreparedCompatibilityFailureCategory;
+}
+
 export type FailureQualification =
   | {
       readonly kind: 'Qualified';
@@ -44,7 +51,8 @@ export type FailureQualification =
         | 'CalibrationRejected'
         | 'FailureCategoryMismatch'
         | 'InsufficientConfirmations'
-        | 'RetainedRunUnavailable';
+        | 'RetainedRunUnavailable'
+        | 'RetainedFailureMismatch';
     };
 
 function rejected(
@@ -96,6 +104,7 @@ export function assessFailureQualification(input: {
   readonly task: Pick<Task, 'taskId' | 'ownerAid' | 'harnessLineageId' | 'revision' | 'lifecycle'>;
   readonly calibrations: readonly SealedRunObservation[];
   readonly retained: SealedRunObservation;
+  readonly retainedFailure: RetainedFailureObservation;
 }): FailureQualification {
   if (input.task.lifecycle.kind !== 'Open') return rejected('TaskNotOpen');
   if (input.calibrations.length !== 5) return rejected('CampaignIncomplete');
@@ -178,6 +187,12 @@ export function assessFailureQualification(input: {
     return rejected('RetainedRunUnavailable');
   if (!sealMatches(input.retained, retained.lifecycle.phase.checkpointSaid))
     return rejected('SealUnavailable');
+  if (
+    input.retainedFailure.runId !== retained.binding.runId ||
+    input.retainedFailure.eventSaid.length === 0 ||
+    !preparedCompatibilityFailureCategoriesMatch(failure, input.retainedFailure.category)
+  )
+    return rejected('RetainedFailureMismatch');
   return {
     kind: 'Qualified',
     campaignId: purpose.campaignId,

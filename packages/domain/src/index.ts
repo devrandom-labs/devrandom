@@ -1,4 +1,5 @@
 export * from './evaluation/allocation.js';
+export * from './evaluation/residual-allowance.js';
 export * from './evaluation/comparison.js';
 export * from './evaluation/execution-binding.js';
 export * from './evaluation/lease.js';

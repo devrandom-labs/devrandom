@@ -86,6 +86,7 @@ function input() {
     },
     calibrations: [1, 2, 3, 4, 5].map((ordinal) => observation(ordinal, ordinal === 5)),
     retained: retained(),
+    retainedFailure: { runId: 'run-6', eventSaid: 'failure-event-6', category },
   };
 }
 
@@ -202,6 +203,30 @@ describe('qualified failure admission', () => {
     expect(assessFailureQualification(submitted)).toEqual({
       kind: 'Rejected',
       reason: 'RetainedRunUnavailable',
+    });
+  });
+
+  it('rejects a retained Run whose verified raw failure differs from the calibration category', () => {
+    const wrongRun = input();
+    wrongRun.retainedFailure = { ...wrongRun.retainedFailure, runId: 'run-5' };
+    expect(assessFailureQualification(wrongRun)).toEqual({
+      kind: 'Rejected',
+      reason: 'RetainedFailureMismatch',
+    });
+    const wrongCategory = input();
+    wrongCategory.retainedFailure = {
+      ...wrongCategory.retainedFailure,
+      category: { ...category, legacyCommandSaid: 'different-legacy-check' },
+    };
+    expect(assessFailureQualification(wrongCategory)).toEqual({
+      kind: 'Rejected',
+      reason: 'RetainedFailureMismatch',
+    });
+    const missingEvent = input();
+    missingEvent.retainedFailure = { ...missingEvent.retainedFailure, eventSaid: '' };
+    expect(assessFailureQualification(missingEvent)).toEqual({
+      kind: 'Rejected',
+      reason: 'RetainedFailureMismatch',
     });
   });
 });
