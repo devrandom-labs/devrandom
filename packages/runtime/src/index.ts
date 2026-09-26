@@ -152,6 +152,11 @@ export type * from './evaluation/application/evaluation-conversations.js';
 export { AesGcmProtectedCaseCustody } from './evaluation/infrastructure/aes-gcm-protected-case-custody.js';
 export type * from './context/application/experience-conversations.js';
 export {
+  reviewEvolutionHypothesisInfluence,
+  type HypothesisInfluenceReview,
+  type QualifiedFailureEvidence,
+} from './context/application/hypothesis-influence.js';
+export {
   reviewAnalogyInfluence,
   type AnalogyInfluenceInput,
   type AnalogyInfluenceReview,
@@ -162,3 +167,6 @@ export {
   type ReviewedChoiceRecalculation,
 } from './context/application/verified-context.js';
 export * from './evaluation/application/run-protected-trial.js';
+export * from './evaluation/application/observe-protected-trial-artifact.js';
+export { FileEvaluationCaseInventory } from './evaluation/infrastructure/file-evaluation-case-inventory.js';
+export * from './harness/application/materialize-successor.js';

@@ -2,7 +2,9 @@ import {
   decodeEvaluationClosure,
   decodeEvaluationEvidenceBatch,
   decodeEvaluationExecutionProfile,
+  decodeEvaluationManifest,
   decodeEvaluationSourceInventory,
+  decodeEvaluationVerifierBundleBytes,
   decodeProtectedEvaluationArtifact,
   decodePublicEvaluationArtifact,
   evaluationAdmissionCommandSchema,
@@ -12,9 +14,12 @@ import {
   evaluationEvidenceUploadSchema,
   evaluationLeaseRenewalCommandSchema,
   evaluationLeaseRenewalReceiptSchema,
+  evaluationManifestLockCommandSchema,
+  evaluationManifestLockReceiptSchema,
   evaluationPreparationCommandSchema,
+  bindEvaluationVerifierBundle,
 } from '@devrandom/protocol';
-import { taskBudgetCeilings } from '@devrandom/domain';
+import { taskBudgetCeilings, taskEvaluationBudgetCeilings } from '@devrandom/domain';
 import Type from 'typebox';
 import Value from 'typebox/value';
 
@@ -73,6 +78,16 @@ export type HostedEvaluationClosure =
   | {
       readonly kind:
         'Rejected' | 'Denied' | 'Incomplete' | 'Conflict' | 'Unavailable' | 'ResponseInvalid';
+    };
+
+export type HostedEvaluationManifestLock =
+  | {
+      readonly kind: 'Locked' | 'AlreadyLocked';
+      readonly receipt: Type.Static<typeof evaluationManifestLockReceiptSchema>;
+    }
+  | {
+      readonly kind:
+        'Rejected' | 'Denied' | 'NotFound' | 'Conflict' | 'Unavailable' | 'ResponseInvalid';
     };
 
 const gates = ['Profile', 'Source', 'Authority', 'Budget', 'Qualification', 'Evidence'] as const;
@@ -263,6 +278,135 @@ export class ServerEvaluationHttp {
     return { kind: 'ResponseInvalid' };
   }
 
+  async lockManifest(
+    command: Type.Static<typeof evaluationManifestLockCommandSchema>,
+    signal?: AbortSignal,
+  ): Promise<HostedEvaluationManifestLock> {
+    if (
+      !Value.Check(evaluationManifestLockCommandSchema, command) ||
+      decodeEvaluationManifest(command.manifest).kind !== 'Accepted' ||
+      bindEvaluationVerifierBundle(command.verifierBundle, command.manifest).kind !== 'Bound'
+    )
+      return { kind: 'Rejected' };
+    const verifierBytes = Buffer.from(command.verifierBundleBytesBase64Url, 'base64url');
+    const decodedBytes = decodeEvaluationVerifierBundleBytes(verifierBytes);
+    if (
+      verifierBytes.toString('base64url') !== command.verifierBundleBytesBase64Url ||
+      decodedBytes.kind !== 'Accepted' ||
+      decodedBytes.bundle.d !== command.verifierBundle.d ||
+      JSON.stringify(decodedBytes.bundle) !== JSON.stringify(command.verifierBundle)
+    )
+      return { kind: 'Rejected' };
+    const expectedArtifacts = [
+      command.verifierBundle.protectedCase.stimulus,
+      command.verifierBundle.protectedCase.expected,
+      command.verifierBundle.terminalCase.stimulus,
+      command.verifierBundle.terminalCase.expected,
+    ];
+    if (
+      command.protectedArtifacts.some(
+        (artifact, index) =>
+          decodeProtectedEvaluationArtifact(artifact).kind !== 'Accepted' ||
+          JSON.stringify(artifact) !== JSON.stringify(expectedArtifacts[index]),
+      )
+    )
+      return { kind: 'Rejected' };
+    const encoded = JSON.stringify(command);
+    if (Buffer.byteLength(encoded, 'utf8') > taskEvaluationBudgetCeilings.artifactRequestBodyBytes)
+      return { kind: 'Rejected' };
+    const response = await this.#request(
+      'PUT',
+      `/api/evaluations/${command.manifest.evaluationId}/manifest`,
+      encoded,
+      signal,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200 || response.status === 201) {
+      const kind = response.status === 201 ? 'Locked' : 'AlreadyLocked';
+      return this.#manifestReceipt(response.body, {
+        kind,
+        evaluationId: command.manifest.evaluationId,
+        manifestSaid: command.manifest.d,
+        ownerAid: command.manifest.ownerAid,
+        policySaid: command.manifest.policySaid,
+        leaseId: command.leaseId,
+        minimumEvaluationVersion: command.expectedEvaluationVersion + 1,
+      });
+    }
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 403) return { kind: 'Denied' };
+    if (response.status === 404) return { kind: 'NotFound' };
+    if (response.status === 409) return { kind: 'Conflict' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    if (response.status === 400 || response.status === 413 || response.status === 422)
+      return { kind: 'Rejected' };
+    return { kind: 'ResponseInvalid' };
+  }
+
+  async inspectManifestLock(
+    evaluationId: string,
+    manifestSaid: string,
+    leaseId: string,
+    signal?: AbortSignal,
+  ): Promise<HostedEvaluationManifestLock> {
+    if (
+      !Value.Check(evaluationManifestLockReceiptSchema.properties.evaluationId, evaluationId) ||
+      !Value.Check(evaluationManifestLockReceiptSchema.properties.manifestSaid, manifestSaid) ||
+      !Value.Check(evaluationManifestLockReceiptSchema.properties.leaseId, leaseId)
+    )
+      return { kind: 'Rejected' };
+    const response = await this.#request(
+      'GET',
+      `/api/evaluations/${evaluationId}/manifest/${manifestSaid}`,
+      undefined,
+      signal,
+    );
+    if (response === undefined) return { kind: 'Unavailable' };
+    if (response.status === 200)
+      return this.#manifestReceipt(response.body, {
+        kind: 'Locked',
+        evaluationId,
+        manifestSaid,
+        leaseId,
+      });
+    if (!validProblem(response)) return { kind: 'ResponseInvalid' };
+    if (response.status === 403) return { kind: 'Denied' };
+    if (response.status === 404) return { kind: 'NotFound' };
+    if (response.status === 409) return { kind: 'Conflict' };
+    if (response.status === 503) return { kind: 'Unavailable' };
+    if (response.status === 400 || response.status === 422) return { kind: 'Rejected' };
+    return { kind: 'ResponseInvalid' };
+  }
+
+  #manifestReceipt(
+    body: unknown,
+    expected: {
+      readonly kind: 'Locked' | 'AlreadyLocked';
+      readonly evaluationId: string;
+      readonly manifestSaid: string;
+      readonly leaseId: string;
+      readonly ownerAid?: string;
+      readonly policySaid?: string;
+      readonly minimumEvaluationVersion?: number;
+    },
+  ): HostedEvaluationManifestLock {
+    if (
+      !Value.Check(evaluationManifestLockReceiptSchema, body) ||
+      body.kind !== expected.kind ||
+      body.evaluationId !== expected.evaluationId ||
+      body.manifestSaid !== expected.manifestSaid ||
+      body.leaseId !== expected.leaseId ||
+      (expected.ownerAid !== undefined && body.ownerAid !== expected.ownerAid) ||
+      (expected.policySaid !== undefined && body.policySaid !== expected.policySaid) ||
+      (expected.minimumEvaluationVersion !== undefined &&
+        body.lockedAtEvaluationVersion !== expected.minimumEvaluationVersion) ||
+      body.currentEvaluationVersion < body.lockedAtEvaluationVersion ||
+      body.currentLeaseVersion < body.lockedAtLeaseVersion
+    )
+      return { kind: 'ResponseInvalid' };
+    return { kind: body.kind, receipt: body };
+  }
+
   async closeEvidence(
     command: Type.Static<typeof evaluationClosureCommandSchema>,
     signal?: AbortSignal,
@@ -314,9 +458,9 @@ export class ServerEvaluationHttp {
   }
 
   async #request(
-    method: 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT',
     path: string,
-    encoded: string,
+    encoded: string | undefined,
     signal?: AbortSignal,
   ): Promise<HttpReading | undefined> {
     try {
@@ -328,9 +472,9 @@ export class ServerEvaluationHttp {
         method,
         headers: {
           authorization: `Bearer ${this.#bearer}`,
-          'content-type': 'application/json',
+          ...(encoded === undefined ? {} : { 'content-type': 'application/json' }),
         },
-        body: encoded,
+        ...(encoded === undefined ? {} : { body: encoded }),
         signal: requestSignal,
       });
       requestSignal.throwIfAborted();

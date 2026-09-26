@@ -26,7 +26,7 @@ const allowance = {
   evidencePlusArtifactsPerRunBytes: 20_000,
 };
 
-function fixture() {
+function fixture(ciphertextLength = 2) {
   const evaluationId = randomUUID();
   const taskId = randomUUID();
   const ownerAid = said('o');
@@ -44,8 +44,8 @@ function fixture() {
       segment,
       nonce,
       tag: 'AAAAAAAAAAAAAAAAAAAAAA',
-      ciphertext: 'AA',
-      plaintextByteCount: 1,
+      ciphertext: 'A'.repeat(ciphertextLength),
+      plaintextByteCount: ciphertextLength === 2 ? 1 : (ciphertextLength * 3) / 4,
     });
     if (result.kind !== 'Prepared') throw new Error('ciphertext fixture invalid');
     return result.artifact;
@@ -132,6 +132,56 @@ function fixture() {
 }
 
 describe('public immutable Evaluation manifest command', () => {
+  it('accepts an exact M command above the ordinary artifact limit within the Evaluation body cap', async () => {
+    const { evaluationId, ownerAid, command } = fixture(65_536);
+    const body = JSON.stringify(command);
+    expect(Buffer.byteLength(body, 'utf8')).toBeGreaterThan(589_824);
+    expect(Buffer.byteLength(body, 'utf8')).toBeLessThan(1_048_576);
+    const lock = vi.fn().mockResolvedValue({
+      kind: 'Locked',
+      evaluationId,
+      manifestSaid: command.manifest.d,
+      ownerAid,
+      policySaid: command.manifest.policySaid,
+      leaseId: command.leaseId,
+      lockedAtLeaseVersion: 1,
+      lockedAtEvaluationVersion: 2,
+      currentLeaseVersion: 1,
+      currentEvaluationVersion: 2,
+    });
+    const server = Fastify();
+    server.register(
+      evaluationRoutes({
+        access: { authorize: () => Promise.resolve({ kind: 'Authorized', ownerAid }) },
+        preparation: { prepare: () => Promise.resolve('Unavailable') },
+        admission: { admit: () => Promise.resolve({ kind: 'Unavailable' }) },
+        leases: { renew: () => Promise.resolve({ kind: 'Unavailable' }) },
+        manifest: { lock, inspect: () => Promise.resolve({ kind: 'Unavailable' }) },
+        evidence: {
+          accept: () => Promise.resolve({ kind: 'Unavailable' }),
+          close: () => Promise.resolve({ kind: 'Unavailable' }),
+        },
+        now: () => new Date().toISOString(),
+        newCorrelationId: randomUUID,
+      }),
+    );
+    const address = await server.listen({ host: '127.0.0.1', port: 0 });
+    try {
+      const response = await fetch(`${address}/api/evaluations/${evaluationId}/manifest`, {
+        method: 'PUT',
+        headers: {
+          authorization: `Bearer ${'b'.repeat(43)}`,
+          'content-type': 'application/json',
+        },
+        body,
+      });
+      expect(response.status).toBe(201);
+      expect(lock).toHaveBeenCalledOnce();
+    } finally {
+      await server.close();
+    }
+  });
+
   it('rejects substituted raw verifier bytes, missing ciphertext, and owner mismatch before storage', async () => {
     const { command, ownerAid } = fixture();
     const lock = vi.fn();

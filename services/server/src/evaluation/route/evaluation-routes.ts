@@ -1,4 +1,4 @@
-import { taskBudgetCeilings } from '@devrandom/domain';
+import { taskBudgetCeilings, taskEvaluationBudgetCeilings } from '@devrandom/domain';
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply } from 'fastify';
 import {
@@ -267,7 +267,7 @@ export function evaluationRoutes(
     server.put(
       '/api/evaluations/:evaluationId/manifest',
       {
-        bodyLimit: taskBudgetCeilings.artifactRequestBodyBytes,
+        bodyLimit: taskEvaluationBudgetCeilings.artifactRequestBodyBytes,
         schema: {
           operationId: 'lockEvaluationManifest',
           headers: workAccessAuthorizationHeadersSchema,
