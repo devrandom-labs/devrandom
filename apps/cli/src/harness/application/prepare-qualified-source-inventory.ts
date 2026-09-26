@@ -70,6 +70,7 @@ type SourceReading =
       readonly source: QualifiedInventorySource;
       readonly campaignId: string;
     }
+  | { readonly kind: 'Excluded'; readonly campaignId: string }
   | { readonly kind: 'Blocked'; readonly gate: 'Timeline' | 'Receipt' | 'RawSource' };
 
 function sameStream(
@@ -104,14 +105,8 @@ async function readCalibration(
     run.binding.purpose.kind !== 'PreparedCompatibilityCalibration' ||
     run.binding.purpose.ordinal !== ordinal ||
     run.lifecycle.kind !== 'Ended' ||
-    run.lifecycle.outcome.kind !== 'CalibrationConfirmed'
-  )
-    return { kind: 'Blocked', gate: 'Timeline' };
-  const category = run.lifecycle.outcome.category;
-  if (
-    category.taskId !== qualified.taskId ||
-    category.taskRevisionSaid !== qualified.taskRevisionSaid ||
-    category.harnessRevisionSaid !== qualified.expectedActiveRevisionSaid
+    (run.lifecycle.outcome.kind !== 'CalibrationConfirmed' &&
+      run.lifecycle.outcome.kind !== 'CalibrationExcluded')
   )
     return { kind: 'Blocked', gate: 'Timeline' };
   const first = await input.evidence.inspect(runId, { limit: 100 });
@@ -179,6 +174,19 @@ async function readCalibration(
     sequence !== stream.seal.eventCount ||
     head !== stream.cursor.chainHeadSaid ||
     head !== stream.seal.chainHeadSaid ||
+    sequence === 0
+  )
+    return { kind: 'Blocked', gate: 'Timeline' };
+  if (run.lifecycle.outcome.kind === 'CalibrationExcluded')
+    return { kind: 'Excluded', campaignId: run.binding.purpose.campaignId };
+  const category = run.lifecycle.outcome.category;
+  if (
+    category.taskId !== qualified.taskId ||
+    category.taskRevisionSaid !== qualified.taskRevisionSaid ||
+    category.harnessRevisionSaid !== qualified.expectedActiveRevisionSaid
+  )
+    return { kind: 'Blocked', gate: 'Timeline' };
+  if (
     failures.length !== 1 ||
     observations.length === 0 ||
     input.evidence.readVerifierReceipt === undefined ||
@@ -246,7 +254,7 @@ async function readCalibration(
   return { kind: 'Blocked', gate: 'RawSource' };
 }
 
-/** E3 Q: one current mandate and five exact sealed public calibration sources. */
+/** E3 Q: verify all five sealed calibrations; expose only their four or five confirmed public sources. */
 export async function prepareQualifiedSourceInventory(
   input: QualificationInput,
   ports: {
@@ -319,12 +327,13 @@ export async function prepareQualifiedSourceInventory(
     } catch {
       return { kind: 'Blocked', gate: 'Timeline' };
     }
-    if (read.kind !== 'Found') return read;
+    if (read.kind === 'Blocked') return read;
     if (campaignId !== undefined && campaignId !== read.campaignId)
       return { kind: 'Blocked', gate: 'Timeline' };
     campaignId = read.campaignId;
-    sources.push(read.source);
+    if (read.kind === 'Found') sources.push(read.source);
   }
+  if (sources.length < 4) return { kind: 'Blocked', gate: 'Timeline' };
   const prepared = prepareEvaluationSourceInventory({
     taskId: task.taskId,
     taskRevisionSaid: task.revisionSaid,

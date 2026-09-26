@@ -35,7 +35,7 @@ const task = {
   },
 };
 
-function fixture(sharedOutput = false) {
+function fixture(sharedOutput = false, excludedOrdinals: readonly number[] = []) {
   const runs = new Map<string, ReturnType<typeof runProjectionFixture>>();
   const pages = new Map<string, object>();
   const artifacts = new Map<string, { artifact: object; bytes: Uint8Array }>();
@@ -135,23 +135,48 @@ function fixture(sharedOutput = false) {
         receiptSaid: receipt.receipt.d,
       },
     );
+    const excluded = excludedOrdinals.includes(index + 1);
+    const excludedEvent = makeEvent(
+      0,
+      { kind: 'Genesis' },
+      { kind: 'RunStarted', fromRunVersion: 0 },
+    );
     const stream = {
       version: 1,
       runId,
       evidenceStreamId: run.evidenceStreamId,
-      cursor: { kind: 'Accepted', eventCount: 2, chainHeadSaid: failure.d },
+      cursor: {
+        kind: 'Accepted',
+        eventCount: excluded ? 1 : 2,
+        chainHeadSaid: excluded ? excludedEvent.d : failure.d,
+      },
       checkpoint: { kind: 'Accepted', checkpointSaid: said('k') },
       seal: {
         kind: 'Sealed',
-        eventCount: 2,
-        chainHeadSaid: failure.d,
+        eventCount: excluded ? 1 : 2,
+        chainHeadSaid: excluded ? excludedEvent.d : failure.d,
         sealExchangeSaid: said('s'),
       },
     };
-    runs.set(runId, run as never);
+    runs.set(
+      runId,
+      (excluded
+        ? {
+            ...run,
+            lifecycle: {
+              kind: 'Ended',
+              outcome: {
+                kind: 'CalibrationExcluded',
+                reason: 'ProviderUnavailable',
+                checkpointSaid: said('k'),
+              },
+            },
+          }
+        : run) as never,
+    );
     pages.set(runId, {
       stream,
-      events: [{ event: observation }, { event: failure }],
+      events: excluded ? [{ event: excludedEvent }] : [{ event: observation }, { event: failure }],
       nextCursor: null,
     });
     artifacts.set(`${runId}:${artifact.artifact.d}`, { artifact: artifact.artifact, bytes });
@@ -219,6 +244,63 @@ function fixture(sharedOutput = false) {
 }
 
 describe('qualified source inventory preparation', () => {
+  it.each([1, 3, 5])(
+    'retains four real analogy sources after lawful excluded calibration ordinal%s',
+    async (ordinal) => {
+      const test = fixture(false, [ordinal]);
+      const result = await prepareQualifiedSourceInventory(test.qualification as never, test.ports);
+      expect(result.kind).toBe('Prepared');
+      if (result.kind !== 'Prepared') return;
+      expect(result.sources).toHaveLength(4);
+      expect(result.sources.map((source) => source.runId)).toEqual(
+        runIds.filter((_, index) => index + 1 !== ordinal),
+      );
+      expect(test.qualification.evidence.readVerifierReceipt).toHaveBeenCalledTimes(4);
+      expect(test.qualification.evidence.readArtifact).toHaveBeenCalledTimes(4);
+    },
+  );
+  it('rejects two exclusions even if the earlier qualification capability said Qualified', async () => {
+    const test = fixture(false, [1, 5]);
+    expect(await prepareQualifiedSourceInventory(test.qualification as never, test.ports)).toEqual({
+      kind: 'Blocked',
+      gate: 'Timeline',
+    });
+  });
+  it.each([
+    'Unsealed',
+    'WrongHead',
+    'WrongCheckpoint',
+    'WrongCampaign',
+    'WrongOrdinal',
+    'InvalidReason',
+  ])('rejects excluded calibration %s before exposing its nonexistent source', async (fault) => {
+    const test = fixture(false, [1]);
+    const runId = runIds[0];
+    if (runId === undefined) throw new Error('fixture');
+    const page = test.pages.get(runId);
+    const run = test.runs.get(runId);
+    if (page === undefined || run === undefined) throw new Error('fixture');
+    const stream: unknown = Reflect.get(page, 'stream');
+    if (typeof stream !== 'object' || stream === null) throw new Error('stream fixture');
+    if (fault === 'Unsealed') Reflect.set(stream, 'seal', { kind: 'Open' });
+    if (fault === 'WrongHead') Reflect.set(Reflect.get(stream, 'seal'), 'chainHeadSaid', said('x'));
+    if (fault === 'WrongCheckpoint')
+      Reflect.set(stream, 'checkpoint', { kind: 'Accepted', checkpointSaid: said('x') });
+    if (fault === 'WrongCampaign')
+      Reflect.set(
+        Reflect.get(run, 'purpose'),
+        'campaignId',
+        '88888888-8888-4888-8888-888888888888',
+      );
+    if (fault === 'WrongOrdinal') Reflect.set(Reflect.get(run, 'purpose'), 'ordinal', 2);
+    if (fault === 'InvalidReason')
+      Reflect.set(Reflect.get(Reflect.get(run, 'lifecycle'), 'outcome'), 'reason', 'H1Passed');
+    expect(await prepareQualifiedSourceInventory(test.qualification as never, test.ports)).toEqual({
+      kind: 'Blocked',
+      gate: 'Timeline',
+    });
+  });
+
   it('requires genuine Q before reading calibration histories', async () => {
     const test = fixture();
     test.ports.qualification.inspect.mockResolvedValueOnce({ kind: 'Blocked' });
