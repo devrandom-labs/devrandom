@@ -127,6 +127,7 @@ export {
 } from './run/run-supervisor.js';
 export {
   ToolGateway,
+  toolBinding,
   type ActiveToolBinding,
   type AuthorizedToolEffect,
   type CurrentToolMandate,
@@ -201,3 +202,5 @@ export type {
   PromotionEvidenceReading,
   VerifiedPromotionEvidence,
 } from './promotion/application/promotion-conversations.js';
+
+export { AuthorizedEvaluationTools } from './evaluation/application/authorized-evaluation-tools.js';

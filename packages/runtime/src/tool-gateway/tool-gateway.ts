@@ -198,7 +198,7 @@ const catalogue: ReadonlyMap<ToolInput['kind'], ActiveToolBinding> = new Map([
   ['SubmitResult', { name: 'submit_result', requiredCapability: 'SubmitResult' }],
 ]);
 
-function toolBinding(input: ToolInput): ActiveToolBinding {
+export function toolBinding(input: ToolInput): ActiveToolBinding {
   const found = catalogue.get(input.kind);
   if (found === undefined) {
     throw new Error(`The Tool Gateway catalogue does not own ${input.kind}`);
