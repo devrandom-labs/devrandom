@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 import { taskBudgetCeilings, taskEvaluationBudgetCeilings } from '@devrandom/domain';
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { FastifyReply } from 'fastify';
@@ -25,7 +27,10 @@ import type {
   EvaluationEvidenceAcceptance,
   EvaluationEvidenceUpload,
 } from '../application/accept-evaluation-evidence.js';
-import type { EvaluationClosureOutcome } from '../application/close-evaluation.js';
+import type {
+  EvaluationClosureIndexCustody,
+  EvaluationClosureOutcome,
+} from '../application/close-evaluation.js';
 import type { EvaluationPreparations } from '../application/prepare-evaluation.js';
 import type {
   EvaluationLeaseRenewalCommand,
@@ -120,6 +125,7 @@ export interface EvaluationRoutesConfiguration {
       readonly ownerAid: string;
       readonly expectedEvaluationVersion: number;
       readonly closure: Type.Static<typeof evaluationClosureCommandSchema>['closure'];
+      readonly evidenceIndex: EvaluationClosureIndexCustody;
     }): Promise<EvaluationClosureOutcome>;
   };
   now(): string;
@@ -462,10 +468,20 @@ export function evaluationRoutes(
           return fail(reply, access.kind === 'Unavailable' ? 503 : 403, 'EvaluationAccessDenied');
         if (request.params.evaluationId !== request.body.closure.evaluationId)
           return fail(reply, 400, 'EvaluationBindingRejected');
+        const bytes = Buffer.from(request.body.evidenceIndex.bytesBase64Url, 'base64url');
+        if (
+          bytes.byteLength > 128 * 1_024 ||
+          bytes.toString('base64url') !== request.body.evidenceIndex.bytesBase64Url
+        )
+          return fail(reply, 400, 'EvaluationClosureIndexInvalid');
         const result = await configuration.evidence.close({
           ownerAid: access.ownerAid,
           expectedEvaluationVersion: request.body.expectedEvaluationVersion,
           closure: request.body.closure,
+          evidenceIndex: {
+            artifact: request.body.evidenceIndex.artifact,
+            bytes: Uint8Array.from(bytes),
+          },
         });
         if (result.kind === 'Closed' || result.kind === 'AlreadyClosed')
           return reply.code(result.kind === 'Closed' ? 201 : 200).send(result);

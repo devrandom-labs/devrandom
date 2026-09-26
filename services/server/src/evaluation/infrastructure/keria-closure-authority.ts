@@ -62,7 +62,12 @@ export class KeriaEvaluationClosureAuthority implements EvaluationClosureAuthori
         evaluation._id !== closure.evaluationId ||
         evaluation.ownerAid !== ownerAid ||
         evaluation.evidenceStreamId !== closure.evidenceStreamId ||
-        evaluation.command.originRunId !== closure.originRunId
+        evaluation.command.originRunId !== closure.originRunId ||
+        evaluation.lease.evaluationId !== closure.evaluationId ||
+        !Number.isSafeInteger(evaluation.lease.version) ||
+        evaluation.lease.version < 1 ||
+        !Number.isFinite(Date.parse(evaluation.lease.expiresAt)) ||
+        Date.parse(evaluation.lease.expiresAt) <= Date.now()
       )
         return { kind: 'Denied' } as const;
       const current = await this.#scopes.inspectInventory({

@@ -53,6 +53,13 @@ const budget = {
   changedWorktreeBytes: 100,
   evidencePlusArtifactsPerRunBytes: 64 * 1024,
 };
+const missingIndexBytes = new TextEncoder().encode('{}');
+const missingIndexArtifact = prepareEvidenceArtifact(missingIndexBytes, 'application/json');
+if (missingIndexArtifact.kind !== 'Prepared') throw new Error('index fixture invalid');
+const missingIndexCustody = {
+  artifact: missingIndexArtifact.artifact,
+  bytes: missingIndexBytes,
+};
 
 function event(
   sequence: number,
@@ -537,6 +544,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
           ownerAid,
           expectedEvaluationVersion: state.version,
           closure: closure.closure,
+          evidenceIndex: missingIndexCustody,
         })
       ).kind,
     ).toBe('Incomplete');
@@ -815,6 +823,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
         ownerAid,
         expectedEvaluationVersion: current.version,
         closure: closure.closure,
+        evidenceIndex: missingIndexCustody,
       }),
     ).toEqual({ kind: 'Incomplete' });
     const unchanged = await evaluations.findOne({ _id: evaluationId, ownerAid });
@@ -873,6 +882,7 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
         ownerAid,
         expectedEvaluationVersion: afterCoverage.version,
         closure: forgedClosure.closure,
+        evidenceIndex: missingIndexCustody,
       }),
     ).toEqual({ kind: 'Incomplete' });
     expect(await evaluations.findOne({ _id: evaluationId, ownerAid })).toMatchObject({

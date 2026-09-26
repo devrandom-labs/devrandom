@@ -199,6 +199,12 @@ const validators: Record<string, { $jsonSchema: MongoSchemaObject }> = {
         acceptedBytes: object(safe),
         activeOwnerSlot: object(said),
         closure: object(evaluationClosureSchema),
+        settledDebit: object(
+          Type.Object(
+            { closureSaid: said, consumed: allowance, artifactSaid: said },
+            { additionalProperties: false },
+          ),
+        ),
         acceptedAt: date,
       },
     },

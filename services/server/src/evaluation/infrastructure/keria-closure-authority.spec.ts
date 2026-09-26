@@ -45,6 +45,13 @@ function fixture() {
     _id: closure.evaluationId,
     ownerAid,
     evidenceStreamId: closure.evidenceStreamId,
+    lease: {
+      evaluationId: closure.evaluationId,
+      leaseId: '13e1de73-d1a8-48f4-8ae4-09d63fb6ca8e',
+      version: 1,
+      serverTime: '2026-09-26T04:00:00.000Z',
+      expiresAt: '2026-09-26T17:00:00.000Z',
+    },
     command: {
       taskId,
       taskRevisionSaid,
@@ -123,5 +130,14 @@ describe('KERIA-backed Evaluation closure authority', () => {
     await expect(wrongAgent.authority.verify({ ownerAid, closure })).resolves.toEqual({
       kind: 'Denied',
     });
+  });
+
+  it('denies an otherwise signed closure when the admitted lease has expired', async () => {
+    const expired = fixture();
+    expired.evaluation.lease.expiresAt = '2026-09-26T00:00:00.000Z';
+    await expect(expired.authority.verify({ ownerAid, closure })).resolves.toEqual({
+      kind: 'Denied',
+    });
+    expect(expired.exchanges.inspect).not.toHaveBeenCalled();
   });
 });
