@@ -597,3 +597,122 @@ it('keeps zero native-command evidence scoped to its own phase', async () => {
     ),
   ).toMatchObject({ kind: 'Prepared' });
 });
+
+for (const malformed of [false, true]) {
+  it(`independently checks research preparation interval arithmetic (malformed=${String(malformed)})`, async () => {
+    const given = fixture();
+    const context = {
+      harnessRevisionSaid: binding.harnessRevisionSaid,
+      phase: { kind: 'Research' as const, policySaid: said('p'), role: 'CandidateWorker' as const },
+    };
+    const append = (detail: unknown) => {
+      const next = event(given.events.length, given.events.at(-1), detail, context);
+      given.events.push(next);
+      return next;
+    };
+    const raw = (value: unknown) => {
+      const bytes = Buffer.from(JSON.stringify(value));
+      const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+      if (prepared.kind !== 'Prepared') throw new Error('fixture');
+      given.artifacts.set(prepared.artifact.d, { artifact: prepared.artifact, bytes });
+      append({ kind: 'ArtifactCaptured', artifactSaid: prepared.artifact.d, custody: 'Public' });
+      return prepared.artifact.d;
+    };
+    raw({
+      kind: 'ResearchPreparationOpened',
+      evaluationId: binding.evaluationId,
+      startedMonotonicMicroseconds: 1000,
+    });
+    const opened = given.events.at(-1);
+    if (opened === undefined) throw new Error('fixture');
+    raw({ kind: 'ResearchPreparation' });
+    const source = given.events.at(-1);
+    if (source === undefined) throw new Error('fixture');
+    const receipt = raw({
+      kind: 'EvaluationResearchPreparationElapsed',
+      method: 'ParentMonotonicPreparationLessInferenceIntervals',
+      fromSequence: opened.sequence,
+      openedEventSaid: opened.d,
+      throughSequence: source.sequence,
+      throughHeadSaid: source.d,
+      inferenceWallReceiptSaids: [],
+      startedMonotonicMicroseconds: 1000,
+      finishedMonotonicMicroseconds: 3000,
+      elapsedMilliseconds: malformed ? 1 : 2,
+      debitedSeconds: 1,
+    });
+    append({
+      kind: 'EvaluationBudgetDebited',
+      budget: 'runWallTimeSeconds',
+      amount: 1,
+      consumed: 2,
+      receiptArtifactSaid: receipt,
+      sourceEventSaid: source.d,
+    });
+    expect(
+      await prepareEvaluationBudgetCoverage(
+        { ...given.input, binding: { ...binding, ...context } },
+        given.dependencies,
+      ),
+    ).toMatchObject(
+      malformed ? { kind: 'Incomplete', frontier: 'ReceiptAuthority' } : { kind: 'Prepared' },
+    );
+  });
+  it(`replays native research cleanup instead of trusting elapsed claims (malformed=${String(malformed)})`, async () => {
+    const given = fixture();
+    const context = {
+      harnessRevisionSaid: binding.harnessRevisionSaid,
+      phase: { kind: 'Research' as const, policySaid: said('p'), role: 'CandidateWorker' as const },
+    };
+    const append = (detail: unknown) => {
+      const next = event(given.events.length, given.events.at(-1), detail, context);
+      given.events.push(next);
+      return next;
+    };
+    const raw = (value: unknown) => {
+      const bytes = Buffer.from(JSON.stringify(value));
+      const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+      if (prepared.kind !== 'Prepared') throw new Error('fixture');
+      given.artifacts.set(prepared.artifact.d, { artifact: prepared.artifact, bytes });
+      append({ kind: 'ArtifactCaptured', artifactSaid: prepared.artifact.d, custody: 'Public' });
+      return prepared.artifact.d;
+    };
+    const buildReceiptSaid = raw({ exitCode: 0 });
+    const buildCleanupReceiptSaid = raw({ buildReceiptSaid, stopped: true });
+    const rawObservationSaid = raw({ exitCode: 0, stdout: 'actual observation' });
+    const cleanupReceiptSaid = raw({ rawObservationSaid, stopped: !malformed });
+    const replayArtifactSaid = raw({
+      kind: 'SuccessorPublicReplay',
+      buildReceiptSaid,
+      buildCleanupReceiptSaid,
+      observations: [{ rawObservationSaid, cleanupReceiptSaid }],
+    });
+    const source = given.events.at(-1);
+    if (source === undefined) throw new Error('fixture');
+    const receipt = raw({
+      kind: 'EvaluationResearchNativeElapsed',
+      method: 'ParentReplayRoundTripUpperBound',
+      replayArtifactSaid,
+      startedMonotonicMicroseconds: 1000,
+      finishedMonotonicMicroseconds: 3000,
+      elapsedMilliseconds: 2,
+      childCommandDebitedSeconds: 1,
+    });
+    append({
+      kind: 'EvaluationBudgetDebited',
+      budget: 'aggregateChildCommandTimeSeconds',
+      amount: 1,
+      consumed: 1,
+      receiptArtifactSaid: receipt,
+      sourceEventSaid: source.d,
+    });
+    expect(
+      await prepareEvaluationBudgetCoverage(
+        { ...given.input, binding: { ...binding, ...context } },
+        given.dependencies,
+      ),
+    ).toMatchObject(
+      malformed ? { kind: 'Incomplete', frontier: 'ReceiptAuthority' } : { kind: 'Prepared' },
+    );
+  });
+}

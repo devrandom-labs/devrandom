@@ -88,6 +88,10 @@ type InferenceOpening = ConstructorParameters<
 type Public = Extract<PublicTrialArtifactObservation, { kind: 'PublicObserved' }>;
 type Head = { readonly sequence: number; readonly headSaid: string };
 export interface LockedComparisonInput {
+  readonly researchPreparation?: {
+    readonly receiptArtifactSaid: string;
+    readonly finishedMonotonicMicroseconds: number;
+  };
   readonly stateRoot: string;
   readonly manifest: EvaluationManifest;
   readonly binding: EvaluationExecutionBinding;
@@ -145,7 +149,15 @@ export async function executeLockedComparison(
     manifest.executionProfileSaid !== input.profile.d
   )
     return { kind: 'Incomplete', frontier: 'Manifest' };
-  const comparisonStarted = Math.floor(performance.now() * 1000);
+  const comparisonStarted =
+    input.researchPreparation?.finishedMonotonicMicroseconds ??
+    Math.floor(performance.now() * 1000);
+  if (
+    !Number.isSafeInteger(comparisonStarted) ||
+    comparisonStarted < 0 ||
+    comparisonStarted > Math.floor(performance.now() * 1000)
+  )
+    return { kind: 'Incomplete', frontier: 'ResearchHandoff' };
   const controller = new AbortController();
   const signal = AbortSignal.any([input.signal, controller.signal]);
   const evidence = new SqliteHostedEvaluationEvidence(outbox, hosted);
@@ -785,6 +797,9 @@ export async function executeLockedComparison(
         JSON.stringify({
           version: 1,
           kind: 'EvaluationFinalizationElapsed',
+          ...(input.researchPreparation === undefined
+            ? {}
+            : { researchPreparationReceiptSaid: input.researchPreparation.receiptArtifactSaid }),
           method: 'ParentMonotonicComparisonLessCodingIntervals',
           startedMonotonicMicroseconds: comparisonStarted,
           finishedMonotonicMicroseconds: comparisonFinished,

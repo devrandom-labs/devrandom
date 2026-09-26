@@ -15,6 +15,8 @@ import {
 import {
   decodeEvolutionHypothesis,
   prepareEvidenceArtifact,
+  prepareEvaluationEvidenceEvent,
+  type EvaluationEvidenceEvent,
   prepareSuccessorHarnessRevision,
   type TaskProjection,
   type EvidenceArtifact,
@@ -23,6 +25,8 @@ import {
 import {
   PinnedPiModelAccess,
   piResearchContext,
+  measureResearchPreparationElapsed,
+  type CodingElapsedInterval,
   ParentConcentrateEvaluationInference,
   SourceCustody,
   ExecutableCustody,
@@ -152,6 +156,7 @@ export async function evaluateLocalHarness(
   let outbox: SqliteEvaluationEvidenceOutbox | undefined;
   let pulse: ReturnType<typeof setInterval> | undefined;
   let temporary: string | undefined;
+  let researchDeadline: ReturnType<typeof setTimeout> | undefined;
   const abort = new AbortController();
   const signal = AbortSignal.any([input.signal, abort.signal]);
   try {
@@ -278,6 +283,7 @@ export async function evaluateLocalHarness(
       'Recorded'
     )
       return { kind: 'Blocked', gate: 'Command', evaluationId };
+    const researchStarted = Math.floor(performance.now() * 1000);
     const binding: EvaluationExecutionBinding = {
       kind: 'Evaluation',
       evaluationId,
@@ -384,15 +390,17 @@ export async function evaluateLocalHarness(
           : { kind: 'Lost' };
       },
     };
-    pulse = setInterval(() => {
-      void refresh()
-        .then((held) => {
-          if (!held) abort.abort();
-        })
-        .catch(() => {
-          abort.abort();
-        });
-    }, 5000);
+    const startLeasePulse = () =>
+      setInterval(() => {
+        void refresh()
+          .then((held) => {
+            if (!held) abort.abort();
+          })
+          .catch(() => {
+            abort.abort();
+          });
+      }, 5000);
+    pulse = startLeasePulse();
     if (!(await refresh())) return { kind: 'Blocked', gate: 'Lease', evaluationId };
     const model = await new PinnedPiModelAccess(
       new EnvironmentPiCredential(input.modelCredentialEnvironment),
@@ -427,6 +435,146 @@ export async function evaluateLocalHarness(
       if (read.kind !== 'Acknowledged') throw new Error('Evidence');
       return read.events;
     };
+    const researchFromSequence = (await prefix()).length;
+    if ((await prefix()).some((event) => event.phase.kind === 'Trial'))
+      return { kind: 'RecoveryRequired', evaluationId };
+    const appendResearch = async (detail: EvaluationEvidenceEvent['detail']) => {
+      const position = outbox?.position();
+      if (
+        position?.kind !== 'Position' ||
+        position.nextSequence - 1 !== position.acknowledgedSequence
+      )
+        throw new Error('ResearchEvidence');
+      const prepared = prepareEvaluationEvidenceEvent({
+        evaluationId: binding.evaluationId,
+        streamId: binding.evidenceStreamId,
+        originRunId: binding.originRunId,
+        taskId: binding.taskId,
+        taskRevisionSaid: binding.taskRevisionSaid,
+        personalAgentAid: binding.personalAgentAid,
+        taskMandateSaid: binding.taskMandateSaid,
+        harnessRevisionSaid: binding.harnessRevisionSaid,
+        phase: { kind: 'Research', policySaid: policy.d, role: 'CandidateWorker' },
+        sequence: position.nextSequence,
+        previous:
+          position.acknowledgedHeadSaid === null
+            ? { kind: 'Genesis' }
+            : { kind: 'Previous', eventSaid: position.acknowledgedHeadSaid },
+        occurredAt: new Date().toISOString(),
+        detail,
+      });
+      if (
+        prepared.kind !== 'Prepared' ||
+        (await evidence.record(prepared.event)).kind !== 'Recorded'
+      )
+        throw new Error('ResearchEvidence');
+      return prepared.event;
+    };
+    const captureResearch = async (raw: ExactTreatmentArtifact) => {
+      const stored = await evidence.rawArtifacts.record({
+        bytes: raw.bytes,
+        mediaType: raw.artifact.mediaType,
+      });
+      if (stored.kind !== 'Stored' || stored.artifact.d !== raw.artifact.d)
+        throw new Error('ResearchCustody');
+      return appendResearch({
+        kind: 'ArtifactCaptured',
+        artifactSaid: raw.artifact.d,
+        custody: 'Public',
+      });
+    };
+    const researchConsumed = async (
+      budget: 'runWallTimeSeconds' | 'aggregateChildCommandTimeSeconds',
+    ) => {
+      let consumed = 0;
+      for (const event of await prefix())
+        if (event.detail.kind === 'EvaluationBudgetDebited' && event.detail.budget === budget)
+          consumed = event.detail.consumed;
+      if (!Number.isSafeInteger(consumed) || consumed < 0) throw new Error('ResearchBudget');
+      return consumed;
+    };
+    const debitResearch = async (
+      budget: 'runWallTimeSeconds' | 'aggregateChildCommandTimeSeconds',
+      amount: number,
+      sourceEventSaid: string,
+      raw: ExactTreatmentArtifact,
+    ) => {
+      const consumed = (await researchConsumed(budget)) + amount;
+      await captureResearch(raw);
+      await appendResearch({
+        kind: 'EvaluationBudgetDebited',
+        budget,
+        amount,
+        consumed,
+        sourceEventSaid,
+        receiptArtifactSaid: raw.artifact.d,
+      });
+      if (consumed > policy.allocation.diagnosis[budget]) throw new Error('ResearchBudget');
+    };
+    const priorPreparationOpenings = new Set<string>();
+    const closedPreparationOpenings = new Set<string>();
+    const retainedNativeReplays = new Map<string, ExactTreatmentArtifact>();
+    const researchBefore = await prefix();
+    for (const event of researchBefore) {
+      if (event.phase.kind !== 'Research' || event.detail.kind !== 'ArtifactCaptured') continue;
+      const raw = await reading.openPublic({
+        evaluationId: binding.evaluationId,
+        artifactSaid: event.detail.artifactSaid,
+      });
+      if (raw.kind !== 'Opened') throw new Error('ResearchCustody');
+      const document: unknown = JSON.parse(Buffer.from(raw.bytes).toString('utf8'));
+      if (typeof document !== 'object' || document === null) continue;
+      if (Reflect.get(document, 'kind') === 'ResearchPreparationOpened')
+        priorPreparationOpenings.add(event.d);
+      if (Reflect.get(document, 'kind') === 'EvaluationResearchPreparationElapsed') {
+        const openedEventSaid: unknown = Reflect.get(document, 'openedEventSaid');
+        if (
+          typeof openedEventSaid === 'string' &&
+          researchBefore.some(
+            (item) =>
+              item.detail.kind === 'EvaluationBudgetDebited' &&
+              item.detail.receiptArtifactSaid === raw.artifact.d,
+          )
+        )
+          closedPreparationOpenings.add(openedEventSaid);
+      }
+      if (
+        Reflect.get(document, 'kind') === 'SuccessorPublicReplay' &&
+        researchBefore.some(
+          (item) =>
+            item.detail.kind === 'EvaluationBudgetDebited' &&
+            item.detail.budget === 'aggregateChildCommandTimeSeconds' &&
+            item.detail.sourceEventSaid === event.d,
+        )
+      ) {
+        const configurationSaid: unknown = Reflect.get(document, 'configurationArtifactSaid');
+        if (typeof configurationSaid === 'string')
+          retainedNativeReplays.set(configurationSaid, raw);
+      }
+    }
+    if ([...priorPreparationOpenings].some((said) => !closedPreparationOpenings.has(said)))
+      return { kind: 'RecoveryRequired', evaluationId };
+    const priorWall = await researchConsumed('runWallTimeSeconds');
+    const remainingWall =
+      policy.allocation.diagnosis.runWallTimeSeconds -
+      priorWall -
+      Math.ceil((Math.floor(performance.now() * 1000) - researchStarted) / 1000000);
+    if (!Number.isSafeInteger(remainingWall) || remainingWall <= 0)
+      throw new Error('ResearchWallBudget');
+    researchDeadline = setTimeout(
+      () => {
+        abort.abort();
+      },
+      Math.min(2147483647, remainingWall * 1000),
+    );
+    const preparationOpened = await captureResearch(
+      artifact({
+        version: 1,
+        kind: 'ResearchPreparationOpened',
+        evaluationId,
+        startedMonotonicMicroseconds: researchStarted,
+      }),
+    );
     const propose = async (
       role: 'DiagnosticRefiner' | 'CandidateWorker',
       ordinal: number,
@@ -750,32 +898,90 @@ export async function evaluateLocalHarness(
         });
         continue;
       }
-      const replay = await observeSuccessorPublicReplay(
-        {
-          h0Said: hypothesis.d,
-          sourceInventorySaid: inventory.d,
-          arm: candidate.arm,
-          h1Commit: h1.repository.commit,
-          h1Tree: h1.repository.tree,
-          sourceDirectory: input.repositoryDirectory,
-          configurationArtifactSaid: candidate.configuration.artifact.d,
-          ...(candidate.implementation === undefined
-            ? {}
-            : {
-                reviewedImplementationSaid: candidate.implementation.artifact.d,
-                implementation: candidate.implementation,
-              }),
-          configuration: candidate.configuration,
-          capturedSourceSaid: captured.sourceSaid,
-          reviewedRecipeSaid,
-          toolchainSaid,
-          containerProfileSaid: profile.d,
-          publicConditions: publicCases.publicConditions,
+      const retainedReplay = retainedNativeReplays.get(candidate.configuration.artifact.d);
+      let replay: ExactTreatmentArtifact;
+      if (retainedReplay !== undefined) {
+        replay = retainedReplay;
+      } else {
+        const nativeRemaining =
+          policy.allocation.diagnosis.aggregateChildCommandTimeSeconds -
+          (await researchConsumed('aggregateChildCommandTimeSeconds'));
+        if (!Number.isSafeInteger(nativeRemaining) || nativeRemaining <= 0)
+          throw new Error('ResearchNativeBudget');
+        const nativeStarted = Math.floor(performance.now() * 1000);
+        const nativeSignal = AbortSignal.any([
           signal,
-        },
-        { catalogue, behavior, construction, observation, custody: replayCustody },
-      );
-      if (replay.kind !== 'Observed') throw new Error(`Replay:${replay.gate}`);
+          AbortSignal.timeout(Math.min(2147483647, nativeRemaining * 1000)),
+        ]);
+        const observedReplay = await observeSuccessorPublicReplay(
+          {
+            h0Said: hypothesis.d,
+            sourceInventorySaid: inventory.d,
+            arm: candidate.arm,
+            h1Commit: h1.repository.commit,
+            h1Tree: h1.repository.tree,
+            sourceDirectory: input.repositoryDirectory,
+            configurationArtifactSaid: candidate.configuration.artifact.d,
+            ...(candidate.implementation === undefined
+              ? {}
+              : {
+                  reviewedImplementationSaid: candidate.implementation.artifact.d,
+                  implementation: candidate.implementation,
+                }),
+            configuration: candidate.configuration,
+            capturedSourceSaid: captured.sourceSaid,
+            reviewedRecipeSaid,
+            toolchainSaid,
+            containerProfileSaid: profile.d,
+            publicConditions: publicCases.publicConditions,
+            signal: nativeSignal,
+          },
+          { catalogue, behavior, construction, observation, custody: replayCustody },
+        );
+        const nativeFinished = Math.floor(performance.now() * 1000);
+        if (observedReplay.kind !== 'Observed') throw new Error(`Replay:${observedReplay.gate}`);
+        replay = observedReplay;
+        const replayDocument: unknown = JSON.parse(Buffer.from(replay.bytes).toString('utf8'));
+        if (typeof replayDocument !== 'object' || replayDocument === null)
+          throw new Error('ReplayCustody');
+        const nativeSaids: unknown[] = [
+          Reflect.get(replayDocument, 'buildReceiptSaid'),
+          Reflect.get(replayDocument, 'buildCleanupReceiptSaid'),
+        ];
+        const observations: unknown = Reflect.get(replayDocument, 'observations');
+        if (!Array.isArray(observations)) throw new Error('ReplayCustody');
+        for (const item of observations) {
+          if (typeof item !== 'object' || item === null) throw new Error('ReplayCustody');
+          nativeSaids.push(
+            Reflect.get(item, 'rawObservationSaid'),
+            Reflect.get(item, 'cleanupReceiptSaid'),
+          );
+        }
+        for (const said of nativeSaids) {
+          if (typeof said !== 'string') throw new Error('ReplayCustody');
+          const raw = await replayCustody.read(said);
+          if (raw.kind !== 'Read') throw new Error('ReplayCustody');
+          await captureResearch(raw);
+        }
+        const replayCapture = await captureResearch(replay);
+        const elapsedMilliseconds = Math.ceil((nativeFinished - nativeStarted) / 1000);
+        const childCommandDebitedSeconds = Math.max(1, Math.ceil(elapsedMilliseconds / 1000));
+        await debitResearch(
+          'aggregateChildCommandTimeSeconds',
+          childCommandDebitedSeconds,
+          replayCapture.d,
+          artifact({
+            version: 1,
+            kind: 'EvaluationResearchNativeElapsed',
+            method: 'ParentReplayRoundTripUpperBound',
+            replayArtifactSaid: replay.artifact.d,
+            startedMonotonicMicroseconds: nativeStarted,
+            finishedMonotonicMicroseconds: nativeFinished,
+            elapsedMilliseconds,
+            childCommandDebitedSeconds,
+          }),
+        );
+      }
       const successor = prepareSuccessorHarnessRevision({
         parentRevisionSaid: h1.d,
         h0Said: hypothesis.d,
@@ -845,6 +1051,9 @@ export async function evaluateLocalHarness(
       });
       if (stored.kind !== 'Retained') throw new Error(`CandidateCustody:${stored.kind}`);
     }
+    clearInterval(pulse);
+    pulse = undefined;
+    if (refreshing !== undefined) await refreshing;
     if (!(await refresh())) throw new Error('Lease');
     const current = await hosted.evaluations.readPosition(evaluationId);
     if (current.kind !== 'Read') throw new Error('Lease');
@@ -885,7 +1094,79 @@ export async function evaluateLocalHarness(
         hosted: hosted.evaluations,
       },
     );
+    pulse = startLeasePulse();
     if (locked.kind !== 'Locked') throw new Error(`Manifest:${locked.kind}`);
+    const preparationAnchor = await captureResearch(
+      artifact({
+        version: 1,
+        kind: 'ResearchPreparation',
+        evaluationId,
+        hypothesisSaid: hypothesis.d,
+        candidateRevisionSaids: revisions.map((item) => item.d),
+      }),
+    );
+    const inferenceIntervals: CodingElapsedInterval[] = [];
+    for (const event of await prefix()) {
+      if (
+        event.sequence < researchFromSequence ||
+        event.sequence >= preparationAnchor.sequence ||
+        event.phase.kind !== 'Research' ||
+        event.detail.kind !== 'EvaluationBudgetDebited' ||
+        event.detail.budget !== 'runWallTimeSeconds'
+      )
+        continue;
+      const raw = await reading.openPublic({
+        evaluationId: binding.evaluationId,
+        artifactSaid: event.detail.receiptArtifactSaid,
+      });
+      if (raw.kind !== 'Opened') throw new Error('ResearchWallCustody');
+      const document: unknown = JSON.parse(Buffer.from(raw.bytes).toString('utf8'));
+      if (
+        typeof document !== 'object' ||
+        document === null ||
+        Reflect.get(document, 'kind') !== 'EvaluationResearchElapsed'
+      )
+        throw new Error('ResearchWallCustody');
+      const started: unknown = Reflect.get(document, 'startedMonotonicMicroseconds');
+      const finished: unknown = Reflect.get(document, 'finishedMonotonicMicroseconds');
+      if (typeof started !== 'number' || typeof finished !== 'number')
+        throw new Error('ResearchWallCustody');
+      inferenceIntervals.push({
+        artifactSaid: event.detail.receiptArtifactSaid,
+        startedMonotonicMicroseconds: started,
+        finishedMonotonicMicroseconds: finished,
+      });
+    }
+    const researchFinished = Math.floor(performance.now() * 1000);
+    const measuredPreparation = measureResearchPreparationElapsed(
+      researchStarted,
+      researchFinished,
+      inferenceIntervals,
+    );
+    if (measuredPreparation.kind !== 'Measured') throw new Error('ResearchWallMeasurement');
+    const debitedSeconds = Math.max(1, Math.ceil(measuredPreparation.elapsedMilliseconds / 1000));
+    const preparationReceipt = artifact({
+      version: 1,
+      kind: 'EvaluationResearchPreparationElapsed',
+      openedEventSaid: preparationOpened.d,
+      method: 'ParentMonotonicPreparationLessInferenceIntervals',
+      fromSequence: researchFromSequence,
+      throughSequence: preparationAnchor.sequence,
+      throughHeadSaid: preparationAnchor.d,
+      inferenceWallReceiptSaids: inferenceIntervals.map((item) => item.artifactSaid),
+      startedMonotonicMicroseconds: researchStarted,
+      finishedMonotonicMicroseconds: researchFinished,
+      elapsedMilliseconds: measuredPreparation.elapsedMilliseconds,
+      debitedSeconds,
+    });
+    await debitResearch(
+      'runWallTimeSeconds',
+      debitedSeconds,
+      preparationAnchor.d,
+      preparationReceipt,
+    );
+    clearTimeout(researchDeadline);
+    researchDeadline = undefined;
     const staged = await manifests.inspect(evaluationId);
     if (staged.kind !== 'Staged') throw new Error('ManifestCustody');
     const manifest = staged.command.manifest;
@@ -984,6 +1265,10 @@ export async function evaluateLocalHarness(
         manifest,
         binding,
         admittedCommandId: command.commandId,
+        researchPreparation: {
+          receiptArtifactSaid: preparationReceipt.artifact.d,
+          finishedMonotonicMicroseconds: researchFinished,
+        },
         cleanSourceSaid: captured.sourceSaid,
         source,
         baseline: h1,
@@ -1080,6 +1365,7 @@ export async function evaluateLocalHarness(
         };
   } finally {
     if (pulse !== undefined) clearInterval(pulse);
+    if (researchDeadline !== undefined) clearTimeout(researchDeadline);
     abort.abort();
     outbox?.close();
     if (temporary !== undefined) await rm(temporary, { recursive: true, force: true });

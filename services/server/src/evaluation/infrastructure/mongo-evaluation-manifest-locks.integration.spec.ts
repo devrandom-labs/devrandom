@@ -614,6 +614,90 @@ describeMongo('immutable Evaluation M over listening Fastify and replica Mongo',
       .updateOne({ _id: changed.evaluationId }, { $unset: { activeOwnerSlot: '' } });
   });
 
+  it('records already incurred Research accounting after M locks without changing M', async () => {
+    const given = fixture();
+    await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .insertOne(given.record);
+    expect((await put(given.evaluationId, given.command)).status).toBe(201);
+    const bytes = Buffer.from(
+      JSON.stringify({
+        kind: 'EvaluationResearchPreparationElapsed',
+        method: 'ParentMonotonicPreparationLessInferenceIntervals',
+        startedMonotonicMicroseconds: 1000,
+        finishedMonotonicMicroseconds: 2000,
+        elapsedMilliseconds: 1,
+        debitedSeconds: 1,
+      }),
+    );
+    const raw = prepareEvidenceArtifact(bytes, 'application/json');
+    if (raw.kind !== 'Prepared') throw new Error('fixture');
+    const base = {
+      evaluationId: given.evaluationId,
+      streamId: given.record.evidenceStreamId,
+      originRunId: given.record.command.originRunId,
+      taskId: given.record.command.taskId,
+      taskRevisionSaid: given.record.command.taskRevisionSaid,
+      personalAgentAid: agentAid,
+      taskMandateSaid: said('m'),
+      harnessRevisionSaid: given.command.manifest.revisions.H1,
+      phase: {
+        kind: 'Research',
+        policySaid: given.record.command.policySaid,
+        role: 'CandidateWorker',
+      },
+      occurredAt: '2026-09-26T05:00:00.000Z',
+    };
+    const captured = prepareEvaluationEvidenceEvent({
+      ...base,
+      sequence: 0,
+      previous: { kind: 'Genesis' },
+      detail: { kind: 'ArtifactCaptured', artifactSaid: raw.artifact.d, custody: 'Public' },
+    });
+    if (captured.kind !== 'Prepared') throw new Error('fixture');
+    const debited = prepareEvaluationEvidenceEvent({
+      ...base,
+      sequence: 1,
+      previous: { kind: 'Previous', eventSaid: captured.event.d },
+      detail: {
+        kind: 'EvaluationBudgetDebited',
+        budget: 'runWallTimeSeconds',
+        amount: 1,
+        consumed: 1,
+        receiptArtifactSaid: raw.artifact.d,
+        sourceEventSaid: captured.event.d,
+      },
+    });
+    if (debited.kind !== 'Prepared') throw new Error('fixture');
+    const batch = prepareEvaluationEvidenceBatch([captured.event, debited.event]);
+    if (batch.kind !== 'Prepared') throw new Error('fixture');
+    const response = await fetch(`${address}/api/evaluations/${given.evaluationId}/batches`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${'b'.repeat(43)}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        version: 1,
+        commandId: randomUUID(),
+        fingerprint: `sha256:${'f'.repeat(64)}`,
+        batch: batch.batch,
+        events: [captured.event, debited.event],
+        publicArtifacts: [{ artifact: raw.artifact, bytesBase64Url: bytes.toString('base64url') }],
+        protectedArtifacts: [],
+      }),
+    });
+    expect(response.status).toBe(201);
+    const locked = await database
+      .collection<EvaluationManifestLockDocument>(evaluationCollectionNames.manifests)
+      .findOne({ _id: given.evaluationId });
+    expect(locked?.manifest).toEqual(given.command.manifest);
+    const evaluation = await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .findOne({ _id: given.evaluationId });
+    expect(evaluation?.acceptedThroughSequence).toBe(1);
+    await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .updateOne({ _id: given.evaluationId }, { $unset: { activeOwnerSlot: '' } });
+  });
+
   it('rolls back all five custody writes when the admitted evidence allowance is too small', async () => {
     const limited = fixture();
     await database.collection<EvaluationDocument>(evaluationCollectionNames.evaluations).insertOne({

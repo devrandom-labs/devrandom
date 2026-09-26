@@ -4,7 +4,7 @@ export interface CodingElapsedInterval {
   readonly finishedMonotonicMicroseconds: number;
 }
 /** Real parent time outside the eighteen coding intervals belongs to F. */
-export function measureFinalizationElapsed(
+function measureOutsideIntervals(
   started: number,
   finished: number,
   intervals: readonly CodingElapsedInterval[],
@@ -16,8 +16,8 @@ export function measureFinalizationElapsed(
     !Number.isSafeInteger(finished) ||
     started < 0 ||
     finished < started ||
-    intervals.length !== 18 ||
-    new Set(intervals.map((item) => item.artifactSaid)).size !== 18
+    intervals.length > 256 ||
+    new Set(intervals.map((item) => item.artifactSaid)).size !== intervals.length
   )
     return { kind: 'Invalid' };
   let previous = started;
@@ -41,4 +41,22 @@ export function measureFinalizationElapsed(
     kind: 'Measured',
     elapsedMilliseconds: Math.ceil((finished - started - excluded) / 1000),
   };
+}
+
+export function measureFinalizationElapsed(
+  started: number,
+  finished: number,
+  intervals: readonly CodingElapsedInterval[],
+): ReturnType<typeof measureOutsideIntervals> {
+  return intervals.length === 18
+    ? measureOutsideIntervals(started, finished, intervals)
+    : { kind: 'Invalid' };
+}
+/** Diagnosis includes real preparation/replay time without billing paid inference twice. */
+export function measureResearchPreparationElapsed(
+  started: number,
+  finished: number,
+  intervals: readonly CodingElapsedInterval[],
+): ReturnType<typeof measureOutsideIntervals> {
+  return measureOutsideIntervals(started, finished, intervals);
 }
