@@ -454,35 +454,37 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
       });
       const retained = vi.fn().mockResolvedValue({ kind: 'Unavailable' as const });
       const realObserve = vi.spyOn(protectedObserver, 'observe');
+      const trialBinding = {
+        kind: 'Evaluation' as const,
+        evaluationId,
+        taskId: manifest.taskId,
+        taskRevisionSaid: manifest.taskRevisionSaid,
+        originRunId: manifest.originRunId,
+        personalAgentAid: manifest.personalAgentAid,
+        taskMandateSaid: manifest.taskMandateSaid,
+        harnessRevisionSaid: manifest.revisions.C2,
+        evaluationLeaseId: '44444444-4444-4444-8444-444444444444',
+        evidenceStreamId: '55555555-5555-4555-8555-555555555555',
+        phase: {
+          kind: 'Trial' as const,
+          manifestSaid: manifest.d,
+          arm: 'C2' as const,
+          repetition: 1 as const,
+          attempt: 1 as const,
+        },
+      };
+      const trialLease = {
+        evaluationId,
+        leaseId: '44444444-4444-4444-8444-444444444444',
+        version: 1,
+        serverTime: '2026-09-26T03:00:00.000Z',
+        expiresAt: '2026-09-26T03:00:45.000Z',
+      };
       const composed = await observeProtectedTrialArtifact(
         {
           manifest,
-          binding: {
-            kind: 'Evaluation',
-            evaluationId,
-            taskId: manifest.taskId,
-            taskRevisionSaid: manifest.taskRevisionSaid,
-            originRunId: manifest.originRunId,
-            personalAgentAid: manifest.personalAgentAid,
-            taskMandateSaid: manifest.taskMandateSaid,
-            harnessRevisionSaid: manifest.revisions.C2,
-            evaluationLeaseId: '44444444-4444-4444-8444-444444444444',
-            evidenceStreamId: '55555555-5555-4555-8555-555555555555',
-            phase: {
-              kind: 'Trial',
-              manifestSaid: manifest.d,
-              arm: 'C2',
-              repetition: 1,
-              attempt: 1,
-            },
-          },
-          lease: {
-            evaluationId,
-            leaseId: '44444444-4444-4444-8444-444444444444',
-            version: 1,
-            serverTime: '2026-09-26T03:00:00.000Z',
-            expiresAt: '2026-09-26T03:00:45.000Z',
-          },
+          binding: trialBinding,
+          lease: trialLease,
           leaseRequestStartedAt: 1000,
           now: 2000,
           cleanSourceSaid: said('n'),
@@ -532,7 +534,10 @@ describe.skipIf(process.env.DEVRANDOM_EVAL_IMAGE === undefined)(
       });
       expect(realObserve).toHaveBeenCalledTimes(4);
       expect(retained).toHaveBeenCalledWith({
-        evaluationId,
+        binding: trialBinding,
+        manifest,
+        lease: trialLease,
+        expectedHeadSaid: said('e'),
         artifacts: [
           sealedStimulus.artifact,
           sealedExpected.artifact,

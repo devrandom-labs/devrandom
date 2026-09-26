@@ -1,10 +1,13 @@
 import { Buffer } from 'node:buffer';
+import type { EvaluationExecutionBinding, EvaluationLeaseReceipt } from '@devrandom/domain';
 import {
   bindEvaluationVerifierBundle,
   cesrVerifierObservationSchema,
+  decodeEvaluationEvidenceEvent,
   decodeEvaluationVerifierBundleBytes,
   prepareEvidenceArtifact,
   type EvaluationManifest,
+  type EvaluationEvidenceEvent,
   type EvaluationVerifierBundle,
   type ProtectedEvaluationArtifact,
 } from '@devrandom/protocol';
@@ -54,18 +57,33 @@ export interface ReviewedReceiptOracle {
   >;
 }
 
-/** Exact hosted/private custody acknowledgement before a protected result is durable. */
+/**
+ * Trusted-parent custody conversation. The M lock already retains the first two
+ * ciphertexts. The adapter checks that lock, retains only the new observation,
+ * and acknowledges its one Trial ArtifactCaptured event at the stopped head.
+ * A lost lock read or batch acknowledgement is Unavailable, never Acknowledged.
+ */
 export interface EvaluationProtectedArtifacts {
   retain(input: {
-    readonly evaluationId: string;
+    readonly binding: EvaluationExecutionBinding;
+    readonly manifest: EvaluationManifest;
+    readonly lease: EvaluationLeaseReceipt;
+    readonly expectedHeadSaid: string;
     readonly artifacts: readonly [
       ProtectedEvaluationArtifact,
       ProtectedEvaluationArtifact,
       ProtectedEvaluationArtifact,
     ];
   }): Promise<
-    | { readonly kind: 'Acknowledged'; readonly artifactSaids: readonly string[] }
-    | { readonly kind: 'Conflict' | 'Unavailable' }
+    | {
+        readonly kind: 'Acknowledged';
+        readonly artifactSaids: readonly string[];
+        /** The one accepted Trial ArtifactCaptured event for the new observation only. */
+        readonly event: EvaluationEvidenceEvent;
+        readonly throughSequence: number;
+        readonly headSaid: string;
+      }
+    | { readonly kind: 'Conflict' | 'LeaseLost' | 'Unavailable' }
   >;
 }
 
@@ -117,6 +135,8 @@ export type ProtectedTrialArtifactObservation =
       readonly protectedObservationSaid: string;
       readonly protectedCleanupReceiptSaid: string;
       readonly acknowledgedArtifactSaids: readonly [string, string, string];
+      readonly custodyEvidenceHeadSaid: string;
+      readonly custodyEvidenceSequence: number;
     };
 
 const said = /^[A-Z][A-Za-z0-9_-]{43}$/u;
@@ -287,17 +307,42 @@ export async function observeProtectedTrialArtifact(
     protectedCase.expected.d,
     assessed.observationArtifact.d,
   ] as const;
+  let acknowledged: Extract<
+    Awaited<ReturnType<EvaluationProtectedArtifacts['retain']>>,
+    { kind: 'Acknowledged' }
+  >;
   try {
     const retained = await dependencies.protectedArtifacts.retain({
-      evaluationId: input.manifest.evaluationId,
+      binding: input.binding,
+      manifest: input.manifest,
+      lease: input.lease,
+      expectedHeadSaid: stopped.evidenceHeadSaid,
       artifacts: [protectedCase.stimulus, protectedCase.expected, assessed.observationArtifact],
     });
     if (
       retained.kind !== 'Acknowledged' ||
       retained.artifactSaids.length !== 3 ||
-      retained.artifactSaids.some((item, index) => item !== expectedSaids[index])
+      retained.artifactSaids.some((item, index) => item !== expectedSaids[index]) ||
+      decodeEvaluationEvidenceEvent(retained.event).kind !== 'Accepted' ||
+      retained.event.sequence !== retained.throughSequence ||
+      retained.event.d !== retained.headSaid ||
+      retained.event.previous.kind !== 'Previous' ||
+      retained.event.previous.eventSaid !== stopped.evidenceHeadSaid ||
+      retained.event.evaluationId !== input.binding.evaluationId ||
+      retained.event.streamId !== input.binding.evidenceStreamId ||
+      retained.event.originRunId !== input.binding.originRunId ||
+      retained.event.taskId !== input.binding.taskId ||
+      retained.event.taskRevisionSaid !== input.binding.taskRevisionSaid ||
+      retained.event.personalAgentAid !== input.binding.personalAgentAid ||
+      retained.event.taskMandateSaid !== input.binding.taskMandateSaid ||
+      retained.event.harnessRevisionSaid !== input.binding.harnessRevisionSaid ||
+      JSON.stringify(retained.event.phase) !== JSON.stringify(input.binding.phase) ||
+      retained.event.detail.kind !== 'ArtifactCaptured' ||
+      retained.event.detail.custody !== 'ProtectedCiphertext' ||
+      retained.event.detail.artifactSaid !== assessed.observationArtifact.d
     )
       return { kind: 'Incomplete', frontier: 'ProtectedCustody', frozenArtifact: built };
+    acknowledged = retained;
   } catch {
     return { kind: 'Incomplete', frontier: 'ProtectedCustody', frozenArtifact: built };
   }
@@ -313,5 +358,7 @@ export async function observeProtectedTrialArtifact(
     protectedObservationSaid: assessed.observationArtifact.d,
     protectedCleanupReceiptSaid: assessed.cleanupReceiptSaid,
     acknowledgedArtifactSaids: expectedSaids,
+    custodyEvidenceHeadSaid: acknowledged.headSaid,
+    custodyEvidenceSequence: acknowledged.throughSequence,
   };
 }

@@ -1,5 +1,6 @@
 import {
   encodeEvaluationVerifierBundle,
+  prepareEvaluationEvidenceEvent,
   prepareEvaluationManifest,
   prepareEvaluationVerifierBundle,
   prepareProtectedEvaluationArtifact,
@@ -218,6 +219,26 @@ function dependencies(given: ReturnType<typeof fixture>) {
       ),
     }),
   );
+  const captured = prepareEvaluationEvidenceEvent({
+    evaluationId: given.input.binding.evaluationId,
+    streamId: given.input.binding.evidenceStreamId,
+    originRunId: given.input.binding.originRunId,
+    taskId: given.input.binding.taskId,
+    taskRevisionSaid: given.input.binding.taskRevisionSaid,
+    personalAgentAid: given.input.binding.personalAgentAid,
+    taskMandateSaid: given.input.binding.taskMandateSaid,
+    harnessRevisionSaid: given.input.binding.harnessRevisionSaid,
+    phase: given.input.binding.phase,
+    sequence: 20,
+    previous: { kind: 'Previous', eventSaid: said('v') },
+    occurredAt: '2026-09-26T03:00:02.000Z',
+    detail: {
+      kind: 'ArtifactCaptured',
+      artifactSaid: protectedObservation.d,
+      custody: 'ProtectedCiphertext',
+    },
+  });
+  if (captured.kind !== 'Prepared') throw new Error('fixture capture event rejected');
   const retain = vi.fn().mockResolvedValue({
     kind: 'Acknowledged' as const,
     artifactSaids: [
@@ -225,6 +246,9 @@ function dependencies(given: ReturnType<typeof fixture>) {
       given.bundle.protectedCase.expected.d,
       protectedObservation.d,
     ],
+    event: captured.event,
+    throughSequence: captured.event.sequence,
+    headSaid: captured.event.d,
   });
   const ports: ProtectedTrialArtifactDependencies = {
     lock: { inspect: lock },
@@ -236,7 +260,18 @@ function dependencies(given: ReturnType<typeof fixture>) {
     custody: { seal: vi.fn().mockRejectedValue(new Error('not used')), open: openProtected },
     protectedArtifacts: { retain },
   };
-  return { ports, lock, openCases, inspectOracle, run, build, observe, openProtected, retain };
+  return {
+    ports,
+    lock,
+    openCases,
+    inspectOracle,
+    run,
+    build,
+    observe,
+    openProtected,
+    retain,
+    capturedEvent: captured.event,
+  };
 }
 
 describe('protected trial artifact conversation', () => {
@@ -288,7 +323,10 @@ describe('protected trial artifact conversation', () => {
     );
     expect(wired.observe).toHaveBeenCalledTimes(2);
     expect(wired.retain).toHaveBeenCalledWith({
-      evaluationId: given.manifest.evaluationId,
+      binding: given.input.binding,
+      manifest: given.manifest,
+      lease: given.input.lease,
+      expectedHeadSaid: said('v'),
       artifacts: [
         given.bundle.protectedCase.stimulus,
         given.bundle.protectedCase.expected,
@@ -318,6 +356,40 @@ describe('protected trial artifact conversation', () => {
         given.bundle.protectedCase.stimulus.d,
         encrypted('OracleObservation', 0, said('q'), 'e').d,
       ],
+    });
+    expect(await observeProtectedTrialArtifact(given.input, wired.ports)).toMatchObject({
+      kind: 'Incomplete',
+      frontier: 'ProtectedCustody',
+    });
+    wired.retain.mockResolvedValue({
+      kind: 'Acknowledged',
+      artifactSaids: [
+        given.bundle.protectedCase.stimulus.d,
+        given.bundle.protectedCase.expected.d,
+        encrypted('OracleObservation', 0, said('q'), 'e').d,
+      ],
+      event: wired.capturedEvent,
+      throughSequence: wired.capturedEvent.sequence,
+      headSaid: said('z'),
+    });
+    expect(await observeProtectedTrialArtifact(given.input, wired.ports)).toMatchObject({
+      kind: 'Incomplete',
+      frontier: 'ProtectedCustody',
+    });
+  });
+
+  it('does not retain a protected verdict from a tuple claim without the exact appended event head', async () => {
+    const given = fixture({ kind: 'Rejected', error: 'AnyRejection' });
+    const wired = dependencies(given);
+    wired.retain.mockResolvedValue({
+      kind: 'Acknowledged',
+      artifactSaids: [
+        given.bundle.protectedCase.stimulus.d,
+        given.bundle.protectedCase.expected.d,
+        encrypted('OracleObservation', 0, said('q'), 'e').d,
+      ],
+      throughSequence: 20,
+      headSaid: said('z'),
     });
     expect(await observeProtectedTrialArtifact(given.input, wired.ports)).toMatchObject({
       kind: 'Incomplete',
