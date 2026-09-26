@@ -77,7 +77,7 @@ export type ContextCapacityMeasurement =
       readonly kind: 'ProviderRequest';
       readonly piEstimateTokens: number;
       readonly encodedBytes: number;
-      readonly profile: 'AsciiGemmaEstimate' | 'ByteFallback';
+      readonly profile: 'AsciiGemmaEstimate' | 'ByteFallback' | 'ResponsesByteBound';
       readonly admissionEstimateTokens: number;
       readonly allowedInputTokens: number;
       readonly providerRequestsAdmitted: number;

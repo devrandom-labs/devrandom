@@ -1,6 +1,7 @@
 import type { Api, AssistantMessage, Model, TranscriptContext } from '@earendil-works/pi-ai';
 import type { BaselineHarnessRevision } from '@devrandom/protocol';
 
+import { responsesRequestBytes } from '../pi/responses-request-measurement.js';
 import type { EvidenceRecorder } from '../evidence/evidence-recorder.js';
 import {
   budgetTerminal,
@@ -57,6 +58,7 @@ export class ParentRunModelInference {
     signal: AbortSignal,
   ): Promise<RunModelCompletion> {
     const config = this.#dependencies;
+    const interrupted = () => signal.aborted;
     if (
       requestOrdinal !== this.#nextOrdinal ||
       signal.aborted ||
@@ -65,13 +67,29 @@ export class ParentRunModelInference {
     )
       return { kind: 'Stopped', disposition: { kind: 'EvidenceIntegrityFailure' } };
     this.#nextOrdinal += 1;
-    const measured = requestContextMeasurement(
+    let measured = requestContextMeasurement(
       context.messages,
       { modelCompatibility: config.compatibility },
       requestOrdinal,
     );
     if (measured === undefined)
       return { kind: 'Stopped', disposition: { kind: 'EvidenceIntegrityFailure' } };
+    if (config.model.api === 'openai-responses' && config.model.provider === 'concentrate') {
+      const bytes = await responsesRequestBytes(config.model, context, {
+        maxTokens: config.compatibility.maximumOutputTokens,
+        ...(config.compatibility.thinkingLevel === 'off'
+          ? {}
+          : { reasoning: config.compatibility.thinkingLevel }),
+      });
+      if (bytes === undefined || interrupted())
+        return { kind: 'Stopped', disposition: { kind: 'EvidenceIntegrityFailure' } };
+      measured = {
+        ...measured,
+        profile: 'ResponsesByteBound',
+        admissionEstimateTokens: Math.max(measured.piEstimateTokens, bytes),
+      };
+    }
+
     if (measured.admissionEstimateTokens > measured.allowedInputTokens)
       return {
         kind: 'Stopped',
