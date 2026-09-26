@@ -65,6 +65,7 @@ function event(
         elapsedMilliseconds: number;
       }
     | { kind: 'ModelExchange'; rawArtifactSaid: string }
+    | { kind: 'SourceRead'; sourceSaid: string; rawArtifactSaid: string }
     | {
         kind: 'ArtifactCaptured';
         artifactSaid: string;
@@ -87,6 +88,7 @@ function event(
         };
         providerUsageEventSaids: string[];
       },
+  phase?: { kind: 'Trial'; manifestSaid: string; arm: 'H1'; repetition: 1; attempt: 1 },
 ) {
   const prepared = prepareEvaluationEvidenceEvent({
     evaluationId,
@@ -97,7 +99,7 @@ function event(
     personalAgentAid: said('a'),
     taskMandateSaid: said('m'),
     harnessRevisionSaid: said('h'),
-    phase: { kind: 'Research', policySaid: said('p'), role: 'DiagnosticRefiner' },
+    phase: phase ?? { kind: 'Research', policySaid: said('p'), role: 'DiagnosticRefiner' },
     sequence,
     previous,
     occurredAt: '2026-09-26T04:00:00.000Z',
@@ -388,6 +390,84 @@ describeWithMongo('Mongo native Evaluation evidence boundary', () => {
         .collection(evaluationCollectionNames.artifacts)
         .countDocuments({ 'artifact.d': artifact.artifact.d }),
     ).toBe(1);
+  });
+
+  it('accepts a Trial source read only when its exact frozen manifest bytes are in custody', async () => {
+    const state = await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .findOne({ _id: evaluationId, ownerAid });
+    if (state === null || state.chainHeadSaid === null)
+      throw new Error('accepted Evaluation stream missing');
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({ version: 1, files: [{ path: 'src/lib.rs', length: 5, digest: 'abc' }] }),
+    );
+    const prepared = prepareEvidenceArtifact(bytes, 'application/json');
+    if (prepared.kind !== 'Prepared') throw new Error('source manifest preparation failed');
+    const phase = {
+      kind: 'Trial' as const,
+      manifestSaid: said('M'),
+      arm: 'H1' as const,
+      repetition: 1 as const,
+      attempt: 1 as const,
+    };
+    const source = event(
+      state.acceptedThroughSequence + 1,
+      { kind: 'Previous', eventSaid: state.chainHeadSaid },
+      {
+        kind: 'SourceRead',
+        sourceSaid: prepared.artifact.d,
+        rawArtifactSaid: prepared.artifact.d,
+      },
+      phase,
+    );
+    const withBytes = {
+      ...upload([source]),
+      publicArtifacts: [
+        { artifact: prepared.artifact, bytesBase64Url: Buffer.from(bytes).toString('base64url') },
+      ],
+    };
+    const endpoint = `${address}/api/evaluations/${evaluationId}/batches`;
+    const headers = {
+      authorization: `Bearer ${'a'.repeat(43)}`,
+      'content-type': 'application/json',
+    };
+    const accepted = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(withBytes),
+    });
+    expect(accepted.status).toBe(201);
+    expect(
+      await database.collection(evaluationCollectionNames.artifacts).countDocuments({
+        evaluationId,
+        'artifact.d': prepared.artifact.d,
+      }),
+    ).toBe(1);
+
+    const current = await database
+      .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+      .findOne({ _id: evaluationId, ownerAid });
+    if (current === null || current.chainHeadSaid === null)
+      throw new Error('accepted Trial source read missing');
+    const substituted = event(
+      current.acceptedThroughSequence + 1,
+      { kind: 'Previous', eventSaid: current.chainHeadSaid },
+      { kind: 'SourceRead', sourceSaid: said('x'), rawArtifactSaid: prepared.artifact.d },
+      phase,
+    );
+    const rejected = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(upload([substituted])),
+    });
+    expect(rejected.status).toBe(400);
+    expect(
+      (
+        await database
+          .collection<EvaluationDocument>(evaluationCollectionNames.evaluations)
+          .findOne({ _id: evaluationId, ownerAid })
+      )?.acceptedThroughSequence,
+    ).toBe(current.acceptedThroughSequence);
   });
 
   it('renews only the current lease and reconciles one exact command across a lost reply', async () => {

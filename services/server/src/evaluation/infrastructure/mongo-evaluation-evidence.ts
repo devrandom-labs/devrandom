@@ -279,14 +279,21 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
           for (const event of events) {
             for (const said of referencedArtifacts(event)) {
               if (event.detail.kind === 'SourceRead' && said === event.detail.rawArtifactSaid) {
-                if (await this.#sourceReadExists(evaluation, event, session)) continue;
-                return { kind: 'Rejected' as const, reason: 'MissingBytes' as const };
+                if (event.phase.kind === 'Research') {
+                  if (await this.#sourceReadExists(evaluation, event, session)) continue;
+                  return { kind: 'Rejected' as const, reason: 'MissingBytes' as const };
+                }
+                // A Trial stages a local frozen source manifest. Its exact raw bytes
+                // must be in this Evaluation's public custody under the source SAID.
+                if (event.detail.sourceSaid !== said)
+                  return { kind: 'Rejected' as const, reason: 'Binding' as const };
               }
               const freshCustody = newArtifacts.get(said);
               if (freshCustody !== undefined) {
                 if (
-                  event.detail.kind === 'ArtifactCaptured' &&
-                  event.detail.custody !== freshCustody
+                  (event.detail.kind === 'ArtifactCaptured' &&
+                    event.detail.custody !== freshCustody) ||
+                  (event.detail.kind === 'SourceRead' && freshCustody !== 'Public')
                 )
                   return { kind: 'Rejected' as const, reason: 'Binding' as const };
                 continue;
@@ -298,8 +305,9 @@ export class MongoEvaluationEvidence implements EvaluationEvidenceBatches {
               if (stored === null)
                 return { kind: 'Rejected' as const, reason: 'MissingBytes' as const };
               if (
-                event.detail.kind === 'ArtifactCaptured' &&
-                event.detail.custody !== stored.custody
+                (event.detail.kind === 'ArtifactCaptured' &&
+                  event.detail.custody !== stored.custody) ||
+                (event.detail.kind === 'SourceRead' && stored.custody !== 'Public')
               )
                 return { kind: 'Rejected' as const, reason: 'Binding' as const };
             }
