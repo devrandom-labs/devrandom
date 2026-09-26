@@ -17,6 +17,7 @@ import { Value } from 'typebox/value';
 import {
   taskBudgetsSchema,
   taskEvaluationBudgetsSchema,
+  taskEvaluationBudgetCeilings,
   taskToolCommandSchema,
   toolCapabilitySchema,
   type TaskRevision,
@@ -216,7 +217,16 @@ export const baselineHarnessRevisionSchema = Type.Object(
     budgetCeilings: Type.Object(
       {
         task: taskEvaluationBudgetsSchema,
-        server: taskBudgetsSchema,
+        server: Type.Object(
+          {
+            ...taskBudgetsSchema.properties,
+            runsPerAdmittedUser: Type.Integer({
+              minimum: 0,
+              maximum: taskEvaluationBudgetCeilings.runsPerAdmittedUser,
+            }),
+          },
+          { additionalProperties: false },
+        ),
         mandate: taskEvaluationBudgetsSchema,
       },
       { additionalProperties: false },

@@ -102,6 +102,30 @@ describe('baseline Harness Revision protocol', () => {
     if (prepared.kind !== 'Prepared') return;
     expect(decodeBaselineHarnessRevision(prepared.revision)).toMatchObject({ kind: 'Accepted' });
   });
+  it('permits only the approved Run-slot amendment in the H1 server budget product', () => {
+    const input = preparationInput();
+    const server = { ...taskBudgetCeilings, runsPerAdmittedUser: 8 };
+    const prepared = prepareBaselineHarnessRevision({
+      ...input,
+      budgetCeilings: { ...input.budgetCeilings, server },
+    });
+    expect(prepared.kind).toBe('Prepared');
+    if (prepared.kind !== 'Prepared') return;
+    expect(decodeBaselineHarnessRevision(prepared.revision).kind).toBe('Accepted');
+    for (const widened of [
+      { ...server, providerRequests: 51 },
+      { ...server, providerSpendMicroUsd: 5_000_001 },
+      { ...server, providerInputTokens: 500_001 },
+      { ...server, runsPerAdmittedUser: 9 },
+    ]) {
+      expect(
+        prepareBaselineHarnessRevision({
+          ...input,
+          budgetCeilings: { ...input.budgetCeilings, server: widened },
+        }).kind,
+      ).toBe('Rejected');
+    }
+  });
   it('produces one canonical SAID for equivalent normalized H1 inputs', () => {
     const source = preparationInput();
     const first = prepareBaselineHarnessRevision(source);

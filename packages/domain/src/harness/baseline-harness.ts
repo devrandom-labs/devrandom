@@ -1,4 +1,25 @@
-import type { TaskBudgets, TaskToolCapability } from '../task/authority.js';
+import {
+  taskBudgetCeilings,
+  taskEvaluationBudgetCeilings,
+  type TaskBudgets,
+  type TaskToolCapability,
+} from '../task/authority.js';
+
+const expandedRunQuotaServerCeilings: Readonly<TaskBudgets> = Object.freeze({
+  ...taskBudgetCeilings,
+  runsPerAdmittedUser: taskEvaluationBudgetCeilings.runsPerAdmittedUser,
+});
+
+/** Preserve signed old H1 ceilings; a fresh v2 Task must explicitly request the added Run slots. */
+export function baselineHarnessServerBudgetCeilings(task: {
+  readonly version: 1 | 2;
+  readonly budgets: Pick<TaskBudgets, 'runsPerAdmittedUser'>;
+}): Readonly<TaskBudgets> {
+  return task.version === 2 &&
+    task.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
+    ? expandedRunQuotaServerCeilings
+    : taskBudgetCeilings;
+}
 
 export interface HarnessComponentReference {
   readonly identity: string;

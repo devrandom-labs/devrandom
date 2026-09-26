@@ -305,6 +305,7 @@ export type PreparedTaskCommand = Type.Static<typeof preparedTaskCommandSchema>;
 export const taskEvaluationBudgetsSchema = Type.Object(
   {
     ...taskBudgetsSchema.properties,
+    runsPerAdmittedUser: safeInteger(taskEvaluationBudgetCeilings.runsPerAdmittedUser),
     artifactRequestBodyBytes: safeInteger(taskEvaluationBudgetCeilings.artifactRequestBodyBytes),
     evidencePlusArtifactsPerRunBytes: safeInteger(
       taskEvaluationBudgetCeilings.evidencePlusArtifactsPerRunBytes,

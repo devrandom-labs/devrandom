@@ -121,6 +121,7 @@ function command(
   selectedTask: TaskProjection = task,
   toolCommands: BaselineHarnessPreparationInput['toolCommands'] = [],
   model = 'claude-sonnet-4-5',
+  server = taskBudgetCeilings,
 ) {
   const toolCapabilities = selectedTask.revision.requestedCapabilities.flatMap(
     (capability): TaskToolCapability[] => (capability === 'ReadTaskMemory' ? [] : [capability]),
@@ -189,7 +190,7 @@ function command(
     },
     budgetCeilings: {
       task: selectedTask.revision.budgets,
-      server: taskBudgetCeilings,
+      server,
       mandate: selectedTask.revision.budgets,
     },
   });
@@ -226,58 +227,82 @@ function dependencies(
 }
 
 describe('baseline Harness admission', () => {
-  it('admits a PRD03 Task while keeping experience read separate from Pi tools', async () => {
-    const source = taskCommand.revision;
-    const experience = {
-      corpusSaid: `E${'q'.repeat(43)}`,
-      repositoryResourceSaid: `E${'s'.repeat(43)}`,
-      disclosure: 'AuthorizedAnalogy' as const,
-    };
-    const prepared = prepareTaskCommandV2(
-      {
-        version: 2,
-        label: task.label,
-        title: source.title,
-        objective: source.objective,
-        repository: { kind: 'gitCommit', commit: source.repository.commit },
-        deliverables: source.deliverables,
-        completionConditions: source.completionConditions,
-        constraints: {
-          ...source.constraints,
-          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
-          experience,
+  it.each([6, 8])(
+    'admits v2 quota%s without widening per-Run spending or Pi tools',
+    async (quota) => {
+      const source = taskCommand.revision;
+      const experience = {
+        corpusSaid: `E${'q'.repeat(43)}`,
+        repositoryResourceSaid: `E${'s'.repeat(43)}`,
+        disclosure: 'AuthorizedAnalogy' as const,
+      };
+      const prepared = prepareTaskCommandV2(
+        {
+          version: 2,
+          label: task.label,
+          title: source.title,
+          objective: source.objective,
+          repository: { kind: 'gitCommit', commit: source.repository.commit },
+          deliverables: source.deliverables,
+          completionConditions: source.completionConditions,
+          constraints: {
+            ...source.constraints,
+            dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+            experience,
+          },
+          requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
+          unavailableCapabilities: source.unavailableCapabilities,
+          budgets: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: quota },
+          expiresAt: source.expiresAt,
+          evolutionClasses: source.evolutionClasses,
+          checkpointExpectations: source.checkpointExpectations,
         },
-        requestedCapabilities: [...source.requestedCapabilities, 'ReadTaskMemory'],
-        unavailableCapabilities: source.unavailableCapabilities,
-        budgets: taskEvaluationBudgetCeilings,
-        expiresAt: source.expiresAt,
-        evolutionClasses: source.evolutionClasses,
-        checkpointExpectations: source.checkpointExpectations,
-      },
-      task.commandId,
-      source.repository,
-    );
-    expect(prepared.kind).toBe('Prepared');
-    if (prepared.kind !== 'Prepared') return;
-    const scopedTask: TaskProjection = {
-      ...task,
-      revision: prepared.command.revision,
-      revisionSaid: prepared.command.revision.d,
-    };
-    const configured = dependencies();
-    const outcome = await admitBaselineHarness(
-      {
-        protectedCredentials: new ProtectedCredentials(),
-        owner: { ownerAid: taskOwnerAid, credentialSaid: userCredentialSaid },
-        command: command(scopedTask),
-      },
-      {
-        ...configured,
-        currentTaskMandate: { authorize: () => Promise.resolve(authorization(scopedTask)) },
-      },
-    );
-    expect(outcome).toMatchObject({ kind: 'HarnessRevisionCreated' });
-  });
+        task.commandId,
+        source.repository,
+      );
+      expect(prepared.kind).toBe('Prepared');
+      if (prepared.kind !== 'Prepared') return;
+      const scopedTask: TaskProjection = {
+        ...task,
+        revision: prepared.command.revision,
+        revisionSaid: prepared.command.revision.d,
+      };
+      const configured = dependencies();
+      const outcome = await admitBaselineHarness(
+        {
+          protectedCredentials: new ProtectedCredentials(),
+          owner: { ownerAid: taskOwnerAid, credentialSaid: userCredentialSaid },
+          command: command(scopedTask, [], 'claude-sonnet-4-5', {
+            ...taskBudgetCeilings,
+            runsPerAdmittedUser: quota,
+          }),
+        },
+        {
+          ...configured,
+          currentTaskMandate: { authorize: () => Promise.resolve(authorization(scopedTask)) },
+        },
+      );
+      expect(outcome).toMatchObject({ kind: 'HarnessRevisionCreated' });
+      const substituted = await admitBaselineHarness(
+        {
+          protectedCredentials: new ProtectedCredentials(),
+          owner: { ownerAid: taskOwnerAid, credentialSaid: userCredentialSaid },
+          command: command(scopedTask, [], 'claude-sonnet-4-5', {
+            ...taskBudgetCeilings,
+            runsPerAdmittedUser: quota === 8 ? 6 : 8,
+          }),
+        },
+        {
+          ...configured,
+          currentTaskMandate: { authorize: () => Promise.resolve(authorization(scopedTask)) },
+        },
+      );
+      expect(substituted).toMatchObject({
+        kind: 'HarnessRevisionRejected',
+        reason: 'BudgetCeilingMismatch',
+      });
+    },
+  );
   it('rejects the current Grant bearer before H1 reconciliation or persistence', async () => {
     const bearer = 's'.repeat(43);
     const reconcile = vi.fn<AdmitBaselineHarnessDependencies['revisions']['reconcile']>();

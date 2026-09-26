@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { taskBudgetCeilings } from '../task/authority.js';
-import { deriveBaselineHarness, type BaselineHarnessDerivationInput } from './baseline-harness.js';
+import {
+  baselineHarnessServerBudgetCeilings,
+  deriveBaselineHarness,
+  type BaselineHarnessDerivationInput,
+} from './baseline-harness.js';
 
 const said = (character: string): string => `E${character.repeat(43)}`;
 
@@ -309,4 +313,21 @@ describe('baseline Harness derivation', () => {
       capability: 'SubmitResult',
     });
   });
+});
+
+it('preserves old v1/v2 H1 server ceilings and raises only explicitly requested v2 Run quota', () => {
+  for (const version of [1, 2] as const) {
+    expect(
+      baselineHarnessServerBudgetCeilings({ version, budgets: { runsPerAdmittedUser: 6 } }),
+    ).toBe(taskBudgetCeilings);
+  }
+  expect(
+    baselineHarnessServerBudgetCeilings({ version: 1, budgets: { runsPerAdmittedUser: 8 } }),
+  ).toBe(taskBudgetCeilings);
+  const expanded = baselineHarnessServerBudgetCeilings({
+    version: 2,
+    budgets: { runsPerAdmittedUser: 8 },
+  });
+  expect(expanded).toEqual({ ...taskBudgetCeilings, runsPerAdmittedUser: 8 });
+  expect(Object.isFrozen(expanded)).toBe(true);
 });

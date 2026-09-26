@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import { baselineHarnessServerBudgetCeilings } from '@devrandom/domain';
 import type {
   CurrentTaskMandate,
   ProtectedCredentials,
@@ -10,7 +11,6 @@ import {
   harnessCommandFingerprint,
   identifyHarnessCompletionCommand,
   identifyHarnessToolCommand,
-  taskBudgetCeilings,
   type AdmitBaselineHarnessBody,
   type BaselineHarnessProjection,
 } from '@devrandom/protocol';
@@ -148,7 +148,10 @@ function bindingRejection(
   }
   if (
     !isDeepStrictEqual(revision.budgetCeilings.task, task.revision.budgets) ||
-    !isDeepStrictEqual(revision.budgetCeilings.server, taskBudgetCeilings) ||
+    !isDeepStrictEqual(
+      revision.budgetCeilings.server,
+      baselineHarnessServerBudgetCeilings(task.revision),
+    ) ||
     !isDeepStrictEqual(revision.budgetCeilings.mandate, mandate.budgets)
   ) {
     return 'BudgetCeilingMismatch';

@@ -111,6 +111,27 @@ describe('Task command schemas', () => {
       budgets: { ...old.budgets, ...taskEvaluationBudgetCeilings },
     } as const;
     expect(Value.Check(taskSourceCommandSchema, fresh)).toBe(false);
+    expect(
+      prepareTaskCommand(
+        { ...old, budgets: { ...old.budgets, runsPerAdmittedUser: 8 } },
+        commandId,
+        binding,
+      ).kind,
+    ).toBe('Rejected');
+    expect(
+      prepareTaskCommandV2(
+        { ...fresh, budgets: { ...fresh.budgets, runsPerAdmittedUser: 8 } },
+        commandId,
+        binding,
+      ).kind,
+    ).toBe('Prepared');
+    expect(
+      prepareTaskCommandV2(
+        { ...fresh, budgets: { ...fresh.budgets, runsPerAdmittedUser: 9 } },
+        commandId,
+        binding,
+      ).kind,
+    ).toBe('Rejected');
     const prepared = prepareTaskCommandV2(fresh, commandId, binding);
     expect(prepared.kind).toBe('Prepared');
     if (prepared.kind !== 'Prepared') throw new Error('expected v2 task');

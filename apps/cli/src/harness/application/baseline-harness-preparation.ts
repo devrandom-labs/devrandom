@@ -1,3 +1,4 @@
+import { baselineHarnessServerBudgetCeilings } from '@devrandom/domain';
 import type {
   HarnessEnvironmentCompatibility,
   HarnessCommand,
@@ -13,7 +14,6 @@ import {
   identifyHarnessCompletionCommand,
   identifyHarnessToolCommand,
   prepareBaselineHarnessRevision,
-  taskBudgetCeilings,
   type AdmitBaselineHarnessBody,
   type BaselineHarnessProjection,
   type HarnessProblem,
@@ -288,7 +288,7 @@ export class BaselineHarnessPreparation {
       },
       budgetCeilings: {
         task: input.task.revision.budgets,
-        server: taskBudgetCeilings,
+        server: baselineHarnessServerBudgetCeilings(input.task.revision),
         mandate: input.authority.mandateBudgets,
       },
     });

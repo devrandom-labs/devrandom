@@ -3,6 +3,8 @@ import {
   identifyHarnessInstruction,
   identifyHarnessToolCommand,
   prepareTaskCommand,
+  prepareTaskCommandV2,
+  taskBudgetCeilings,
   type AdmitBaselineHarnessBody,
   type BaselineHarnessProjection,
 } from '@devrandom/protocol';
@@ -352,66 +354,110 @@ describe('baseline Harness preparation', () => {
     },
   );
 
-  it('derives one stable H1 from Task and personal-agent authority before admitting it', async () => {
-    const task = taskProjectionFixture();
-    const admitted: BaselineHarnessProjection[] = [];
-    const hosted: HostedBaselineHarnesses = {
-      admit: vi.fn((command: AdmitBaselineHarnessBody) => {
-        const projection: BaselineHarnessProjection = {
-          version: 1,
-          ownerAid: task.ownerAid,
-          commandId: command.commandId,
-          acceptedAt: '2026-09-24T19:00:00.000Z',
-          revision: command.revision,
+  it.each([
+    { version: 1, quota: 6 },
+    { version: 2, quota: 6 },
+    { version: 2, quota: 8 },
+  ] as const)(
+    'derives stable H1 for v$version quota$quota without changing spending',
+    async ({ version, quota }) => {
+      let task = taskProjectionFixture();
+      if (version === 2) {
+        const old = taskSourceFixture();
+        const prepared = prepareTaskCommandV2(
+          {
+            ...old,
+            version: 2,
+            constraints: {
+              ...old.constraints,
+              dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+              experience: {
+                corpusSaid: `E${'c'.repeat(43)}`,
+                repositoryResourceSaid: `E${'r'.repeat(43)}`,
+                disclosure: 'AuthorizedAnalogy',
+              },
+            },
+            requestedCapabilities: [...old.requestedCapabilities, 'ReadTaskMemory'],
+            budgets: { ...old.budgets, runsPerAdmittedUser: quota },
+          },
+          harnessCommandId,
+          preparedRepositoryFixture,
+        );
+        expect(prepared.kind).toBe('Prepared');
+        if (prepared.kind !== 'Prepared') return;
+        task = {
+          ...task,
+          revision: prepared.command.revision,
+          revisionSaid: prepared.command.revision.d,
         };
-        admitted.push(projection);
-        return Promise.resolve({ kind: 'Created', projection } as const);
-      }),
-    };
-    const admissions: BaselineHarnessAdmissions = {
-      acquire: vi.fn(() =>
-        Promise.resolve({ kind: 'Acquired', commandId: harnessCommandId } as const),
-      ),
-      acknowledge: vi.fn(() => Promise.resolve({ kind: 'Acknowledged' } as const)),
-    };
-    const application = new BaselineHarnessPreparation({
-      modelCredential: {
-        acquire: () =>
-          Promise.resolve({ kind: 'Available', secret: 'opaque-fixture-provider-value' }),
-      },
-      availableCapabilities: ['ReadRepository', 'EditRepository', 'RunTests', 'SubmitResult'],
-      repository: inspection(),
-      model: modelInspection(),
-      admissions,
-      wait: () => Promise.resolve(),
-    });
-    const input = {
-      task,
-      protectedCredentials: new ProtectedCredentials(),
-      authority: {
+      }
+      const admitted: BaselineHarnessProjection[] = [];
+      const hosted: HostedBaselineHarnesses = {
+        admit: vi.fn((command: AdmitBaselineHarnessBody) => {
+          const projection: BaselineHarnessProjection = {
+            version: 1,
+            ownerAid: task.ownerAid,
+            commandId: command.commandId,
+            acceptedAt: '2026-09-24T19:00:00.000Z',
+            revision: command.revision,
+          };
+          admitted.push(projection);
+          return Promise.resolve({ kind: 'Created', projection } as const);
+        }),
+      };
+      const admissions: BaselineHarnessAdmissions = {
+        acquire: vi.fn(() =>
+          Promise.resolve({ kind: 'Acquired', commandId: harnessCommandId } as const),
+        ),
+        acknowledge: vi.fn(() => Promise.resolve({ kind: 'Acknowledged' } as const)),
+      };
+      const application = new BaselineHarnessPreparation({
+        modelCredential: {
+          acquire: () =>
+            Promise.resolve({ kind: 'Available', secret: 'opaque-fixture-provider-value' }),
+        },
+        availableCapabilities: ['ReadRepository', 'EditRepository', 'RunTests', 'SubmitResult'],
+        repository: inspection(),
+        model: modelInspection(),
+        admissions,
+        wait: () => Promise.resolve(),
+      });
+      const input = {
+        task,
+        protectedCredentials: new ProtectedCredentials(),
+        authority: {
+          personalAgentAid: harnessPersonalAgentAid,
+          taskMandateSaid: harnessTaskMandateSaid,
+          allowedCapabilities: task.revision.requestedCapabilities.filter(
+            (capability) => capability !== 'ReadTaskMemory',
+          ),
+          mandateBudgets: task.revision.budgets,
+        },
+        hosted,
+      } as const;
+
+      const first = await application.prepare(input);
+      const second = await application.prepare(input);
+
+      expect(first).toMatchObject({ kind: 'HarnessAdmitted', admission: 'Created' });
+      expect(second).toMatchObject({ kind: 'HarnessAdmitted', admission: 'Created' });
+      expect(admitted).toHaveLength(2);
+      expect(admitted[0]?.revision.d).toBe(admitted[1]?.revision.d);
+      expect(admitted[0]?.revision.authority).toEqual({
         personalAgentAid: harnessPersonalAgentAid,
         taskMandateSaid: harnessTaskMandateSaid,
-        allowedCapabilities: task.revision.requestedCapabilities,
-        mandateBudgets: task.revision.budgets,
-      },
-      hosted,
-    } as const;
-
-    const first = await application.prepare(input);
-    const second = await application.prepare(input);
-
-    expect(first).toMatchObject({ kind: 'HarnessAdmitted', admission: 'Created' });
-    expect(second).toMatchObject({ kind: 'HarnessAdmitted', admission: 'Created' });
-    expect(admitted).toHaveLength(2);
-    expect(admitted[0]?.revision.d).toBe(admitted[1]?.revision.d);
-    expect(admitted[0]?.revision.authority).toEqual({
-      personalAgentAid: harnessPersonalAgentAid,
-      taskMandateSaid: harnessTaskMandateSaid,
-      allowedCapabilities: task.revision.requestedCapabilities,
-    });
-    expect(JSON.stringify(admitted[0])).not.toContain('governor');
-    expect(JSON.stringify(admitted[0])).not.toContain('promotionMandate');
-  });
+        allowedCapabilities: task.revision.requestedCapabilities.filter(
+          (capability) => capability !== 'ReadTaskMemory',
+        ),
+      });
+      expect(admitted[0]?.revision.budgetCeilings.server).toEqual({
+        ...taskBudgetCeilings,
+        runsPerAdmittedUser: quota,
+      });
+      expect(JSON.stringify(admitted[0])).not.toContain('governor');
+      expect(JSON.stringify(admitted[0])).not.toContain('promotionMandate');
+    },
+  );
 
   it('does not obtain a command identity or contact the server when Git inspection rejects', async () => {
     const acquire = vi.fn();
