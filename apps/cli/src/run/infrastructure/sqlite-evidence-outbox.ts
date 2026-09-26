@@ -57,6 +57,7 @@ import Type from 'typebox';
 import Value from 'typebox/value';
 
 import type { PreparedCompatibilityEvidence } from '../application/prepared-compatibility-calibration-settlement.js';
+import type { RunPredecessorReading } from '../application/run-predecessor-custody.js';
 import { readPreparedCompatibilityProviderProof } from './sqlite-prepared-compatibility-proofs.js';
 
 const outboxSoftBound = 60 * 1_024 * 1_024;
@@ -355,12 +356,14 @@ function state(database: DatabaseSync): StreamStateRow | undefined {
 function stateMatches(run: Run, current: StreamStateRow): boolean {
   return (
     current.run_id === run.binding.runId &&
-    current.stream_id === run.binding.evidenceStreamId &&
+    current.stream_id ===
+      (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) &&
     current.task_id === run.binding.taskId &&
     current.task_revision_said === run.binding.taskRevisionSaid &&
     run.lease.kind === 'Held' &&
     current.incarnation_id === run.lease.incarnationId &&
-    current.harness_revision_said === run.binding.initialHarnessRevisionSaid &&
+    current.harness_revision_said ===
+      (run.currentExecution?.harnessRevisionSaid ?? run.binding.initialHarnessRevisionSaid) &&
     current.personal_agent_aid === run.binding.personalAgentAid &&
     current.task_mandate_said === run.binding.taskMandateSaid
   );
@@ -541,7 +544,17 @@ function existingOutboxIsValid(database: DatabaseSync, opening: EvidenceRecorder
     return false;
   }
   let artifactBytes = 0;
-  const artifactDirectory = join(opening.stateRoot, 'runs', opening.run.binding.runId, 'artifacts');
+  const artifactDirectory =
+    opening.run.currentExecution === undefined
+      ? join(opening.stateRoot, 'runs', opening.run.binding.runId, 'artifacts')
+      : join(
+          opening.stateRoot,
+          'runs',
+          opening.run.binding.runId,
+          'incarnations',
+          opening.run.lease.kind === 'Held' ? opening.run.lease.incarnationId : 'invalid',
+          'artifacts',
+        );
   const artifacts = database
     .prepare('SELECT artifact_said, encoded_artifact, byte_length FROM evidence_artifacts')
     .iterate();
@@ -870,7 +883,9 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
       taskRevisionSaid: this.run.binding.taskRevisionSaid,
       runId: this.run.binding.runId,
       incarnationId: current.incarnation_id,
-      harnessRevisionSaid: this.run.binding.initialHarnessRevisionSaid,
+      harnessRevisionSaid:
+        this.run.currentExecution?.harnessRevisionSaid ??
+        this.run.binding.initialHarnessRevisionSaid,
       personalAgentAid: this.run.binding.personalAgentAid,
       taskMandateSaid: this.run.binding.taskMandateSaid,
       occurredAt: observation.occurredAt,
@@ -1008,7 +1023,8 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
       const prepared = prepareEvidenceBatch({
         version: 1,
         runId: this.run.binding.runId,
-        evidenceStreamId: this.run.binding.evidenceStreamId,
+        evidenceStreamId:
+          this.run.currentExecution?.evidenceStreamId ?? this.run.binding.evidenceStreamId,
         events,
       });
       if (prepared.kind !== 'Prepared') return { kind: 'LocalStateCorruption' };
@@ -1356,7 +1372,9 @@ class SqliteEvidenceRecorder implements PreparedCompatibilityEvidence {
           decoded.event.runId !== this.run.binding.runId ||
           decoded.event.incarnationId !== current.incarnation_id ||
           decoded.event.taskRevisionSaid !== this.run.binding.taskRevisionSaid ||
-          decoded.event.harnessRevisionSaid !== this.run.binding.initialHarnessRevisionSaid ||
+          decoded.event.harnessRevisionSaid !==
+            (this.run.currentExecution?.harnessRevisionSaid ??
+              this.run.binding.initialHarnessRevisionSaid) ||
           decoded.event.taskId !== this.run.binding.taskId ||
           decoded.event.personalAgentAid !== this.run.binding.personalAgentAid ||
           decoded.event.taskMandateSaid !== this.run.binding.taskMandateSaid ||
@@ -1509,6 +1527,106 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
     this.#credentials = credentials;
   }
 
+  readPredecessor(
+    input: Parameters<RunPredecessorReading['readPredecessor']>[0],
+  ): ReturnType<RunPredecessorReading['readPredecessor']> {
+    const { run, stream } = input;
+    if (
+      run.lifecycle.kind !== 'Active' ||
+      run.lifecycle.phase.kind !== 'Blocked' ||
+      run.lease.kind !== 'Held' ||
+      stream.seal.kind !== 'Sealed' ||
+      stream.cursor.kind !== 'Accepted' ||
+      stream.checkpoint.kind !== 'Accepted' ||
+      stream.checkpoint.checkpointSaid !== run.lifecycle.phase.checkpointSaid ||
+      stream.runId !== run.binding.runId ||
+      stream.evidenceStreamId !==
+        (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId)
+    )
+      return { kind: 'Rejected' };
+    const root = join(input.stateRoot, 'runs', run.binding.runId);
+    const directory =
+      run.currentExecution === undefined
+        ? root
+        : join(root, 'incarnations', run.lease.incarnationId);
+    const path = join(directory, 'outbox.sqlite');
+    let database: DatabaseSync | undefined;
+    try {
+      if (
+        !isOwnerOnlyDirectory(input.stateRoot) ||
+        !isOwnerOnlyDirectory(directory) ||
+        realpathSync(directory) !==
+          (run.currentExecution === undefined
+            ? join(realpathSync(input.stateRoot), 'runs', run.binding.runId)
+            : join(
+                realpathSync(input.stateRoot),
+                'runs',
+                run.binding.runId,
+                'incarnations',
+                run.lease.incarnationId,
+              )) ||
+        pathKind(path) !== 'RegularFile' ||
+        (lstatSync(path).mode & 0o777) !== 0o600
+      )
+        return { kind: 'Rejected' };
+      database = new DatabaseSync(path, { readOnly: true });
+      if (!existingOutboxIsValid(database, input)) return { kind: 'Rejected' };
+      const rows = database
+        .prepare('SELECT encoded_event FROM evidence_events ORDER BY sequence')
+        .all();
+      const events: EvidenceEvent[] = [];
+      for (const row of rows) {
+        if (typeof row.encoded_event !== 'string') return { kind: 'Rejected' };
+        const decoded = decodeEvidenceEvent(JSON.parse(row.encoded_event));
+        if (decoded.kind !== 'Accepted') return { kind: 'Rejected' };
+        events.push(decoded.event);
+      }
+      if (
+        !isDeepStrictEqual(events, input.events) ||
+        events.length !== stream.cursor.eventCount ||
+        events.at(-1)?.d !== stream.cursor.chainHeadSaid ||
+        events.at(-1)?.sequence !== stream.cursor.acceptedThroughSequence
+      )
+        return { kind: 'Rejected' };
+      const recorder = new SqliteEvidenceRecorder(
+        input,
+        database,
+        path,
+        join(directory, 'artifacts'),
+        this.#credentials,
+        this.#now,
+      );
+      const checkpoint = recorder.checkpoint(stream.checkpoint.checkpointSaid);
+      if (
+        checkpoint.kind !== 'Read' ||
+        !isDeepStrictEqual(checkpoint.checkpoint.budget.consumed, run.consumedBudget)
+      )
+        return { kind: 'Rejected' };
+      const references = new Set(events.flatMap(({ event }) => evidenceArtifactReferences(event)));
+      for (const said of checkpoint.checkpoint.outputArtifactSaids) references.add(said);
+      if (checkpoint.checkpoint.version === 1)
+        for (const file of checkpoint.checkpoint.repository.changedFiles)
+          references.add(file.contentSaid);
+      for (const receipt of checkpoint.checkpoint.verifierReceipts)
+        if (receipt.outcome.kind === 'Accepted' || receipt.outcome.kind === 'Rejected')
+          for (const said of receipt.outcome.outputArtifactSaids) references.add(said);
+      const artifacts = [];
+      for (const said of references) {
+        const artifact = recorder.artifact(said);
+        if (artifact.kind !== 'Read') return { kind: 'Rejected' };
+        artifacts.push({ artifact: artifact.artifact, bytes: artifact.bytes });
+      }
+      return {
+        kind: 'Read',
+        custody: { checkpoint: checkpoint.checkpoint, events, artifacts, stream },
+      };
+    } catch {
+      return { kind: 'Unavailable' };
+    } finally {
+      database?.close();
+    }
+  }
+
   /** Reopens custody for terminal accounting only, never a Pi execution session. */
   reconcileCalibration(
     opening: EvidenceRecorderOpening,
@@ -1571,7 +1689,8 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
           event.taskId !== run.binding.taskId ||
           event.taskRevisionSaid !== run.binding.taskRevisionSaid ||
           event.incarnationId !== run.lease.incarnationId ||
-          event.harnessRevisionSaid !== run.binding.initialHarnessRevisionSaid ||
+          event.harnessRevisionSaid !==
+            (run.currentExecution?.harnessRevisionSaid ?? run.binding.initialHarnessRevisionSaid) ||
           event.personalAgentAid !== run.binding.personalAgentAid ||
           event.taskMandateSaid !== run.binding.taskMandateSaid ||
           (previous === undefined
@@ -1619,8 +1738,18 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
     }
     const runsDirectory = join(opening.stateRoot, 'runs');
     const runDirectory = join(runsDirectory, opening.run.binding.runId);
-    const artifactDirectory = join(runDirectory, 'artifacts');
-    const path = join(runDirectory, 'outbox.sqlite');
+    if (
+      opening.run.currentExecution !== undefined &&
+      (opening.run.binding.purpose.kind !== 'Retained' ||
+        opening.run.lease.segmentSaid !== opening.run.currentExecution.segmentSaid)
+    )
+      return { kind: 'LocalStateCorruption' };
+    const executionDirectory =
+      opening.run.currentExecution === undefined
+        ? runDirectory
+        : join(runDirectory, 'incarnations', opening.run.lease.incarnationId);
+    const artifactDirectory = join(executionDirectory, 'artifacts');
+    const path = join(executionDirectory, 'outbox.sqlite');
     try {
       mkdirSync(artifactDirectory, { recursive: true, mode: 0o700 });
       if (
@@ -1628,6 +1757,11 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
         !isOwnerOnlyDirectory(runsDirectory) ||
         !isOwnerOnlyDirectory(runDirectory) ||
         !isOwnerOnlyDirectory(artifactDirectory) ||
+        (opening.run.currentExecution !== undefined &&
+          (!isOwnerOnlyDirectory(join(runDirectory, 'incarnations')) ||
+            !isOwnerOnlyDirectory(executionDirectory) ||
+            realpathSync(executionDirectory) !==
+              join(realpathSync(runDirectory), 'incarnations', opening.run.lease.incarnationId))) ||
         realpathSync(runDirectory) !==
           join(realpathSync(opening.stateRoot), 'runs', opening.run.binding.runId)
       ) {
@@ -1666,11 +1800,12 @@ export class SqliteEvidenceOutboxes implements EvidenceRecorders<PreparedCompati
           )
           .run(
             opening.run.binding.runId,
-            opening.run.binding.evidenceStreamId,
+            opening.run.currentExecution?.evidenceStreamId ?? opening.run.binding.evidenceStreamId,
             opening.run.binding.taskId,
             opening.run.binding.taskRevisionSaid,
             opening.run.lease.incarnationId,
-            opening.run.binding.initialHarnessRevisionSaid,
+            opening.run.currentExecution?.harnessRevisionSaid ??
+              opening.run.binding.initialHarnessRevisionSaid,
             opening.run.binding.personalAgentAid,
             opening.run.binding.taskMandateSaid,
           );

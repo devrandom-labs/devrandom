@@ -1037,6 +1037,30 @@ describe('SQLite evidence outbox', () => {
     expect(opened.recorder.sealAcknowledgement()).toEqual({ kind: 'Read', projection });
     opened.recorder.close();
     expect(retainedEventSaids(root, run.binding.runId)).toEqual(completeEventSaids);
+    const blocked: Run = {
+      ...run,
+      lifecycle: {
+        kind: 'Active',
+        phase: {
+          kind: 'Blocked',
+          reason: 'HarnessCompatibilityFailure',
+          checkpointSaid: verified.d,
+        },
+      },
+    };
+    const reader = new SqliteEvidenceOutboxes(() => '2026-09-24T20:01:00.000Z');
+    const events = [...firstPage.page.events, ...finalPage.page.events];
+    expect(
+      reader.readPredecessor({ run: blocked, stateRoot: root, stream: projection, events }),
+    ).toMatchObject({ kind: 'Read', custody: { checkpoint: verified, events } });
+    expect(
+      reader.readPredecessor({
+        run: blocked,
+        stateRoot: root,
+        stream: projection,
+        events: events.slice(1),
+      }),
+    ).toEqual({ kind: 'Rejected' });
   });
 
   it.each(['Observation', 'EffectFailed'] as const)(
@@ -1264,4 +1288,65 @@ describe('SQLite evidence outbox', () => {
     expect(retried.events[0]).toEqual(started.event);
     retried.recorder.close();
   });
+});
+
+it('opens a distinct successor stream without modifying its sealed predecessor custody', async () => {
+  const original = runFixture();
+  const root = await stateRoot();
+  const outboxes = new SqliteEvidenceOutboxes(() => '2026-09-24T20:10:00.000Z');
+  const initial = outboxes.open({ run: original, stateRoot: root });
+  if (initial.kind !== 'Opened') throw new Error(initial.kind);
+  expect(
+    initial.recorder.record({
+      occurredAt: '2026-09-24T20:00:02.000Z',
+      producer: { kind: 'RunSupervisor' },
+      event: { kind: 'RunStarted', fromRunVersion: original.version },
+    }).kind,
+  ).toBe('Recorded');
+  initial.recorder.close();
+  if (original.lease.kind !== 'Held') throw new Error('lease');
+  const successor: Run = {
+    ...original,
+    currentExecution: {
+      segmentSaid: said('s'),
+      harnessRevisionSaid: said('h'),
+      evidenceStreamId: '972736fe-fec5-49fb-81c9-ff12ab63dd5d',
+    },
+    lease: {
+      ...original.lease,
+      incarnationId: 'f970be8f-44c4-4297-8cf5-55fa660457d5',
+      segmentSaid: said('s'),
+    },
+  };
+  const opened = outboxes.open({ run: successor, stateRoot: root });
+  expect(opened.kind).toBe('Opened');
+  if (opened.kind !== 'Opened') return;
+  const recorded = opened.recorder.record({
+    occurredAt: '2026-09-24T20:10:00.000Z',
+    producer: { kind: 'RunSupervisor' },
+    event: { kind: 'RunStarted', fromRunVersion: successor.version },
+  });
+  expect(recorded).toMatchObject({
+    kind: 'Recorded',
+    event: {
+      sequence: 0,
+      harnessRevisionSaid: said('h'),
+      incarnationId: successor.lease.kind === 'Held' ? successor.lease.incarnationId : '',
+    },
+  });
+  expect(opened.recorder.page()).toMatchObject({
+    kind: 'Page',
+    page: { batch: { evidenceStreamId: successor.currentExecution?.evidenceStreamId } },
+  });
+  opened.recorder.close();
+  const originalDb = new DatabaseSync(join(root, 'runs', original.binding.runId, 'outbox.sqlite'), {
+    readOnly: true,
+  });
+  try {
+    expect(originalDb.prepare('SELECT count(*) AS count FROM evidence_events').get()?.count).toBe(
+      1,
+    );
+  } finally {
+    originalDb.close();
+  }
 });

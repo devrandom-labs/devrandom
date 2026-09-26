@@ -79,6 +79,35 @@ function input(): RunContinuationInput {
 }
 
 describe('same-Run replacement incarnation', () => {
+  it('admits committed H2 from the original sealed compatibility failure without replacing Run identity or budget', () => {
+    const paused = pausedRun();
+    const blocked = {
+      ...paused,
+      lifecycle: {
+        kind: 'Active' as const,
+        phase: {
+          kind: 'Blocked' as const,
+          reason: 'HarnessCompatibilityFailure' as const,
+          checkpointSaid: 'ECheckpoint',
+        },
+      },
+    };
+    expect(continueRun(blocked, input())).toMatchObject({
+      kind: 'Admitted',
+      run: {
+        binding: blocked.binding,
+        consumedBudget: blocked.consumedBudget,
+        currentExecution: { harnessRevisionSaid: 'EH2' },
+      },
+    });
+    expect(
+      continueRun(blocked, {
+        ...input(),
+        activation: { ...input().activation, activeRevisionSaid: 'EH1' },
+      }),
+    ).toEqual({ kind: 'ActivationConflict' });
+  });
+
   it('preserves Task/Run/agent and consumed budget while binding H2 to a new stream', () => {
     const original = pausedRun();
     const admitted = continueRun(original, input());

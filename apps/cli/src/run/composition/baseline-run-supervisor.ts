@@ -1,5 +1,16 @@
+import type { VerifiedCheckpoint } from '@devrandom/protocol';
+import {
+  RunEffectQuiescence,
+  type RunSubmissionSourceCustody,
+} from '../application/run-effect-quiescence.js';
 import { RunWorkAccess } from '../../work-access/application/run-work-access.js';
 import { RunWorktreeCommands } from '../application/run-worktree-commands.js';
+import { RunCheckpointPause } from '../application/run-checkpoint-pause.js';
+import { settleBlockedRun } from '../application/blocked-run-settlement.js';
+import type {
+  RunSubmissionVerification,
+  SubmittedVerificationCustody,
+} from '../application/run-submissions.js';
 import { RunSubmissions } from '../application/run-submissions.js';
 import { lstat, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -96,7 +107,41 @@ export interface RunExecutionProvision {
   ): Promise<PreparedRunExecutors | { readonly kind: 'Unavailable' }>;
 }
 
+export type AdmittedRunExecutionCustody = Pick<
+  AdmittedTaskRunPreparation,
+  | 'task'
+  | 'mandates'
+  | 'harness'
+  | 'protectedCredentials'
+  | 'workAccessRenewal'
+  | 'executionAuthority'
+>;
+
+export interface SuccessorRunSettlementProvision {
+  provision(input: {
+    readonly sourceCustody: RunSubmissionSourceCustody;
+    readonly run: Run;
+    readonly preparation: AdmittedRunExecutionCustody;
+    readonly worktree: PreparedRunWorktree;
+    readonly evidence: EvidenceRecorder;
+    readonly budget: RunResourceBudget;
+    readonly verification: PublicTaskVerification;
+    readonly checkpointing: VerifiedRunCheckpoint;
+    readonly sealing: SealedEvidenceSettlement;
+    readonly commands: RunWorktreeCommands;
+  }): {
+    readonly submissions: RunSubmissionVerification & SubmittedVerificationCustody;
+    readonly settlement: RunSupervisionSettlement;
+  };
+}
+
 export interface BaselineRunSupervisorCompositionOptions {
+  readonly pauseAfterCheckpoint?: boolean;
+  readonly pausePredecessorRepository?: Extract<
+    VerifiedCheckpoint,
+    { readonly version: 1 }
+  >['repository'];
+  readonly successorSettlement?: SuccessorRunSettlementProvision;
   readonly stateRoot: string;
   readonly repositoryDirectory: string;
   readonly issuerAid: IssuerAid;
@@ -143,11 +188,11 @@ function toolName(identity: string): ToolName | undefined {
 }
 
 class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
-  readonly #preparation: AdmittedTaskRunPreparation;
+  readonly #preparation: AdmittedRunExecutionCustody;
   readonly #options: BaselineRunSupervisorCompositionOptions;
 
   constructor(
-    preparation: AdmittedTaskRunPreparation,
+    preparation: AdmittedRunExecutionCustody,
     options: BaselineRunSupervisorCompositionOptions,
   ) {
     this.#preparation = preparation;
@@ -195,7 +240,16 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
           if (inputs.kind !== 'Materialized') {
             return { kind: 'DependencyUnavailable' };
           }
-          const runDirectory = join(options.stateRoot, 'runs', running.binding.runId);
+          const runDirectory =
+            running.currentExecution === undefined
+              ? join(options.stateRoot, 'runs', running.binding.runId)
+              : join(
+                  options.stateRoot,
+                  'runs',
+                  running.binding.runId,
+                  'incarnations',
+                  running.lease.kind === 'Held' ? running.lease.incarnationId : 'invalid',
+                );
           const agentDirectory = join(runDirectory, 'pi-agent');
           const temporaryDirectory = join(runDirectory, 'tmp');
           if ((await preparePrivateDirectory(agentDirectory)) !== 'Prepared') {
@@ -292,14 +346,60 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
             processOutput,
             now: () => options.now(),
           });
-          const compatibility = new PreparedCompatibilityClassifier();
-          const submissions = new RunSubmissions({
+          const checkpointing = new VerifiedRunCheckpoint({
             task: preparation.task,
             harness: preparation.harness.projection.revision,
-            run: running,
-            verification,
-            compatibility,
+            worktree,
+            evidence,
+            repository,
+            budget,
+            now: () => options.now(),
           });
+          const sealing = new SealedEvidenceSettlement({
+            hostedEvidence: workAccess,
+            hostedSeals: workAccess,
+            exchange: preparation.executionAuthority.evidenceSealExchange,
+            sourceAid: preparation.executionAuthority.personalAgentAid,
+            recipientAid: options.issuerAid,
+            wait: (milliseconds) => options.wait(milliseconds),
+            maximumObservations: 300,
+          });
+          const compatibility = new PreparedCompatibilityClassifier();
+          const sourceCustody = new RunEffectQuiescence();
+          const successor =
+            running.currentExecution === undefined
+              ? undefined
+              : options.successorSettlement?.provision({
+                  sourceCustody,
+                  run: running,
+                  preparation,
+                  worktree,
+                  evidence,
+                  budget,
+                  verification,
+                  checkpointing,
+                  sealing,
+                  commands,
+                });
+          if (
+            running.currentExecution !== undefined &&
+            successor === undefined &&
+            options.pauseAfterCheckpoint !== true
+          )
+            return { kind: 'DependencyUnavailable' };
+          const pause =
+            running.currentExecution !== undefined && options.pauseAfterCheckpoint === true
+              ? new RunCheckpointPause()
+              : undefined;
+          const submissions =
+            successor?.submissions ??
+            new RunSubmissions({
+              task: preparation.task,
+              harness: preparation.harness.projection.revision,
+              run: running,
+              verification,
+              compatibility,
+            });
           const effects = new ManagedWorktreeToolEffects({
             resources,
             writeAdmission: new RunWorktreeWriteAdmission({
@@ -329,7 +429,9 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
               taskRevisionSaid: running.binding.taskRevisionSaid,
               runId: running.binding.runId,
               incarnationId: running.lease.kind === 'Held' ? running.lease.incarnationId : '',
-              harnessRevisionSaid: running.binding.initialHarnessRevisionSaid,
+              harnessRevisionSaid:
+                running.currentExecution?.harnessRevisionSaid ??
+                running.binding.initialHarnessRevisionSaid,
               taskMandateSaid: running.binding.taskMandateSaid,
             },
             activeTools,
@@ -348,24 +450,6 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
             effects,
             now: () => options.now(),
           });
-          const checkpointing = new VerifiedRunCheckpoint({
-            task: preparation.task,
-            harness: preparation.harness.projection.revision,
-            worktree,
-            evidence,
-            repository,
-            budget,
-            now: () => options.now(),
-          });
-          const sealing = new SealedEvidenceSettlement({
-            hostedEvidence: workAccess,
-            hostedSeals: workAccess,
-            exchange: preparation.executionAuthority.evidenceSealExchange,
-            sourceAid: preparation.executionAuthority.personalAgentAid,
-            recipientAid: options.issuerAid,
-            wait: (milliseconds) => options.wait(milliseconds),
-            maximumObservations: 300,
-          });
           const calibration = new PreparedCompatibilityCalibration(
             new PreparedCompatibilityCalibrationFile(
               join(
@@ -376,8 +460,9 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
               ),
             ),
           );
-          const settlement =
-            running.binding.purpose.kind === 'PreparedCompatibilityCalibration'
+          const ordinarySettlement =
+            successor?.settlement ??
+            (running.binding.purpose.kind === 'PreparedCompatibilityCalibration'
               ? new PreparedCompatibilityCalibrationSettlement({
                   task: preparation.task,
                   harness: preparation.harness.projection.revision,
@@ -401,7 +486,7 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
                   checkpointing,
                   sealing,
                   now: () => options.now(),
-                });
+                }));
           return {
             kind: 'Provisioned',
             evidenceDelivery: {
@@ -413,8 +498,59 @@ class AdmittedBaselineRunSupervision implements AdmittedRunSupervision {
                   signal,
                 }),
             },
-            pi: preparedExecutors.pi(gateway),
-            settlement,
+            pi:
+              pause === undefined
+                ? preparedExecutors.pi(
+                    running.currentExecution === undefined
+                      ? gateway
+                      : sourceCustody.gateway(gateway),
+                  )
+                : {
+                    invoke: (invokedRun, signal) =>
+                      preparedExecutors
+                        .pi(pause.gateway(sourceCustody.gateway(gateway)))
+                        .invoke(invokedRun, AbortSignal.any([signal, pause.signal])),
+                  },
+            settlement:
+              pause === undefined
+                ? ordinarySettlement
+                : {
+                    settle: async (input) => {
+                      if (!pause.reached) return ordinarySettlement.settle(input);
+                      try {
+                        const captured = await repository.capture(
+                          worktree,
+                          {
+                            changedFiles: running.binding.budget.changedFiles,
+                            changedWorktreeBytes: running.binding.budget.changedWorktreeBytes,
+                          },
+                          new AbortController().signal,
+                        );
+                        if (
+                          options.pausePredecessorRepository === undefined ||
+                          captured.kind !== 'Captured' ||
+                          !pause.hasProgress(
+                            captured.repository,
+                            options.pausePredecessorRepository,
+                          )
+                        )
+                          return { kind: 'Unavailable' };
+                        const receipts = verification.unresolvedReceipts('RunBlocked');
+                        if (receipts === undefined) return { kind: 'Unavailable' };
+                        return await settleBlockedRun(
+                          {
+                            run: input.run,
+                            reason: 'CheckpointPause',
+                            verifierReceipts: receipts,
+                            outputArtifactSaids: [],
+                          },
+                          { evidence, checkpointing, sealing, now: () => options.now() },
+                        );
+                      } finally {
+                        evidence.close();
+                      }
+                    },
+                  },
             budget,
             wallClock: leaseClock,
           };
@@ -446,7 +582,7 @@ export class BaselineRunSupervisorComposition implements AdmittedRunSupervisionP
     this.#options = options;
   }
 
-  provision(preparation: AdmittedTaskRunPreparation): AdmittedRunSupervision {
+  provision(preparation: AdmittedRunExecutionCustody): AdmittedRunSupervision {
     return new AdmittedBaselineRunSupervision(preparation, this.#options);
   }
 }

@@ -1,17 +1,16 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import type { EvidenceStream, Run } from '@devrandom/domain';
+import { decodeEvidenceEvent, type EvidenceEvent } from '../evidence/evidence-event.js';
 import {
-  decodeEvidenceEvent,
   decodeVerifiedCheckpoint,
-  type EvidenceEvent,
   type VerifiedCheckpoint,
-} from '@devrandom/protocol';
+} from '../evidence/verified-checkpoint.js';
 
 /** Replay only the accepted, sealed predecessor incarnation before replacing its lease. */
 export function verifyContinuationPredecessor(input: {
   readonly run: Run;
-  readonly stream: EvidenceStream;
+  readonly stream: Pick<EvidenceStream, 'binding' | 'cursor' | 'seal' | 'provisional'>;
   readonly checkpoint: VerifiedCheckpoint;
   readonly events: readonly EvidenceEvent[];
   readonly sealExchangeSaid: string;
@@ -26,7 +25,9 @@ export function verifyContinuationPredecessor(input: {
   if (
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Blocked' ||
-    run.lifecycle.phase.reason !== 'CheckpointPause' ||
+    (run.lifecycle.phase.reason !== 'CheckpointPause' &&
+      (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
+        run.currentExecution !== undefined)) ||
     run.lifecycle.phase.checkpointSaid !== checkpoint.d ||
     run.lease.kind !== 'Held' ||
     stream.binding.streamId !== predecessorStreamId ||
@@ -54,8 +55,11 @@ export function verifyContinuationPredecessor(input: {
     checkpoint.taskMandateSaid !== run.binding.taskMandateSaid ||
     checkpoint.runState.kind !== 'Active' ||
     checkpoint.runState.phase.kind !== 'Blocked' ||
-    checkpoint.runState.phase.reason !== 'CheckpointPause' ||
-    checkpoint.continuation.kind !== 'LaterRuntimeRecoveryRequired' ||
+    checkpoint.runState.phase.reason !== run.lifecycle.phase.reason ||
+    checkpoint.continuation.kind !==
+      (run.lifecycle.phase.reason === 'HarnessCompatibilityFailure'
+        ? 'LaterHarnessCompatibilityResolutionRequired'
+        : 'LaterRuntimeRecoveryRequired') ||
     !isDeepStrictEqual(checkpoint.budget.consumed, run.consumedBudget) ||
     !isDeepStrictEqual(stream.provisional.lifecycle, run.lifecycle) ||
     events.length !== stream.cursor.acceptedThrough + 1 ||
@@ -108,7 +112,7 @@ export function verifyContinuationPredecessor(input: {
     }
     if (
       detail.kind === 'RunBlocked' &&
-      detail.reason === 'CheckpointPause' &&
+      detail.reason === run.lifecycle.phase.reason &&
       detail.checkpointSaid === checkpoint.d &&
       sequence > checkpoint.evidence.finalSequence
     )

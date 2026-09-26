@@ -1,3 +1,4 @@
+import type { SuccessorRunBehavior } from './successor-run-behavior.js';
 import { isDeepStrictEqual } from 'node:util';
 
 import type { ProtectedCredentials, Run } from '@devrandom/domain';
@@ -31,6 +32,7 @@ interface ExpectedToolCall {
 }
 
 export interface DockerRunPiExecutorDependencies {
+  readonly successorBehavior?: SuccessorRunBehavior;
   readonly profile: EvaluationExecutionProfile;
   readonly environment: Pick<DockerRunEnvironment, 'startWorker' | 'close'>;
   readonly workerProgram: string;
@@ -197,6 +199,34 @@ export class DockerRunPiExecutor implements PiExecution {
       now: () => config.now(),
     });
     if (bound.kind !== 'Bound') return { kind: 'EvidenceIntegrityFailure' };
+    const behavior =
+      run.currentExecution === undefined
+        ? undefined
+        : await config.successorBehavior?.prepare({
+            run,
+            executionProfileSaid: config.profile.d,
+            baseSystemPrompt: systemPrompt,
+            taskPrompt: config.prompt,
+            evidence: config.evidence,
+            signal,
+          });
+    if (run.currentExecution !== undefined && behavior?.kind !== 'Prepared')
+      return { kind: 'EvidenceIntegrityFailure' };
+    const workerSystemPrompt = behavior?.kind === 'Prepared' ? behavior.systemPrompt : systemPrompt;
+    const workerPrompt = behavior?.kind === 'Prepared' ? behavior.prompt : config.prompt;
+    if (
+      config.protectedCredentials.inspect(
+        Buffer.from(
+          JSON.stringify({
+            systemPrompt: workerSystemPrompt,
+            prompt: workerPrompt,
+            workflow: behavior?.kind === 'Prepared' ? behavior.workflowContext : undefined,
+          }),
+          'utf8',
+        ),
+      ).kind === 'WithheldSecret'
+    )
+      return { kind: 'SecretDetected' };
     const enabledTools = config.harness.activeTools.map(({ identity }) => identity);
     if (
       enabledTools.length === 0 ||
@@ -231,8 +261,11 @@ export class DockerRunPiExecutor implements PiExecution {
         modelProfileSaid: config.profile.d,
         model: { ...opened.model, maxTokens: config.profile.maximumOutputTokens },
         thinkingLevel: config.profile.thinkingLevel,
-        systemPrompt,
-        prompt: config.prompt,
+        systemPrompt: workerSystemPrompt,
+        prompt: workerPrompt,
+        ...(behavior?.kind === 'Prepared' && behavior.workflowContext !== undefined
+          ? { requiresWorkflowContext: true }
+          : {}),
         maximumPrompts,
         enabledTools,
       });
@@ -240,9 +273,16 @@ export class DockerRunPiExecutor implements PiExecution {
       if (
         ready.kind !== 'Ready' ||
         !isRecord(ready.payload) ||
-        ready.payload.piSessionId !== sessionId
+        ready.payload.piSessionId !== sessionId ||
+        (behavior?.kind === 'Prepared' && ready.payload.promptDigest !== behavior.promptDigest)
       )
         return { kind: 'EvidenceIntegrityFailure' };
+      if (behavior?.kind === 'Prepared' && behavior.workflowContext !== undefined)
+        await relay.send('WorkflowContext', {
+          version: 1,
+          kind: 'ReviewedC2WorkflowContext',
+          text: behavior.workflowContext,
+        });
       const inference = new ParentRunModelInference({
         model: opened.model,
         compatibility: config.harness.modelCompatibility,
@@ -283,11 +323,20 @@ export class DockerRunPiExecutor implements PiExecution {
             !Array.isArray(body.context.messages)
           )
             return { kind: 'EvidenceIntegrityFailure' };
-          const completion = await inference.complete(
-            body.context as unknown as TranscriptContext,
-            requestOrdinal,
-            signal,
-          );
+          const context =
+            config.successorBehavior === undefined
+              ? (body.context as unknown as TranscriptContext)
+              : await config.successorBehavior.beforeModel(
+                  body.context as unknown as TranscriptContext,
+                  signal,
+                );
+          if (context === undefined) return { kind: 'EvidenceIntegrityFailure' };
+          if (
+            config.protectedCredentials.inspect(Buffer.from(JSON.stringify(context), 'utf8'))
+              .kind === 'WithheldSecret'
+          )
+            return { kind: 'SecretDetected' };
+          const completion = await inference.complete(context, requestOrdinal, signal);
           if (completion.kind !== 'Completed') return completion.disposition;
           const message: AssistantMessage = completion.message;
           if (
@@ -330,6 +379,7 @@ export class DockerRunPiExecutor implements PiExecution {
             !isDeepStrictEqual(proposal.input, piToolInput(expected.name, expected.arguments))
           )
             return { kind: 'EvidenceIntegrityFailure' };
+          config.successorBehavior?.observeProposal(proposal);
           const outcome = await config.gateway.propose(proposal, signal);
           const terminal = toolTerminal(outcome);
           await relay.send('ToolOutcome', outcome);

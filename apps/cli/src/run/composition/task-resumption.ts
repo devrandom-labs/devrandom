@@ -1,0 +1,192 @@
+import { lstat, realpath } from 'node:fs/promises';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import type { Run } from '@devrandom/domain';
+import {
+  decodeRunProjection,
+  projectRun,
+  type ActiveHarnessPointer,
+  type EvidenceEvent,
+  type EvidenceStreamProjection,
+} from '@devrandom/protocol';
+import type { RunSupervision, SuccessorRunBehavior } from '@devrandom/runtime';
+import {
+  resumeTask,
+  type HostedRunContinuations,
+  type TaskResumption,
+} from '../application/resume-task.js';
+import {
+  continuationContext,
+  type ContinuationContext,
+} from '../application/continuation-context.js';
+import type { HostedRunStatuses, HostedRunTimelines } from '../application/task-run-observation.js';
+import { SqliteEvidenceOutboxes } from '../infrastructure/sqlite-evidence-outbox.js';
+import { GitWorktreeChanges } from '../infrastructure/git-worktree-changes.js';
+import { RunContinuationFile } from '../infrastructure/run-continuation-file.js';
+import type { AdmittedRunExecutionCustody } from './baseline-run-supervisor.js';
+import {
+  LinuxRunSupervisorComposition,
+  type LinuxRunSupervisorCompositionOptions,
+} from './linux-run-supervisor.js';
+
+export interface TaskResumptionInput {
+  readonly ownerAid: string;
+  readonly runId: string;
+  readonly activation: ActiveHarnessPointer;
+  readonly preparation: AdmittedRunExecutionCustody;
+  readonly runs: HostedRunStatuses & HostedRunContinuations;
+  readonly evidence: HostedRunTimelines;
+  readonly authority: {
+    verify(run: Run): Promise<{ readonly kind: 'Current' | 'Rejected' | 'Unavailable' }>;
+  };
+  successorBehavior(context: ContinuationContext): SuccessorRunBehavior;
+}
+export type SupervisedTaskResumption =
+  | Exclude<TaskResumption, { readonly kind: 'Admitted' }>
+  | {
+      readonly kind: 'RunSupervised';
+      readonly supervision: RunSupervision;
+      readonly context: ContinuationContext;
+    };
+
+/** Same-profile continuation: hosted acceptance and local exact bytes precede every new executor. */
+export class TaskResumptionComposition {
+  readonly #options: LinuxRunSupervisorCompositionOptions;
+  constructor(options: LinuxRunSupervisorCompositionOptions) {
+    this.#options = options;
+  }
+  async resume(input: TaskResumptionInput, signal: AbortSignal): Promise<SupervisedTaskResumption> {
+    try {
+      const hosted = await input.runs.inspect(input.runId);
+      if (hosted.kind !== 'Found') return { kind: 'Unavailable' };
+      const decoded = decodeRunProjection(hosted.run);
+      if (decoded.kind !== 'Accepted') return { kind: 'BindingRejected' };
+      let run = decoded.run;
+      const commands = new RunContinuationFile(
+        join(this.#options.stateRoot, 'continuations'),
+        randomUUID,
+      );
+      const pending =
+        run.lifecycle.kind === 'Active' &&
+        run.lifecycle.phase.kind === 'Preparing' &&
+        run.currentExecution !== undefined &&
+        run.lease.kind === 'Held' &&
+        run.lease.lastChange.kind === 'Replaced'
+          ? await commands.readPredecessor(input.runId, run.lease.lastChange.fromRunVersion)
+          : undefined;
+      if (pending !== undefined) {
+        const previous = decodeRunProjection(pending.run);
+        if (previous.kind !== 'Accepted') return { kind: 'PredecessorRejected' };
+        run = previous.run;
+      }
+      const preparation = input.preparation;
+      if (
+        run.binding.runId !== input.runId ||
+        run.binding.personalAgentAid !== preparation.executionAuthority.personalAgentAid ||
+        run.binding.taskMandateSaid !== preparation.mandates.taskMandate.credentialSaid ||
+        run.binding.governorAid !== preparation.mandates.governor.aid ||
+        run.binding.promotionMandateSaid !== preparation.mandates.promotionMandate.credentialSaid ||
+        run.binding.initialHarnessRevisionSaid !== preparation.harness.projection.revision.d
+      )
+        return { kind: 'BindingRejected' };
+      const events: EvidenceEvent[] = [];
+      let stream: EvidenceStreamProjection | undefined;
+      let cursor: string | undefined;
+      const cursors = new Set<string>();
+      if (pending !== undefined) {
+        stream = pending.stream;
+        events.push(...pending.events);
+      } else
+        do {
+          signal.throwIfAborted();
+          const page = await input.evidence.inspect(input.runId, {
+            limit: 100,
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+          if (page.kind !== 'Found') return { kind: 'Unavailable' };
+          if (stream !== undefined && JSON.stringify(stream) !== JSON.stringify(page.page.stream))
+            return { kind: 'PredecessorRejected' };
+          stream = page.page.stream;
+          events.push(...page.page.events.map(({ event }) => event));
+          if (events.length > 100000) return { kind: 'PredecessorRejected' };
+          if (
+            stream.cursor.kind === 'Accepted' &&
+            events.at(-1)?.sequence === stream.cursor.acceptedThroughSequence
+          )
+            break;
+          cursor = page.page.nextCursor ?? undefined;
+          if (cursor !== undefined) {
+            if (cursors.has(cursor)) return { kind: 'PredecessorRejected' };
+            cursors.add(cursor);
+          }
+        } while (cursor !== undefined);
+      if (
+        (await commands.retainPredecessor({ run: projectRun(run), stream, events })) !== 'Recorded'
+      )
+        return { kind: 'Unavailable' };
+      const read = new SqliteEvidenceOutboxes(
+        () => this.#options.now(),
+        preparation.protectedCredentials,
+      ).readPredecessor({ run, stateRoot: this.#options.stateRoot, stream, events });
+      if (read.kind !== 'Read') return { kind: 'PredecessorRejected' };
+      const context = continuationContext(preparation.task, read.custody);
+      if (context === undefined) return { kind: 'PredecessorRejected' };
+      const directory = join(this.#options.stateRoot, 'runs', input.runId, 'worktree');
+      const status = await lstat(directory);
+      if (
+        !status.isDirectory() ||
+        status.isSymbolicLink() ||
+        (await realpath(directory)) !== directory
+      )
+        return { kind: 'ArtifactMismatch' };
+      const admitted = await resumeTask(
+        {
+          ownerAid: input.ownerAid,
+          task: preparation.task,
+          run,
+          activation: input.activation,
+          predecessor: read.custody,
+          worktree: {
+            directory,
+            branch: `devrandom/run/${input.runId}`,
+            repository: run.binding.repository,
+          },
+        },
+        {
+          authority: input.authority,
+          repository: new GitWorktreeChanges(preparation.protectedCredentials),
+          commands,
+          hosted: input.runs,
+          now: () => this.#options.now(),
+          monotonicNow: () => performance.now(),
+        },
+        signal,
+      );
+      if (admitted.kind !== 'Admitted') return admitted;
+      if (admitted.run.lease.kind !== 'Held') return { kind: 'AdmissionRejected' };
+      const supervision = await new LinuxRunSupervisorComposition({
+        ...this.#options,
+        successorBehavior: input.successorBehavior(context),
+        ...(read.custody.checkpoint.version === 1
+          ? { pausePredecessorRepository: read.custody.checkpoint.repository }
+          : {}),
+      })
+        .provision(preparation)
+        .supervise(
+          admitted.run,
+          {
+            runId: input.runId,
+            incarnationId: admitted.run.lease.incarnationId,
+            runVersion: admitted.run.version,
+            serverTime: admitted.receipt.segment.admittedAt,
+            expiresAt: admitted.run.lease.expiresAt,
+          },
+          signal,
+          admitted.leaseRequestStartedAt,
+        );
+      return { kind: 'RunSupervised', supervision, context };
+    } catch {
+      return { kind: 'Unavailable' };
+    }
+  }
+}

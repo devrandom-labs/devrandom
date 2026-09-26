@@ -86,7 +86,8 @@ function runningBindingsMatch(
     run.binding.personalAgentAid === harness.authority.personalAgentAid &&
     run.binding.taskMandateSaid === harness.authority.taskMandateSaid &&
     evidence.run.binding.runId === run.binding.runId &&
-    evidence.run.binding.evidenceStreamId === run.binding.evidenceStreamId
+    (evidence.run.currentExecution?.evidenceStreamId ?? evidence.run.binding.evidenceStreamId) ===
+      (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId)
   );
 }
 

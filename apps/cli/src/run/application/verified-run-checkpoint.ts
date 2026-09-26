@@ -169,7 +169,8 @@ function checkpointBindingsMatch(
     run.lifecycle.phase.kind === 'Running' &&
     run.lease.kind === 'Held' &&
     recordedRun.binding.runId === run.binding.runId &&
-    recordedRun.binding.evidenceStreamId === run.binding.evidenceStreamId &&
+    (recordedRun.currentExecution?.evidenceStreamId ?? recordedRun.binding.evidenceStreamId) ===
+      (run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId) &&
     recordedRun.lease.kind === 'Held' &&
     recordedRun.lease.incarnationId === run.lease.incarnationId &&
     run.binding.ownerAid === task.ownerAid &&
@@ -353,7 +354,8 @@ export class VerifiedRunCheckpoint implements RunCheckpointing {
       return { kind: 'EvidenceIntegrityFailure' };
     }
     if (
-      readiness.readiness.streamId !== input.run.binding.evidenceStreamId ||
+      readiness.readiness.streamId !==
+        (input.run.currentExecution?.evidenceStreamId ?? input.run.binding.evidenceStreamId) ||
       readiness.readiness.nextSequence < 1
     ) {
       return { kind: 'EvidenceIntegrityFailure' };
@@ -369,7 +371,9 @@ export class VerifiedRunCheckpoint implements RunCheckpointing {
       taskRevisionSaid: input.run.binding.taskRevisionSaid,
       runId: input.run.binding.runId,
       incarnationId: lease.incarnationId,
-      harnessRevisionSaid: input.run.binding.initialHarnessRevisionSaid,
+      harnessRevisionSaid:
+        input.run.currentExecution?.harnessRevisionSaid ??
+        input.run.binding.initialHarnessRevisionSaid,
       harnessLineageId: input.run.binding.harnessLineageId,
       personalAgentAid: input.run.binding.personalAgentAid,
       governorAid: input.run.binding.governorAid,

@@ -187,7 +187,7 @@ export class BaselineRunExecutionPreparation implements RunExecutionPreparation 
     const incarnationId = run.lease.kind === 'Held' ? run.lease.incarnationId : '';
     const expectedEvidence = {
       kind: 'Genesis' as const,
-      streamId: run.binding.evidenceStreamId,
+      streamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
     };
     const started = startRunExecution(run, {
       incarnationId,

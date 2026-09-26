@@ -56,7 +56,9 @@ export function continueRun(run: Run, input: RunContinuationInput): RunContinuat
   if (
     run.lifecycle.kind !== 'Active' ||
     run.lifecycle.phase.kind !== 'Blocked' ||
-    run.lifecycle.phase.reason !== 'CheckpointPause'
+    (run.lifecycle.phase.reason !== 'CheckpointPause' &&
+      (run.lifecycle.phase.reason !== 'HarnessCompatibilityFailure' ||
+        run.currentExecution !== undefined))
   )
     return { kind: 'RunNotPaused' };
   if (run.lifecycle.phase.checkpointSaid !== input.predecessor.checkpointSaid)

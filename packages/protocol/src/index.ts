@@ -45,3 +45,5 @@ export * from './server-readiness.js';
 export * from './task/task-command.js';
 export * from './task/task-http.js';
 export * from './work-access.js';
+
+export * from './run/continuation-predecessor.js';

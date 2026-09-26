@@ -6,12 +6,12 @@ import {
   DockerRunPiExecutor,
   type PiExecutionDisposition,
   type RunRuntimeMount,
+  type SuccessorRunBehavior,
 } from '@devrandom/runtime';
 
 import type {
   AdmittedRunSupervision,
   AdmittedRunSupervisionProvision,
-  AdmittedTaskRunPreparation,
 } from '../../task/application/task-run-execution.js';
 import { inspectLinuxRunProfile } from '../application/linux-run-profile-preflight.js';
 import { DockerExactChildCommands } from '../infrastructure/docker-exact-child-commands.js';
@@ -20,6 +20,7 @@ import {
   type BaselineRunSupervisorCompositionOptions,
   type RunExecutionProvision,
   type RunExecutionProvisionInput,
+  type AdmittedRunExecutionCustody,
 } from './baseline-run-supervisor.js';
 
 export interface LinuxRunBinding {
@@ -35,14 +36,17 @@ export interface LinuxRunSupervisorCompositionOptions extends Omit<
   'executionProvision'
 > {
   readonly linux: LinuxRunBinding;
+  readonly successorBehavior?: SuccessorRunBehavior;
 }
 
 const workerProgram = '/app/packages/runtime/dist/pi/evaluation/contained-pi-worker.js';
 
 class LinuxRunExecutionProvision implements RunExecutionProvision {
   readonly #binding: LinuxRunBinding;
+  readonly #successorBehavior: SuccessorRunBehavior | undefined;
 
-  constructor(binding: LinuxRunBinding) {
+  constructor(binding: LinuxRunBinding, successorBehavior?: SuccessorRunBehavior) {
+    this.#successorBehavior = successorBehavior;
     this.#binding = binding;
   }
 
@@ -146,6 +150,9 @@ class LinuxRunExecutionProvision implements RunExecutionProvision {
           active = opened.environment;
           try {
             return await new DockerRunPiExecutor({
+              ...(this.#successorBehavior === undefined
+                ? {}
+                : { successorBehavior: this.#successorBehavior }),
               profile: binding.profile,
               environment: opened.environment,
               workerProgram,
@@ -181,11 +188,11 @@ export class LinuxRunSupervisorComposition implements AdmittedRunSupervisionProv
   constructor(options: LinuxRunSupervisorCompositionOptions) {
     this.#supervision = new BaselineRunSupervisorComposition({
       ...options,
-      executionProvision: new LinuxRunExecutionProvision(options.linux),
+      executionProvision: new LinuxRunExecutionProvision(options.linux, options.successorBehavior),
     });
   }
 
-  provision(preparation: AdmittedTaskRunPreparation): AdmittedRunSupervision {
+  provision(preparation: AdmittedRunExecutionCustody): AdmittedRunSupervision {
     return this.#supervision.provision(preparation);
   }
 }

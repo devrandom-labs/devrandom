@@ -17,7 +17,7 @@ import {
 } from 'mongodb';
 
 import type { RunContinuationCommitments } from '../application/admit-run-continuation.js';
-import { verifyContinuationPredecessor } from '../application/verify-continuation-predecessor.js';
+import { verifyContinuationPredecessor } from '@devrandom/protocol';
 import {
   decodeEvidenceArtifactDocument,
   type EvidenceArtifactDocument,

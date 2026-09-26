@@ -164,7 +164,8 @@ function inspectLocalCheckpoint(
     checkpoint.runId === run.binding.runId &&
     checkpoint.taskId === run.binding.taskId &&
     checkpoint.taskRevisionSaid === run.binding.taskRevisionSaid &&
-    checkpoint.harnessRevisionSaid === run.binding.initialHarnessRevisionSaid &&
+    checkpoint.harnessRevisionSaid ===
+      (run.currentExecution?.harnessRevisionSaid ?? run.binding.initialHarnessRevisionSaid) &&
     checkpoint.personalAgentAid === run.binding.personalAgentAid &&
     checkpoint.taskMandateSaid === run.binding.taskMandateSaid
     ? { kind: 'Matches' }
@@ -282,7 +283,9 @@ export class SealedEvidenceSettlement implements RunEvidenceSealing {
     if (
       readiness.kind !== 'Ready' ||
       readiness.readiness.kind !== 'Continued' ||
-      readiness.readiness.streamId !== recorder.run.binding.evidenceStreamId ||
+      readiness.readiness.streamId !==
+        (recorder.run.currentExecution?.evidenceStreamId ??
+          recorder.run.binding.evidenceStreamId) ||
       readiness.readiness.nextSequence !== acceptanceEvent.sequence + 1 ||
       readiness.readiness.previousEventSaid !== acceptanceEvent.d
     ) {
@@ -295,11 +298,14 @@ export class SealedEvidenceSettlement implements RunEvidenceSealing {
       version: 1,
       kind: 'EvidenceStreamSeal',
       runId: recorder.run.binding.runId,
-      evidenceStreamId: recorder.run.binding.evidenceStreamId,
+      evidenceStreamId:
+        recorder.run.currentExecution?.evidenceStreamId ?? recorder.run.binding.evidenceStreamId,
       eventCount: readiness.readiness.nextSequence,
       finalSequence: readiness.readiness.nextSequence - 1,
       chainHeadSaid: readiness.readiness.previousEventSaid,
-      harnessRevisionSaid: recorder.run.binding.initialHarnessRevisionSaid,
+      harnessRevisionSaid:
+        recorder.run.currentExecution?.harnessRevisionSaid ??
+        recorder.run.binding.initialHarnessRevisionSaid,
       taskMandateSaid: recorder.run.binding.taskMandateSaid,
     };
     const acknowledged = recorder.sealAcknowledgement();

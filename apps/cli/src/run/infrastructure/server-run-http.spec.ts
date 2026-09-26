@@ -26,6 +26,25 @@ function serverOrigin(): DevrandomServerOrigin {
 }
 
 describe('Devrandom Server Run HTTP adapter', () => {
+  it('rejects an unbound continuation command before transmitting authority', async () => {
+    const fetch = vi.fn();
+    const adapter = new ServerRunHttp(serverOrigin(), bearer, fetch);
+    expect(
+      await adapter.admitContinuation(runProjectionFixture().runId, {
+        version: 1,
+        expectedRunVersion: 1,
+        predecessorCheckpointSaid: 'invalid',
+        predecessorSealSaid: 'invalid',
+        predecessorHeadSaid: 'invalid',
+        successorIncarnationId: runIncarnationId,
+        successorStreamId: runIncarnationId,
+        expectedActivePointerVersion: 2,
+        expectedActivationReceiptSaid: 'invalid',
+      }),
+    ).toEqual({ kind: 'InputInvalid' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each(
     (['Inspect', 'Admit', 'AcquireLease', 'RenewLease'] as const).flatMap((operation) =>
       (['Headers', 'Body'] as const).map((stage) => ({ operation, stage })),

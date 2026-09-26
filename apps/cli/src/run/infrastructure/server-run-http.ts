@@ -1,5 +1,9 @@
 import {
   decodeRunProjection,
+  decodeRunSuccessorSegment,
+  runContinuationRequestSchema,
+  runContinuationReceiptSchema,
+  type RunContinuationRequest,
   decodeRunLeaseRenewalReceipt,
   runAdmissionCommandSchema,
   runAdmissionPendingProjectionSchema,
@@ -24,6 +28,8 @@ import type {
   HostedRunRenewal,
   HostedRuns,
 } from '../application/baseline-run-admission.js';
+import type { HostedRunContinuations } from '../application/resume-task.js';
+
 import type {
   HostedRunInspection,
   HostedRunStatuses,
@@ -206,6 +212,49 @@ export class ServerRunHttp implements HostedRuns, HostedRunStatuses {
       return decoded.kind === 'Accepted'
         ? { kind: 'Renewed', receipt: decoded.receipt }
         : { kind: 'ResponseInvalid' };
+    } catch (cause) {
+      return failure(cause);
+    }
+  }
+
+  async admitContinuation(
+    runId: string,
+    command: RunContinuationRequest,
+  ): ReturnType<HostedRunContinuations['admitContinuation']> {
+    if (
+      !Value.Check(runParametersSchema, { runId }) ||
+      !Value.Check(runContinuationRequestSchema, command)
+    )
+      return { kind: 'InputInvalid' };
+    try {
+      const response = await this.#request(`/api/runs/${encodeURIComponent(runId)}/continuations`, {
+        method: 'POST',
+        body: JSON.stringify(command),
+      });
+      if (response.status !== 200 && response.status !== 201) return this.#rejected(response);
+      if (!Value.Check(runContinuationReceiptSchema, response.body))
+        return { kind: 'ResponseInvalid' };
+      const receipt = Value.Parse(runContinuationReceiptSchema, response.body);
+      const run = decodeRunProjection(receipt.run);
+      const segment = decodeRunSuccessorSegment(receipt.segment);
+      const expected = response.status === 201 ? 'Admitted' : 'Equivalent';
+      if (
+        receipt.disposition !== expected ||
+        run.kind !== 'Accepted' ||
+        segment.kind !== 'Accepted' ||
+        run.run.binding.runId !== runId ||
+        segment.segment.runId !== runId ||
+        run.run.currentExecution?.segmentSaid !== segment.segment.d ||
+        segment.segment.successor.incarnationId !== command.successorIncarnationId ||
+        segment.segment.successor.evidenceStreamId !== command.successorStreamId ||
+        segment.segment.predecessor.checkpointSaid !== command.predecessorCheckpointSaid ||
+        segment.segment.predecessor.sealExchangeSaid !== command.predecessorSealSaid ||
+        segment.segment.predecessor.chainHeadSaid !== command.predecessorHeadSaid ||
+        segment.segment.activation.pointerVersion !== command.expectedActivePointerVersion ||
+        segment.segment.activation.decisionReceiptSaid !== command.expectedActivationReceiptSaid
+      )
+        return { kind: 'ResponseInvalid' };
+      return { kind: expected, receipt };
     } catch (cause) {
       return failure(cause);
     }

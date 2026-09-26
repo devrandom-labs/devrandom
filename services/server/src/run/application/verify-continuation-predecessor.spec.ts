@@ -9,12 +9,15 @@ import {
 } from '@devrandom/protocol';
 
 import { runFixture } from '../test/run-fixture.js';
-import { verifyContinuationPredecessor } from './verify-continuation-predecessor.js';
+import { verifyContinuationPredecessor } from '@devrandom/protocol';
 
 const incarnationId = 'ee87e11d-fb5f-46b4-841f-8a7a5faad97c';
 const at = '2026-09-24T20:00:01.000Z';
 
-function fixture(extraBeforeCheckpoint: readonly EvidenceEventDetail[] = []) {
+function fixture(
+  extraBeforeCheckpoint: readonly EvidenceEventDetail[] = [],
+  reason: 'CheckpointPause' | 'HarnessCompatibilityFailure' = 'CheckpointPause',
+) {
   const initial = runFixture();
   const leased = acquireFirstRunLease(initial, {
     incarnationId,
@@ -82,16 +85,21 @@ function fixture(extraBeforeCheckpoint: readonly EvidenceEventDetail[] = []) {
       budget: { consumed: leased.run.consumedBudget, remaining: initial.binding.budget },
       runState: {
         kind: 'Active',
-        phase: { kind: 'Blocked', reason: 'CheckpointPause' },
+        phase: { kind: 'Blocked', reason },
         verification: { kind: 'NotSubmitted' },
       },
-      continuation: { kind: 'LaterRuntimeRecoveryRequired' },
+      continuation: {
+        kind:
+          reason === 'HarnessCompatibilityFailure'
+            ? 'LaterHarnessCompatibilityResolutionRequired'
+            : 'LaterRuntimeRecoveryRequired',
+      },
     },
     [],
   );
   if (preparedCheckpoint.kind !== 'Prepared') throw new Error('checkpoint fixture');
   const checkpoint = preparedCheckpoint.checkpoint;
-  add({ kind: 'RunBlocked', reason: 'CheckpointPause', checkpointSaid: checkpoint.d });
+  add({ kind: 'RunBlocked', reason, checkpointSaid: checkpoint.d });
   const last = events.at(-1);
   if (last === undefined) throw new Error('last fixture');
   const run = {
@@ -100,7 +108,7 @@ function fixture(extraBeforeCheckpoint: readonly EvidenceEventDetail[] = []) {
       kind: 'Active' as const,
       phase: {
         kind: 'Blocked' as const,
-        reason: 'CheckpointPause' as const,
+        reason,
         checkpointSaid: checkpoint.d,
       },
     },
@@ -168,4 +176,10 @@ describe('sealed predecessor replay for same-Run continuation', () => {
     ]);
     expect(verifyContinuationPredecessor(pending)).toBe('Rejected');
   });
+});
+
+it('verifies the original sealed compatibility failure as the first committed-H2 predecessor', () => {
+  expect(verifyContinuationPredecessor(fixture([], 'HarnessCompatibilityFailure'))).toBe(
+    'Verified',
+  );
 });
