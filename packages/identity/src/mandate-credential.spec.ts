@@ -12,11 +12,14 @@ import {
   promotionMandateV3Schema,
   promotionMandateV2Schema,
   promotionMandateV4Schema,
+  promotionMandateV6Schema,
   promotionMandateV5Schema,
+  promotionMandateV7Schema,
   taskMandateSchema,
   taskMandateSchemaSaid,
   taskMandateV2Schema,
   taskMandateV3Schema,
+  taskMandateV4Schema,
 } from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -64,7 +67,8 @@ function taskEvidence(
   schema:
     | typeof taskMandateSchema
     | typeof taskMandateV2Schema
-    | typeof taskMandateV3Schema = taskMandateSchema,
+    | typeof taskMandateV3Schema
+    | typeof taskMandateV4Schema = taskMandateSchema,
   budgets: TaskBudgets = { ...taskBudgetCeilings, runsPerAdmittedUser: 6 },
 ) {
   const attributes = saidify({
@@ -135,6 +139,7 @@ describe('Task Mandate cryptographic inspection', () => {
     [taskMandateSchema, 6],
     [taskMandateV2Schema, 6],
     [taskMandateV3Schema, 8],
+    [taskMandateV4Schema, 9],
   ] as const)('accepts immutable schema with $1 runs (case %#)', (schema, runs) => {
     const budgets = { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: runs };
     // V1 predates evaluation budgets as well as experience claims.
@@ -156,6 +161,7 @@ describe('Task Mandate cryptographic inspection', () => {
   it.each([
     [taskMandateV2Schema, { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 8 }],
     [taskMandateV3Schema, { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 9 }],
+    [taskMandateV4Schema, { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 10 }],
     [
       taskMandateV3Schema,
       {
@@ -280,6 +286,7 @@ describe('Promotion Mandate cryptographic inspection', () => {
   it.each([
     [promotionMandateV3Schema, 6],
     [promotionMandateV5Schema, 8],
+    [promotionMandateV7Schema, 9],
   ] as const)(
     'reads exact-M claims from immutable schema with $1 runs (case %#)',
     (schema, runs) => {
@@ -376,6 +383,7 @@ describe('Promotion Mandate cryptographic inspection', () => {
     [promotionMandateSchema, 6],
     [promotionMandateV2Schema, 6],
     [promotionMandateV4Schema, 8],
+    [promotionMandateV6Schema, 9],
   ] as const)(
     'decodes the pre-M authority ceiling for immutable schema with $1 runs (case %#)',
     (schema, runs) => {

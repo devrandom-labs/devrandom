@@ -10,15 +10,20 @@ import {
   promotionMandateSchemaSaid,
   promotionMandateV3SchemaSaid,
   promotionMandateV5SchemaSaid,
+  promotionMandateV7SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
   taskMandateSchema,
   taskMandateV2Schema,
   taskMandateV3Schema,
+  taskMandateV4Schema,
   promotionMandateSchema,
   promotionMandateV2Schema,
   promotionMandateV3Schema,
   promotionMandateV4Schema,
+  promotionMandateV6Schema,
   promotionMandateV5Schema,
+  promotionMandateV7Schema,
   taskMandateSchemaSaid,
 } from '@devrandom/protocol';
 import { Saider, SignifyClient, Tier, ready } from 'signify-ts';
@@ -353,6 +358,7 @@ describe('mandate issuance reconciliation', () => {
   it.each([
     [promotionMandateV3SchemaSaid, 6],
     [promotionMandateV5SchemaSaid, 8],
+    [promotionMandateV7SchemaSaid, 9],
   ] as const)('reconciles only exact M under schema %s with %i runs', (schemaSaid, runs) => {
     const governor = governorAid(holder);
     const exact = {
@@ -482,15 +488,65 @@ describe('mandate issuance reconciliation', () => {
     ).toEqual({ kind: 'NotFound' });
   });
 
+  it('reconciles a fresh nine-run Task credential only against its exact new schema and claims', () => {
+    const fresh = {
+      ...input,
+      claims: {
+        ...input.claims,
+        budgets: { ...taskEvaluationBudgetCeilings, runsPerAdmittedUser: 9 },
+        experience: {
+          corpusSaid: `E${'q'.repeat(43)}`,
+          repositoryResourceSaid: `E${'s'.repeat(43)}`,
+          disclosure: 'AuthorizedAnalogy' as const,
+        },
+      },
+    };
+    const { notBefore, expiresAt, ...claims } = fresh.claims;
+    const attributes = saidify({
+      d: '',
+      i: holder,
+      dt: mandateProtocolDatetime(input.issuedAt),
+      ...claims,
+      notBefore,
+      expiresAt,
+    });
+    const mandate = saidify({ ...credential(), d: '', s: taskMandateV4SchemaSaid, a: attributes });
+    const record = { sad: mandate, iss: { d: 'issuance' }, anc: { d: 'anchor' }, ancatc: [] };
+    expect(reconcileMandateIssuanceEvidence([record], [], fresh)).toEqual({
+      kind: 'Materialized',
+      credentialSaid: mandate.d,
+    });
+    expect(reconcileMandateIssuanceEvidence([record], [], input)).toEqual({ kind: 'NotFound' });
+    expect(
+      reconcileMandateIssuanceEvidence([record], [], {
+        ...fresh,
+        claims: {
+          ...fresh.claims,
+          budgets: { ...fresh.claims.budgets, runsPerAdmittedUser: 6 },
+        },
+      }),
+    ).toEqual({ kind: 'NotFound' });
+    expect(
+      reconcileMandateIssuanceEvidence(
+        [{ ...record, sad: saidify({ ...mandate, d: '', s: taskMandateSchemaSaid }) }],
+        [],
+        fresh,
+      ),
+    ).toEqual({ kind: 'NotFound' });
+  });
+
   it.each([
     ['TaskMandate', 6, false, false, taskMandateSchema],
     ['TaskMandate', 6, true, false, taskMandateV2Schema],
     ['TaskMandate', 8, true, false, taskMandateV3Schema],
+    ['TaskMandate', 9, true, false, taskMandateV4Schema],
     ['PromotionMandate', 6, false, false, promotionMandateSchema],
     ['PromotionMandate', 6, true, false, promotionMandateV2Schema],
     ['PromotionMandate', 8, true, false, promotionMandateV4Schema],
+    ['PromotionMandate', 9, true, false, promotionMandateV6Schema],
     ['PromotionMandate', 6, true, true, promotionMandateV3Schema],
     ['PromotionMandate', 8, true, true, promotionMandateV5Schema],
+    ['PromotionMandate', 9, true, true, promotionMandateV7Schema],
   ] as const)(
     'resolves and submits %s with %i runs (experience %s, exact M %s)',
     async (kind, runs, experience, exact, expectedSchema) => {
@@ -508,11 +564,14 @@ describe('mandate issuance reconciliation', () => {
         taskMandateSchema,
         taskMandateV2Schema,
         taskMandateV3Schema,
+        taskMandateV4Schema,
         promotionMandateSchema,
         promotionMandateV2Schema,
         promotionMandateV3Schema,
         promotionMandateV4Schema,
+        promotionMandateV6Schema,
         promotionMandateV5Schema,
+        promotionMandateV7Schema,
       ];
       const schemas = client.schemas();
       vi.spyOn(client, 'schemas').mockReturnValue(schemas);
@@ -649,7 +708,14 @@ describe('mandate issuance reconciliation', () => {
         `http://issuer.test/oobi/${expectedSchema.$id}`,
         'devrandom-credential-schema',
       );
-      const newSchemas = [taskMandateV3Schema, promotionMandateV4Schema, promotionMandateV5Schema];
+      const newSchemas = [
+        taskMandateV3Schema,
+        promotionMandateV4Schema,
+        promotionMandateV5Schema,
+        taskMandateV4Schema,
+        promotionMandateV6Schema,
+        promotionMandateV7Schema,
+      ];
       for (const schema of newSchemas.filter((schema) => schema !== expectedSchema)) {
         expect(available.has(schema.$id)).toBe(false);
       }

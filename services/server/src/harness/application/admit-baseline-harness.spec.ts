@@ -232,7 +232,7 @@ function dependencies(
 }
 
 describe('baseline Harness admission', () => {
-  it.each([6, 8])(
+  it.each([6, 8, 9])(
     'admits v2 quota%s without widening per-Run spending or Pi tools',
     async (quota) => {
       const source = taskCommand.revision;
@@ -279,7 +279,7 @@ describe('baseline Harness admission', () => {
           owner: { ownerAid: taskOwnerAid, credentialSaid: userCredentialSaid },
           command: command(scopedTask, [], 'claude-sonnet-4-5', {
             ...taskBudgetCeilings,
-            runsPerAdmittedUser: quota,
+            runsPerAdmittedUser: quota > 6 ? 9 : 6,
           }),
         },
         {

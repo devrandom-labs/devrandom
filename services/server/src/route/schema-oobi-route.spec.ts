@@ -6,8 +6,11 @@ import {
   taskMandateSchema,
   taskMandateV2Schema,
   taskMandateV3Schema,
+  taskMandateV4Schema,
   promotionMandateV4Schema,
+  promotionMandateV6Schema,
   promotionMandateV5Schema,
+  promotionMandateV7Schema,
 } from '@devrandom/protocol';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -27,6 +30,9 @@ describe('credential schema OOBI route', () => {
     ['Task Mandate', taskMandateSchema],
     ['Task Mandate v2', taskMandateV2Schema],
     ['Task Mandate v3', taskMandateV3Schema],
+    ['Task Mandate v4', taskMandateV4Schema],
+    ['Promotion Mandate v6', promotionMandateV6Schema],
+    ['Promotion Mandate v7', promotionMandateV7Schema],
     ['Promotion Mandate v4', promotionMandateV4Schema],
     ['Promotion Mandate v5', promotionMandateV5Schema],
     ['Promotion Mandate', promotionMandateSchema],
@@ -37,11 +43,12 @@ describe('credential schema OOBI route', () => {
     instances.push(server);
     await server.register(schemaOobiRoute);
 
-    const response = await server.inject({ method: 'GET', url: `/oobi/${schema.$id}` });
+    const address = await server.listen({ host: '127.0.0.1', port: 0 });
+    const response = await fetch(`${address}/oobi/${schema.$id}`);
 
-    expect(response.statusCode).toBe(200);
-    expect(response.headers['content-type']).toContain('application/schema+json');
-    expect(response.json()).toEqual(schema);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/schema+json');
+    expect(await response.json()).toEqual(schema);
   });
 
   it('does not publish a substituted digest-shaped identifier', async () => {

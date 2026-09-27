@@ -4,6 +4,7 @@ import {
   prepareTaskCommandV2,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
   taskMandateSchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -127,7 +128,7 @@ function dependencies(): CurrentTaskMandateDependencies {
 }
 
 describe('current Task Mandate authorization', () => {
-  it.each([6, 8])(
+  it.each([6, 8, 9])(
     'requires the exact immutable schema for a Task requesting %s Runs',
     async (runs) => {
       const experience = {
@@ -165,8 +166,17 @@ describe('current Task Mandate authorization', () => {
         revisionSaid: prepared.command.revision.d,
         revision: prepared.command.revision,
       };
-      const expectedSchema = runs === 8 ? taskMandateV3SchemaSaid : taskMandateV2SchemaSaid;
-      for (const schemaSaid of [taskMandateV2SchemaSaid, taskMandateV3SchemaSaid]) {
+      const expectedSchema =
+        runs === 9
+          ? taskMandateV4SchemaSaid
+          : runs === 8
+            ? taskMandateV3SchemaSaid
+            : taskMandateV2SchemaSaid;
+      for (const schemaSaid of [
+        taskMandateV2SchemaSaid,
+        taskMandateV3SchemaSaid,
+        taskMandateV4SchemaSaid,
+      ]) {
         const outcome = await authorizeCurrentTaskMandate(
           { ...input, taskRevisionSaid: selected.revisionSaid },
           {

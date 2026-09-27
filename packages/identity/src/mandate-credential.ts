@@ -16,10 +16,13 @@ import {
   promotionMandateV2SchemaSaid,
   promotionMandateV3SchemaSaid,
   promotionMandateV4SchemaSaid,
+  promotionMandateV6SchemaSaid,
   promotionMandateV5SchemaSaid,
+  promotionMandateV7SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
 } from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
@@ -216,7 +219,8 @@ export function inspectTaskMandateCredentialEvidence(
   if (
     credential.s !== taskMandateSchemaSaid &&
     credential.s !== taskMandateV2SchemaSaid &&
-    credential.s !== taskMandateV3SchemaSaid
+    credential.s !== taskMandateV3SchemaSaid &&
+    credential.s !== taskMandateV4SchemaSaid
   ) {
     return invalidMandateEvidence('Task Mandate schema differs from the pinned schema');
   }
@@ -260,7 +264,9 @@ export function inspectPromotionMandateCredentialEvidence(
     credential.s !== promotionMandateV2SchemaSaid &&
     credential.s !== promotionMandateV3SchemaSaid &&
     credential.s !== promotionMandateV4SchemaSaid &&
-    credential.s !== promotionMandateV5SchemaSaid
+    credential.s !== promotionMandateV6SchemaSaid &&
+    credential.s !== promotionMandateV5SchemaSaid &&
+    credential.s !== promotionMandateV7SchemaSaid
   ) {
     return invalidMandateEvidence('Promotion Mandate schema differs from the pinned schema');
   }
@@ -298,7 +304,8 @@ export function inspectExactPromotionMandateCredentialEvidence(
   const inspection = inspectPromotionMandateCredentialEvidence(sources);
   if (
     (inspection.credential.schemaSaid !== promotionMandateV3SchemaSaid &&
-      inspection.credential.schemaSaid !== promotionMandateV5SchemaSaid) ||
+      inspection.credential.schemaSaid !== promotionMandateV5SchemaSaid &&
+      inspection.credential.schemaSaid !== promotionMandateV7SchemaSaid) ||
     !('evaluationManifestSaid' in inspection) ||
     !('requiredMetrics' in inspection) ||
     !('requiredChecks' in inspection) ||

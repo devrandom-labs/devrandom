@@ -31,8 +31,11 @@ import {
   credentialSchema,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
   promotionMandateV4SchemaSaid,
+  promotionMandateV6SchemaSaid,
   promotionMandateV5SchemaSaid,
+  promotionMandateV7SchemaSaid,
   promotionMandateV2SchemaSaid,
   promotionMandateV3SchemaSaid,
   verifyMandateSchemaCatalog,
@@ -659,8 +662,11 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
         await result.infrastructure.promotionMandateV2SchemaAvailability.verify();
         await result.infrastructure.promotionMandateV3SchemaAvailability.verify();
         await result.infrastructure.taskMandateV3SchemaAvailability.verify();
+        await result.infrastructure.taskMandateV4SchemaAvailability.verify();
         await result.infrastructure.promotionMandateV4SchemaAvailability.verify();
+        await result.infrastructure.promotionMandateV6SchemaAvailability.verify();
         await result.infrastructure.promotionMandateV5SchemaAvailability.verify();
+        await result.infrastructure.promotionMandateV7SchemaAvailability.verify();
       },
     };
   } catch {
@@ -695,15 +701,28 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     const taskMandateV3Oobi = new URL(registrationConfiguration.taskMandateSchemaOobiUrl);
     taskMandateV3Oobi.pathname = `/oobi/${taskMandateV3SchemaSaid}`;
     await result.infrastructure.taskMandateV3SchemaAvailability.resolve(taskMandateV3Oobi.href);
+    const taskMandateV4Oobi = new URL(registrationConfiguration.taskMandateSchemaOobiUrl);
+    taskMandateV4Oobi.pathname = `/oobi/${taskMandateV4SchemaSaid}`;
+    await result.infrastructure.taskMandateV4SchemaAvailability.resolve(taskMandateV4Oobi.href);
     const promotionMandateV4Oobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
     promotionMandateV4Oobi.pathname = `/oobi/${promotionMandateV4SchemaSaid}`;
     await result.infrastructure.promotionMandateV4SchemaAvailability.resolve(
       promotionMandateV4Oobi.href,
     );
+    const promotionMandateV6Oobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
+    promotionMandateV6Oobi.pathname = `/oobi/${promotionMandateV6SchemaSaid}`;
+    await result.infrastructure.promotionMandateV6SchemaAvailability.resolve(
+      promotionMandateV6Oobi.href,
+    );
     const promotionMandateV5Oobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
     promotionMandateV5Oobi.pathname = `/oobi/${promotionMandateV5SchemaSaid}`;
     await result.infrastructure.promotionMandateV5SchemaAvailability.resolve(
       promotionMandateV5Oobi.href,
+    );
+    const promotionMandateV7Oobi = new URL(registrationConfiguration.promotionMandateSchemaOobiUrl);
+    promotionMandateV7Oobi.pathname = `/oobi/${promotionMandateV7SchemaSaid}`;
+    await result.infrastructure.promotionMandateV7SchemaAvailability.resolve(
+      promotionMandateV7Oobi.href,
     );
     const taskV2SchemaOobi = new URL(registrationConfiguration.taskMandateSchemaOobiUrl);
     taskV2SchemaOobi.pathname = `/oobi/${taskMandateV2SchemaSaid}`;

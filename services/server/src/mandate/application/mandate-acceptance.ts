@@ -1,5 +1,4 @@
 import {
-  taskBudgetCeilings,
   verifyPromotionMandate,
   verifyTaskMandate,
   type CurrentTaskMandate,
@@ -10,13 +9,9 @@ import {
 } from '@devrandom/domain';
 import {
   promotionMandateSchemaSaid,
-  promotionMandateV2SchemaSaid,
-  promotionMandateV3SchemaSaid,
-  taskMandateSchemaSaid,
-  taskMandateV2SchemaSaid,
-  taskMandateV3SchemaSaid,
-  promotionMandateV4SchemaSaid,
-  promotionMandateV5SchemaSaid,
+  selectTaskMandateSchemaSaid,
+  selectInitialPromotionMandateSchemaSaid,
+  selectExactPromotionMandateSchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
 
@@ -84,18 +79,19 @@ function mandateTask(task: TaskProjection): MandateTask {
 
 function promotionSchemaSaid(task: TaskProjection, inspection: PromotionMandateInspection): string {
   if (task.revision.version !== 2) return promotionMandateSchemaSaid;
-  const expanded =
-    task.revision.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser;
-  const exactSchema = expanded ? promotionMandateV5SchemaSaid : promotionMandateV3SchemaSaid;
+  const exactSchema = selectExactPromotionMandateSchemaSaid(
+    task.revision.budgets.runsPerAdmittedUser,
+  );
   return inspection.credential.schemaSaid === exactSchema &&
     'evaluationManifestSaid' in inspection &&
     'requiredMetrics' in inspection &&
     'requiredChecks' in inspection &&
     'riskLimit' in inspection
     ? exactSchema
-    : expanded
-      ? promotionMandateV4SchemaSaid
-      : promotionMandateV2SchemaSaid;
+    : selectInitialPromotionMandateSchemaSaid(
+        task.revision.version,
+        task.revision.budgets.runsPerAdmittedUser,
+      );
 }
 
 export type CurrentTaskMandateInspection =
@@ -239,13 +235,10 @@ export function inspectCurrentTaskMandate(input: {
         issuerAid: input.ownerAid,
         issueeAid: acceptedReference.issueeAid,
         registryId: acceptedReference.registryId,
-        schemaSaid:
-          input.task.revision.version !== 2
-            ? taskMandateSchemaSaid
-            : input.task.revision.budgets.runsPerAdmittedUser >
-                taskBudgetCeilings.runsPerAdmittedUser
-              ? taskMandateV3SchemaSaid
-              : taskMandateV2SchemaSaid,
+        schemaSaid: selectTaskMandateSchemaSaid(
+          input.task.revision.version,
+          input.task.revision.budgets.runsPerAdmittedUser,
+        ),
         credentialSaid: input.credentialSaid,
       },
       task: mandateTask(input.task),
@@ -395,12 +388,10 @@ async function currentTaskMandate(
           issuerAid: input.ownerAid,
           issueeAid: accepted.issueeAid,
           registryId: accepted.registryId,
-          schemaSaid:
-            task.experience === undefined
-              ? taskMandateSchemaSaid
-              : task.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
-                ? taskMandateV3SchemaSaid
-                : taskMandateV2SchemaSaid,
+          schemaSaid: selectTaskMandateSchemaSaid(
+            task.experience === undefined ? 1 : 2,
+            task.budgets.runsPerAdmittedUser,
+          ),
           credentialSaid: stored.presentation.binding.credentialSaid,
         },
         task,

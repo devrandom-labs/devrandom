@@ -292,6 +292,56 @@ integration('Mongo Run admission storage', () => {
     });
   });
 
+  it.each([8, 9])(
+    'counts historical terminal Runs against the exact owner ceiling of %s',
+    async (existingCount) => {
+      const harness = await admittedHarness();
+      const budget = { ...harness.revision.budgetCeilings.task, runsPerAdmittedUser: 9 };
+      for (let index = 0; index < existingCount; index += 1) {
+        const prior = proposedRun(harness, randomUUID(), budget);
+        const taskId = randomUUID();
+        await database.collection<RunDocument>(runsCollectionName).insertOne(
+          encodeRunDocument(
+            {
+              ...prior,
+              binding: { ...prior.binding, taskId },
+              lifecycle: {
+                kind: 'Ended',
+                outcome: {
+                  kind: 'Failed',
+                  failure: 'LocalStateCorruption',
+                  checkpointSaid: `E${'u'.repeat(43)}`,
+                },
+              },
+            },
+            runFingerprint,
+          ),
+        );
+      }
+      const proposed = proposedRun(harness, randomUUID(), budget);
+      await runs.reserve({
+        ownerAid: proposed.binding.ownerAid,
+        commandId: proposed.binding.commandId,
+        commandFingerprint: runFingerprint,
+        admissionExchangeSaid: proposed.binding.admissionExchangeSaid,
+        reservedAt: acceptedAt,
+      });
+      const outcome = await runs.accept({
+        ownerAid: proposed.binding.ownerAid,
+        commandId: proposed.binding.commandId,
+        commandFingerprint: runFingerprint,
+        run: proposed,
+        activation: activation(proposed),
+      });
+      expect(outcome.kind).toBe(existingCount === 8 ? 'RunCommitted' : 'OwnerRunCapacityExceeded');
+      expect(
+        await database
+          .collection(runsCollectionName)
+          .countDocuments({ ownerAid: proposed.binding.ownerAid }),
+      ).toBe(9);
+    },
+  );
+
   it('admits five terminal calibrations and then one retained Run against the same H1', async () => {
     const harness = await admittedHarness();
     const campaignId = '4dd443a3-d93c-4857-8ede-b08aa3f979c5';
@@ -473,7 +523,7 @@ integration('Mongo Run admission storage', () => {
     });
   });
 
-  it.each([6, 8])(
+  it.each([6, 8, 9])(
     'reads and reconciles an admitted quota of %s through HTTP after a lease response is lost',
     async (quota) => {
       const harness = await admittedHarness();

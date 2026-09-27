@@ -15,6 +15,8 @@ import {
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
+  promotionMandateV7SchemaSaid,
   promotionMandateV5SchemaSaid,
   type TaskProjection,
 } from '@devrandom/protocol';
@@ -209,6 +211,7 @@ describe('current Promotion Mandate authorization', () => {
   it.each([
     [6, taskMandateV2SchemaSaid, promotionMandateV3SchemaSaid],
     [8, taskMandateV3SchemaSaid, promotionMandateV5SchemaSaid],
+    [9, taskMandateV4SchemaSaid, promotionMandateV7SchemaSaid],
   ] as const)(
     'reinspects the exact Governor credential for a current v2 Task quota%s',
     async (runs, taskSchema, promotionSchema) => {

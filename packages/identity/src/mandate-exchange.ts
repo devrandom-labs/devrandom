@@ -25,15 +25,24 @@ import {
   promotionMandateV3Schema,
   promotionMandateV3SchemaSaid,
   promotionMandateV4Schema,
+  promotionMandateV6Schema,
   promotionMandateV4SchemaSaid,
+  promotionMandateV6SchemaSaid,
   promotionMandateV5Schema,
+  promotionMandateV7Schema,
   promotionMandateV5SchemaSaid,
+  promotionMandateV7SchemaSaid,
+  selectTaskMandateSchemaSaid,
+  selectInitialPromotionMandateSchemaSaid,
+  selectExactPromotionMandateSchemaSaid,
   taskMandateSchema,
   taskMandateSchemaSaid,
   taskMandateV2Schema,
   taskMandateV2SchemaSaid,
   taskMandateV3Schema,
+  taskMandateV4Schema,
   taskMandateV3SchemaSaid,
+  taskMandateV4SchemaSaid,
 } from '@devrandom/protocol';
 import { Serder, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
@@ -658,12 +667,12 @@ function issuanceArguments(input: StableMandateIssuance) {
       return {
         i: input.userAid,
         ri: input.registryId,
-        s:
-          input.claims.budgets.runsPerAdmittedUser > 6
-            ? taskMandateV3SchemaSaid
-            : input.claims.experience === undefined
-              ? taskMandateSchemaSaid
-              : taskMandateV2SchemaSaid,
+        s: selectTaskMandateSchemaSaid(
+          input.claims.experience === undefined && input.claims.budgets.runsPerAdmittedUser <= 6
+            ? 1
+            : 2,
+          input.claims.budgets.runsPerAdmittedUser,
+        ),
         a: {
           i: input.holderAid,
           dt: mandateProtocolDatetime(input.issuedAt),
@@ -686,14 +695,14 @@ function issuanceArguments(input: StableMandateIssuance) {
         i: input.userAid,
         ri: input.registryId,
         s: exact
-          ? input.claims.budgetCeiling.runsPerAdmittedUser > 6
-            ? promotionMandateV5SchemaSaid
-            : promotionMandateV3SchemaSaid
-          : input.claims.budgetCeiling.runsPerAdmittedUser > 6
-            ? promotionMandateV4SchemaSaid
-            : input.claims.experience === undefined
-              ? promotionMandateSchemaSaid
-              : promotionMandateV2SchemaSaid,
+          ? selectExactPromotionMandateSchemaSaid(input.claims.budgetCeiling.runsPerAdmittedUser)
+          : selectInitialPromotionMandateSchemaSaid(
+              input.claims.experience === undefined &&
+                input.claims.budgetCeiling.runsPerAdmittedUser <= 6
+                ? 1
+                : 2,
+              input.claims.budgetCeiling.runsPerAdmittedUser,
+            ),
         a: {
           i: input.holderAid,
           dt: mandateProtocolDatetime(input.issuedAt),
@@ -1521,13 +1530,20 @@ function verifyHolderInspection(
   const evidence = inspection.value.credential;
   const expectedSchemas =
     expected.mandateKind === 'TaskMandate'
-      ? [taskMandateSchemaSaid, taskMandateV2SchemaSaid, taskMandateV3SchemaSaid]
+      ? [
+          taskMandateSchemaSaid,
+          taskMandateV2SchemaSaid,
+          taskMandateV3SchemaSaid,
+          taskMandateV4SchemaSaid,
+        ]
       : [
           promotionMandateSchemaSaid,
           promotionMandateV2SchemaSaid,
           promotionMandateV3SchemaSaid,
           promotionMandateV4SchemaSaid,
+          promotionMandateV6SchemaSaid,
           promotionMandateV5SchemaSaid,
+          promotionMandateV7SchemaSaid,
         ];
   if (
     inspection.kind !== expected.mandateKind ||
@@ -1604,9 +1620,12 @@ export async function connectLocalMandateCustody(
       await prepareSchemas();
       const schema = [
         taskMandateV3Schema,
+        taskMandateV4Schema,
         promotionMandateV3Schema,
         promotionMandateV4Schema,
+        promotionMandateV6Schema,
         promotionMandateV5Schema,
+        promotionMandateV7Schema,
       ].find((schema) => schema.$id === schemaSaid);
       if (schema !== undefined) {
         const oobi = new URL(
@@ -1718,11 +1737,14 @@ async function inspectAdmission(
       inspection.value.credential.schemaSaid !== taskMandateSchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV2SchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV3SchemaSaid &&
+      inspection.value.credential.schemaSaid !== taskMandateV4SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateSchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV2SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV3SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV4SchemaSaid &&
-      inspection.value.credential.schemaSaid !== promotionMandateV5SchemaSaid
+      inspection.value.credential.schemaSaid !== promotionMandateV6SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV5SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV7SchemaSaid
     ) {
       return { kind: 'Rejected', reason: 'CredentialSchemaMismatch' };
     }
