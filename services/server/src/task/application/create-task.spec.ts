@@ -16,6 +16,33 @@ import {
 
 const createdAt = '2026-09-24T12:00:00.000Z';
 
+function evaluationCommand(runsPerAdmittedUser: number) {
+  const old = taskCommandFixture();
+  const { d: oldRevisionSaid, repository, ...contract } = old.revision;
+  expect(oldRevisionSaid).toMatch(/^E[A-Za-z0-9_-]{43}$/u);
+  return prepareTaskCommandV2(
+    {
+      ...contract,
+      version: 2,
+      label: old.label,
+      repository: { kind: 'gitCommit', commit: repository.commit },
+      constraints: {
+        ...contract.constraints,
+        dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+        experience: {
+          corpusSaid: `E${'c'.repeat(43)}`,
+          repositoryResourceSaid: `E${'r'.repeat(43)}`,
+          disclosure: 'AuthorizedAnalogy',
+        },
+      },
+      requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
+      budgets: { ...contract.budgets, ...taskEvaluationBudgetCeilings, runsPerAdmittedUser },
+    },
+    old.commandId,
+    repository,
+  );
+}
+
 function dependencies(overrides: Partial<CreateTaskDependencies> = {}): CreateTaskDependencies {
   return {
     tasks: {
@@ -37,30 +64,7 @@ function dependencies(overrides: Partial<CreateTaskDependencies> = {}): CreateTa
 
 describe('Task creation application', () => {
   it('creates a v2 Task with exact authorized experience and finite evaluation ceilings', async () => {
-    const old = taskCommandFixture();
-    const { d: oldRevisionSaid, repository, ...contract } = old.revision;
-    expect(oldRevisionSaid).toMatch(/^E[A-Za-z0-9_-]{43}$/u);
-    const prepared = prepareTaskCommandV2(
-      {
-        ...contract,
-        version: 2,
-        label: old.label,
-        repository: { kind: 'gitCommit', commit: repository.commit },
-        constraints: {
-          ...contract.constraints,
-          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
-          experience: {
-            corpusSaid: `E${'c'.repeat(43)}`,
-            repositoryResourceSaid: `E${'r'.repeat(43)}`,
-            disclosure: 'AuthorizedAnalogy',
-          },
-        },
-        requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
-        budgets: { ...contract.budgets, ...taskEvaluationBudgetCeilings },
-      },
-      old.commandId,
-      repository,
-    );
+    const prepared = evaluationCommand(8);
     expect(prepared.kind).toBe('Prepared');
     if (prepared.kind !== 'Prepared') throw new Error('expected v2 task');
     const outcome = await createTask(
@@ -75,6 +79,39 @@ describe('Task creation application', () => {
     if (outcome.kind !== 'TaskCreated') throw new Error('expected Task creation');
     expect(outcome.task.revision.version).toBe(2);
     expect(outcome.task.revision.budgets.providerRequests).toBe(256);
+  });
+  it('admits nine Runs only for the specifically approved owner, while keeping eight available', async () => {
+    const prepared = evaluationCommand(9);
+    if (prepared.kind !== 'Prepared') throw new Error('nine-Run task fixture rejected');
+    const owner = { ownerAid: taskOwnerAid, credentialSaid: taskCredentialSaid };
+    const standard = dependencies();
+    const store = vi.fn(standard.tasks.create.bind(standard.tasks));
+    const hosted = { ...standard, tasks: { ...standard.tasks, create: store } };
+    await expect(
+      createTask(
+        { owner, protectedCredentials: new ProtectedCredentials(), command: prepared.command },
+        hosted,
+      ),
+    ).resolves.toEqual({ kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' });
+    expect(store).not.toHaveBeenCalled();
+    await expect(
+      createTask(
+        { owner, protectedCredentials: new ProtectedCredentials(), command: prepared.command },
+        { ...hosted, approvedNineRunOwnerAid: taskOwnerAid },
+      ),
+    ).resolves.toMatchObject({ kind: 'TaskCreated' });
+    expect(store).toHaveBeenCalledTimes(1);
+    await expect(
+      createTask(
+        {
+          owner: { ...owner, ownerAid: `E${'f'.repeat(43)}` },
+          protectedCredentials: new ProtectedCredentials(),
+          command: prepared.command,
+        },
+        { ...hosted, approvedNineRunOwnerAid: taskOwnerAid },
+      ),
+    ).resolves.toEqual({ kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' });
+    expect(store).toHaveBeenCalledTimes(1);
   });
   it.each([
     's'.repeat(43),

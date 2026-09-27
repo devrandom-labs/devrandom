@@ -33,6 +33,28 @@ describe('hosted-work server configuration', () => {
     });
   });
 
+  it('selects exactly one owner for the approved nine-Run exception', () => {
+    const ownerAid = 'EMstL6Th90iB6MpQkPjKN2ii7a5XcvA_PCHWHrAAD-l4';
+    expect(
+      loadHostedWorkConfiguration({
+        DEVRANDOM_HOSTED_WORK_MONGODB_URI: 'mongodb://mongodb:27017/devrandom_e0',
+        DEVRANDOM_APPROVED_NINE_RUN_OWNER_AID: ownerAid,
+      }).approvedNineRunOwnerAid,
+    ).toBe(ownerAid);
+  });
+
+  it.each(['not-an-aid', 'Eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=', 'E123'])(
+    'rejects an invalid owner-scoped nine-Run approval %s',
+    (ownerAid) => {
+      expect(() =>
+        loadHostedWorkConfiguration({
+          DEVRANDOM_HOSTED_WORK_MONGODB_URI: 'mongodb://mongodb:27017/devrandom_e0',
+          DEVRANDOM_APPROVED_NINE_RUN_OWNER_AID: ownerAid,
+        }),
+      ).toThrow(HostedWorkConfigurationFailure);
+    },
+  );
+
   it.each(['0', '-1', '1.5', 'not-a-duration', '1801'])(
     'rejects an invalid or ceiling-raising Work Access Grant lifetime %s',
     (grantLifetimeSeconds) => {

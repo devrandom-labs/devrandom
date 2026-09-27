@@ -50,6 +50,7 @@ function taskContractRejection(invalidity: TaskRevisionInvalidity): TaskContract
 export interface CreateTaskDependencies {
   readonly tasks: Tasks;
   readonly eligibility: CurrentTaskCreationEligibility;
+  readonly approvedNineRunOwnerAid?: string;
   now(): string;
   newTaskId(): string;
   newHarnessLineageId(): string;
@@ -127,6 +128,13 @@ export async function createTask(
 
   if (reconciliation.kind === 'ExistingTask') {
     return { kind: 'ExistingTask', task: reconciliation.task };
+  }
+
+  if (
+    decoded.revision.budgets.runsPerAdmittedUser > 8 &&
+    input.owner.ownerAid !== dependencies.approvedNineRunOwnerAid
+  ) {
+    return { kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' };
   }
 
   const createdAt = dependencies.now();

@@ -15,6 +15,7 @@ export type HostedWorkMongoUri = string & {
 export interface HostedWorkConfiguration {
   readonly mongodbUri: HostedWorkMongoUri;
   readonly workAccessPolicy: WorkAccessPolicy;
+  readonly approvedNineRunOwnerAid?: string;
 }
 
 export type HostedWorkConfigurationError =
@@ -22,7 +23,8 @@ export type HostedWorkConfigurationError =
   | { readonly kind: 'HostedWorkMongoBindingInvalid' }
   | { readonly kind: 'WorkAccessGrantLifetimeInvalid' }
   | { readonly kind: 'TaskCursorKeyMissing' }
-  | { readonly kind: 'TaskCursorKeyInvalid' };
+  | { readonly kind: 'TaskCursorKeyInvalid' }
+  | { readonly kind: 'NineRunOwnerAidInvalid' };
 
 function configurationFailureMessage(detail: HostedWorkConfigurationError): string {
   switch (detail.kind) {
@@ -36,6 +38,8 @@ function configurationFailureMessage(detail: HostedWorkConfigurationError): stri
       return 'DEVRANDOM_TASK_CURSOR_KEY is required';
     case 'TaskCursorKeyInvalid':
       return 'DEVRANDOM_TASK_CURSOR_KEY is invalid';
+    case 'NineRunOwnerAidInvalid':
+      return 'DEVRANDOM_APPROVED_NINE_RUN_OWNER_AID is invalid';
   }
 }
 
@@ -53,6 +57,7 @@ export interface HostedWorkEnvironment {
   readonly DEVRANDOM_HOSTED_WORK_MONGODB_URI?: string | undefined;
   readonly DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS?: string | undefined;
   readonly DEVRANDOM_TASK_CURSOR_KEY?: string | undefined;
+  readonly DEVRANDOM_APPROVED_NINE_RUN_OWNER_AID?: string | undefined;
 }
 
 export function loadTaskCursorKey(environment: HostedWorkEnvironment): Uint8Array {
@@ -107,8 +112,18 @@ export function loadHostedWorkConfiguration(
     }
   }
 
+  const approvedNineRunOwnerAid = environment.DEVRANDOM_APPROVED_NINE_RUN_OWNER_AID;
+  if (
+    approvedNineRunOwnerAid !== undefined &&
+    approvedNineRunOwnerAid.length > 0 &&
+    !/^E[A-Za-z0-9_-]{43}$/u.test(approvedNineRunOwnerAid)
+  ) {
+    throw new HostedWorkConfigurationFailure({ kind: 'NineRunOwnerAidInvalid' });
+  }
+
   return {
     mongodbUri: mongodbUri as HostedWorkMongoUri,
     workAccessPolicy: effectiveWorkAccessPolicy,
+    ...(approvedNineRunOwnerAid ? { approvedNineRunOwnerAid } : {}),
   };
 }

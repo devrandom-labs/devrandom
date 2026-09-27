@@ -142,6 +142,7 @@ function devrandomServerEnvironment(environment: NodeJS.ProcessEnv): DevrandomSe
     DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS:
       environment.DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS,
     DEVRANDOM_TASK_CURSOR_KEY: environment.DEVRANDOM_TASK_CURSOR_KEY,
+    DEVRANDOM_APPROVED_NINE_RUN_OWNER_AID: environment.DEVRANDOM_APPROVED_NINE_RUN_OWNER_AID,
     DEVRANDOM_ATLAS_URI: environment.DEVRANDOM_ATLAS_URI,
     DEVRANDOM_ATLAS_DATABASE: environment.DEVRANDOM_ATLAS_DATABASE,
     DEVRANDOM_ATLAS_MODEL_CACHE_DIRECTORY: environment.DEVRANDOM_ATLAS_MODEL_CACHE_DIRECTORY,
@@ -387,6 +388,7 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     const tasks = new MongoTasks(hostedDatabase);
     const taskCreationDependencies: CreateTaskDependencies = {
       tasks,
+      approvedNineRunOwnerAid: hostedWorkConfiguration.approvedNineRunOwnerAid,
       eligibility: issuerTaskCreationEligibility(
         result.infrastructure.currentUserCredentialVerification,
       ),
