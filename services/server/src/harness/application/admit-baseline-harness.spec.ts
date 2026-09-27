@@ -279,7 +279,7 @@ describe('baseline Harness admission', () => {
           owner: { ownerAid: taskOwnerAid, credentialSaid: userCredentialSaid },
           command: command(scopedTask, [], 'claude-sonnet-4-5', {
             ...taskBudgetCeilings,
-            runsPerAdmittedUser: quota > 6 ? 9 : 6,
+            runsPerAdmittedUser: quota,
           }),
         },
         {

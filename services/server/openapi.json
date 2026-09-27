@@ -6155,7 +6155,7 @@
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 8
+                                "maximum": 9
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -7575,7 +7575,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -8983,7 +8983,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -11617,7 +11617,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -14270,7 +14270,7 @@
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 8
+                                "maximum": 9
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -14446,7 +14446,7 @@
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 8
+                                "maximum": 9
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -14622,7 +14622,7 @@
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 8
+                                "maximum": 9
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -15736,7 +15736,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -15912,7 +15912,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -16088,7 +16088,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -17181,7 +17181,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -17357,7 +17357,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -17533,7 +17533,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -18729,7 +18729,7 @@
                             "runsPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 8
+                              "maximum": 9
                             },
                             "activeRunsPerAdmittedUser": {
                               "type": "integer",
@@ -19855,7 +19855,7 @@
                             "runsPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 8
+                              "maximum": 9
                             },
                             "activeRunsPerAdmittedUser": {
                               "type": "integer",
@@ -22227,7 +22227,7 @@
                             "runsPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 8
+                              "maximum": 9
                             },
                             "activeRunsPerAdmittedUser": {
                               "type": "integer",
@@ -25109,7 +25109,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -26912,7 +26912,7 @@
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 8
+                                  "maximum": 9
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -34161,7 +34161,7 @@
                                   "runsPerAdmittedUser": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 8
+                                    "maximum": 9
                                   },
                                   "activeRunsPerAdmittedUser": {
                                     "type": "integer",
@@ -35569,7 +35569,7 @@
                                   "runsPerAdmittedUser": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 8
+                                    "maximum": 9
                                   },
                                   "activeRunsPerAdmittedUser": {
                                     "type": "integer",
@@ -52850,7 +52850,7 @@
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 8
+                                        "maximum": 9
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",
@@ -54258,7 +54258,7 @@
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 8
+                                        "maximum": 9
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",
@@ -58343,7 +58343,7 @@
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 8
+                                        "maximum": 9
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",
@@ -59751,7 +59751,7 @@
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 8
+                                        "maximum": 9
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",

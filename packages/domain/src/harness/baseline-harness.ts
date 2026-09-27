@@ -1,13 +1,17 @@
 import {
   taskBudgetCeilings,
-  taskEvaluationBudgetCeilings,
   type TaskBudgets,
   type TaskToolCapability,
 } from '../task/authority.js';
 
-const expandedRunQuotaServerCeilings: Readonly<TaskBudgets> = Object.freeze({
+const eightRunQuotaServerCeilings: Readonly<TaskBudgets> = Object.freeze({
   ...taskBudgetCeilings,
-  runsPerAdmittedUser: taskEvaluationBudgetCeilings.runsPerAdmittedUser,
+  runsPerAdmittedUser: 8,
+});
+
+const nineRunQuotaServerCeilings: Readonly<TaskBudgets> = Object.freeze({
+  ...taskBudgetCeilings,
+  runsPerAdmittedUser: 9,
 });
 
 /** Preserve signed old H1 ceilings; a fresh v2 Task must explicitly request the added Run slots. */
@@ -17,7 +21,9 @@ export function baselineHarnessServerBudgetCeilings(task: {
 }): Readonly<TaskBudgets> {
   return task.version === 2 &&
     task.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
-    ? expandedRunQuotaServerCeilings
+    ? task.budgets.runsPerAdmittedUser > 8
+      ? nineRunQuotaServerCeilings
+      : eightRunQuotaServerCeilings
     : taskBudgetCeilings;
 }
 

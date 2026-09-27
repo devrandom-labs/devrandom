@@ -359,6 +359,7 @@ describe('baseline Harness preparation', () => {
     { version: 1, quota: 6 },
     { version: 2, quota: 6 },
     { version: 2, quota: 8 },
+    { version: 2, quota: 9 },
   ] as const)(
     'derives stable H1 for v$version quota$quota without changing spending',
     async ({ version, quota }) => {
