@@ -346,7 +346,7 @@ if (mode === 'pause') {
         predecessor: {
           incarnationId: run.lease.incarnationId,
           segmentSaid: run.currentExecution.segmentSaid,
-          evidenceStreamId: run.currentExecution?.evidenceStreamId ?? '',
+          evidenceStreamId: run.currentExecution.evidenceStreamId,
           checkpointSaid: command.predecessorCheckpointSaid,
           sealExchangeSaid: command.predecessorSealSaid,
           finalSequence: snapshot.events.length - 1,
@@ -370,7 +370,7 @@ if (mode === 'pause') {
         serverTime: admittedAt,
         predecessor: {
           incarnationId: run.lease.incarnationId,
-          evidenceStreamId: run.currentExecution?.evidenceStreamId ?? '',
+          evidenceStreamId: run.currentExecution.evidenceStreamId,
           checkpointSaid: command.predecessorCheckpointSaid,
         },
         successor: { segmentSaid: segment.segment.d, ...segment.segment.successor },
