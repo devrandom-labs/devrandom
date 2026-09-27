@@ -75,7 +75,10 @@ import { SignifyCurrentExperienceMandate } from '../../evolution/infrastructure/
 import { ReviewedComparisonPlanFile } from '../../evolution/infrastructure/reviewed-comparison-plan-file.js';
 import { FilePublicAnalogyReviews } from '../../evolution/infrastructure/file-public-analogy-reviews.js';
 import { FileQualifiedH0Records } from '../../evolution/infrastructure/file-qualified-h0-records.js';
-import { PiResearchProposal } from '../../evolution/infrastructure/pi-research-proposal.js';
+import {
+  PiResearchProposal,
+  decodeResearchProposalOutput,
+} from '../../evolution/infrastructure/pi-research-proposal.js';
 import {
   prepareResearchCandidates,
   researchCandidateInstructions,
@@ -144,6 +147,8 @@ function artifact(
 }
 interface ResearchDocument {
   readonly context?: unknown;
+  readonly kind?: unknown;
+  readonly requestOrdinal?: unknown;
   readonly message?: unknown;
   readonly content?: unknown;
   readonly type?: unknown;
@@ -646,18 +651,13 @@ export async function evaluateLocalHarness(
         const value: unknown = JSON.parse(Buffer.from(raw.bytes).toString());
         if (
           !object(value) ||
+          value.kind !== 'ModelExchange' ||
+          value.requestOrdinal !== ordinal ||
           !isDeepStrictEqual(value.context, context) ||
           !object(value.message) ||
           !Array.isArray(value.message.content)
         )
           throw new Error('ResearchRecoveryRequired');
-        const text = value.message.content
-          .filter(
-            (part): part is { type: 'text'; text: string } =>
-              object(part) && part.type === 'text' && typeof part.text === 'string',
-          )
-          .map((part) => part.text)
-          .join('\n');
         if (
           !prior.some(
             (event) =>
@@ -667,7 +667,9 @@ export async function evaluateLocalHarness(
           )
         )
           throw new Error('ResearchRecoveryRequired');
-        return JSON.parse(text);
+        const output = decodeResearchProposalOutput(value.message);
+        if (output.kind !== 'Accepted') throw new Error('ResearchRecoveryRequired');
+        return output.document;
       }
       if (exchanges.length !== ordinal) throw new Error('ResearchRecoveryRequired');
       const consumed = {

@@ -112,7 +112,8 @@ export class ParentSuccessorBehaviorReplay implements SuccessorBehaviorReplay {
       };
     }
     if (input.arm === 'C2') {
-      if (hypothesis.implicatedComponent !== 'Workflow') return { kind: 'Blocked' };
+      // The arm identifies the remedy; the shared H0 identifies the observed limitation.
+      // Source-dependent replay, rather than a diagnosis label, admits this workflow.
       const reviewed = await reviewEvolutionHypothesisInfluence(
         {
           hypothesis,

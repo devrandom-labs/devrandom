@@ -21,7 +21,7 @@ const said = (letter: string) => `E${letter.repeat(43)}`;
 const baseSystemPrompt = 'Trusted public H1 system';
 const taskPrompt = 'Repair the public CESR parser';
 
-function fixture() {
+function fixture(implicatedComponent: EvolutionHypothesis['implicatedComponent'] = 'Workflow') {
   const instruction = identifyHarnessInstruction({ path: 'AGENTS.md', content: '# public\n' });
   const completion = identifyHarnessCompletionCommand(
     {
@@ -111,7 +111,7 @@ function fixture() {
     retrievalReceiptSaid: said('r'),
     failure: { eventSaid: said('f'), rawEvidenceSaid: said('g') },
     source: { episodeSaid: said('e'), rawEvidenceSaid: said('v') },
-    implicatedComponent: 'Workflow',
+    implicatedComponent,
     predictedCorrection: 'Use public source and verifier',
     publicReplay: {
       failureWindowSaid: said('w'),
@@ -331,26 +331,59 @@ function fixture() {
 }
 
 describe('parent successor candidate behavior replay', () => {
-  it('invokes the C1 prompt delta, C2 public causal choice, and C3 exact history selector', async () => {
-    const ready = fixture();
-    const c1 = await ready.behavior.replay(ready.input('C1'));
-    expect(c1).toMatchObject({
-      kind: 'Replayed',
-      proof: { kind: 'C1Instruction', hypothesisSaid: ready.hypothesis.d },
-    });
-    const c2 = await ready.behavior.replay(ready.input('C2'));
-    expect(c2).toMatchObject({
-      kind: 'Replayed',
-      proof: { kind: 'C2Workflow', sourceEpisodeSaid: said('e') },
-    });
-    expect(ready.c2.choice.recalculate).toHaveBeenCalledTimes(2);
-    const c3 = await ready.behavior.replay(ready.input('C3'));
-    expect(c3).toMatchObject({
-      kind: 'Replayed',
-      proof: { kind: 'C3ContextSelection', includedSourceIds: [expect.any(String)] },
-    });
-    expect(ready.c3.history.read).toHaveBeenCalledOnce();
-  });
+  it.each(['Instruction', 'Workflow', 'ContextSelection'] as const)(
+    'replays all three remedies against the exact %s hypothesis without preselecting an arm',
+    async (component) => {
+      const ready = fixture(component);
+      const c1 = await ready.behavior.replay(ready.input('C1'));
+      expect(c1).toMatchObject({
+        kind: 'Replayed',
+        proof: { kind: 'C1Instruction', hypothesisSaid: ready.hypothesis.d },
+      });
+      const c2 = await ready.behavior.replay(ready.input('C2'));
+      expect(c2).toMatchObject({
+        kind: 'Replayed',
+        proof: { kind: 'C2Workflow', sourceEpisodeSaid: said('e') },
+      });
+      expect(ready.c2.choice.recalculate).toHaveBeenCalledTimes(2);
+      const c3 = await ready.behavior.replay(ready.input('C3'));
+      expect(c3).toMatchObject({
+        kind: 'Replayed',
+        proof: { kind: 'C3ContextSelection', includedSourceIds: [expect.any(String)] },
+      });
+      expect(ready.c3.history.read).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['Hypothesis', 'Source', 'Action', 'Ablation'] as const)(
+    'rejects %s substitution for a context-diagnosed C2 public replay',
+    async (mismatch) => {
+      const ready = fixture('ContextSelection');
+      const input = ready.input('C2');
+      if (mismatch === 'Source')
+        ready.c2.reading.read.mockResolvedValueOnce({ kind: 'Unavailable' });
+      if (mismatch === 'Action')
+        ready.c2.choice.recalculate.mockResolvedValue({
+          kind: 'Chosen',
+          action: 'Unrelated action',
+          sourceChoiceSaid: said('y'),
+          citationSaids: [said('e')],
+        });
+      if (mismatch === 'Ablation')
+        ready.c2.choice.recalculate.mockResolvedValue({
+          kind: 'Chosen',
+          action: ready.hypothesis.publicReplay.predictedAction,
+          sourceChoiceSaid: said('y'),
+          citationSaids: [said('e')],
+        });
+      expect(
+        await ready.behavior.replay(
+          mismatch === 'Hypothesis' ? { ...input, h0Said: said('z') } : input,
+        ),
+      ).toEqual({ kind: 'Blocked' });
+      expect(ready.c3.history.read).not.toHaveBeenCalled();
+    },
+  );
 
   it('blocks a C2 treatment that skips public verification and C3 with no authorized public history', async () => {
     const ready = fixture();

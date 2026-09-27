@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { prepareEvidenceArtifact, type EvaluationEvidenceEvent } from '@devrandom/protocol';
 import type { EvaluationModelInference, EvaluationEvidence } from '@devrandom/runtime';
-import { PiResearchProposal, type ResearchProposalInput } from './pi-research-proposal.js';
+import {
+  PiResearchProposal,
+  decodeResearchProposalOutput,
+  type ResearchProposalInput,
+} from './pi-research-proposal.js';
 const said = (letter: string) => `E${letter.repeat(43)}`;
 function fixture() {
   const input: ResearchProposalInput = {
@@ -148,4 +152,79 @@ it('rejects corrupt prior consumption before spending another paid request', asy
     }),
   ).toEqual({ kind: 'Rejected', reason: 'Binding' });
   expect(f.complete).not.toHaveBeenCalled();
+});
+
+it.each(['length', 'toolUse', 'error', 'aborted'] as const)(
+  'never admits retained JSON rejected on its first %s response',
+  async (stopReason) => {
+    const f = fixture();
+    const completed = await f.complete(f.input);
+    if (completed.kind !== 'Completed') throw new Error('completion fixture');
+    const message = { ...completed.message, stopReason };
+    f.complete.mockResolvedValue({ ...completed, message });
+    expect(await f.proposal.propose(f.input)).toEqual({ kind: 'Rejected', reason: 'Output' });
+    expect(f.events.some(({ detail }) => detail.kind === 'ProviderUsageVerified')).toBe(true);
+    expect(f.events.filter(({ detail }) => detail.kind === 'EvaluationBudgetDebited')).toHaveLength(
+      5,
+    );
+    expect(decodeResearchProposalOutput(message)).toEqual({ kind: 'Rejected' });
+  },
+);
+
+it.each(['toolCall', 'oversized', 'malformed'] as const)(
+  'applies the same %s rejection to fresh and retained Research output without erasing usage',
+  async (variant) => {
+    const f = fixture();
+    const completed = await f.complete(f.input);
+    if (completed.kind !== 'Completed') throw new Error('completion fixture');
+    const message = {
+      ...completed.message,
+      content:
+        variant === 'toolCall'
+          ? [
+              ...completed.message.content,
+              { type: 'toolCall' as const, id: 'call-1', name: 'run_tests', arguments: {} },
+            ]
+          : [
+              {
+                type: 'text' as const,
+                text:
+                  variant === 'oversized' ? JSON.stringify({ text: 'é'.repeat(17 * 1024) }) : '{',
+              },
+            ],
+    };
+    f.complete.mockResolvedValue({ ...completed, message });
+    expect(await f.proposal.propose(f.input)).toEqual({ kind: 'Rejected', reason: 'Output' });
+    expect(decodeResearchProposalOutput(message)).toEqual({ kind: 'Rejected' });
+    expect(f.events.filter(({ detail }) => detail.kind === 'EvaluationBudgetDebited')).toHaveLength(
+      5,
+    );
+  },
+);
+it('releases the identical complete proposal from fresh and retained output while ignoring reasoning text', async () => {
+  const f = fixture();
+  const completed = await f.complete(f.input);
+  if (completed.kind !== 'Completed') throw new Error('completion fixture');
+  const message = {
+    ...completed.message,
+    content: [
+      { type: 'thinking' as const, thinking: 'Not proposal JSON' },
+      ...completed.message.content,
+    ],
+  };
+  f.complete.mockResolvedValue({ ...completed, message });
+  const fresh = await f.proposal.propose(f.input);
+  expect(fresh.kind).toBe('Proposed');
+  if (fresh.kind !== 'Proposed') throw new Error('proposal fixture');
+  expect(decodeResearchProposalOutput(message)).toEqual({
+    kind: 'Accepted',
+    document: fresh.document,
+  });
+  for (const malformed of [
+    null,
+    {},
+    { ...message, role: 'user' },
+    { ...message, content: [{ type: 'text', text: 7 }] },
+  ])
+    expect(decodeResearchProposalOutput(malformed)).toEqual({ kind: 'Rejected' });
 });

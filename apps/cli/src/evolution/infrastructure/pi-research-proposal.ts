@@ -199,29 +199,52 @@ export class PiResearchProposal {
         sourceEventSaid: usageEventSaid,
       });
       if (input.signal.aborted) return { kind: 'Interrupted' };
-      if (message.stopReason !== 'stop' || message.content.some((item) => item.type === 'toolCall'))
-        return { kind: 'Rejected', reason: 'Output' };
-      const text = message.content
-        .filter((item) => item.type === 'text')
-        .map((item) => item.text)
-        .join('\n')
-        .trim();
-      if (Buffer.byteLength(text) > 32 * 1024) return { kind: 'Rejected', reason: 'Output' };
-      try {
-        return {
-          kind: 'Proposed',
-          document: JSON.parse(text),
-          exchangeEventSaid,
-          usageEventSaid,
-          nextSequence: sequence,
-          headSaid: finalHead,
-          consumed,
-        };
-      } catch {
-        return { kind: 'Rejected', reason: 'Output' };
-      }
+      const output = decodeResearchProposalOutput(message);
+      if (output.kind !== 'Accepted') return { kind: 'Rejected', reason: 'Output' };
+      return {
+        kind: 'Proposed',
+        document: output.document,
+        exchangeEventSaid,
+        usageEventSaid,
+        nextSequence: sequence,
+        headSaid: finalHead,
+        consumed,
+      };
     } catch {
       return { kind: 'Rejected', reason: 'Evidence' };
     }
+  }
+}
+
+/** One output admission law for fresh and durably retained Research proposals. */
+export function decodeResearchProposalOutput(
+  message: unknown,
+): { readonly kind: 'Accepted'; readonly document: unknown } | { readonly kind: 'Rejected' } {
+  if (
+    typeof message !== 'object' ||
+    message === null ||
+    Array.isArray(message) ||
+    Reflect.get(message, 'role') !== 'assistant' ||
+    Reflect.get(message, 'stopReason') !== 'stop'
+  )
+    return { kind: 'Rejected' };
+  const content: unknown = Reflect.get(message, 'content');
+  if (!Array.isArray(content)) return { kind: 'Rejected' };
+  const parts: string[] = [];
+  for (const part of content as readonly unknown[]) {
+    if (typeof part !== 'object' || part === null || Array.isArray(part))
+      return { kind: 'Rejected' };
+    const type: unknown = Reflect.get(part, 'type');
+    if (type === 'thinking') continue;
+    const text: unknown = Reflect.get(part, 'text');
+    if (type !== 'text' || typeof text !== 'string') return { kind: 'Rejected' };
+    parts.push(text);
+  }
+  const text = parts.join('\n').trim();
+  if (Buffer.byteLength(text) > 32 * 1024) return { kind: 'Rejected' };
+  try {
+    return { kind: 'Accepted', document: JSON.parse(text) };
+  } catch {
+    return { kind: 'Rejected' };
   }
 }
