@@ -186,7 +186,12 @@ function prerequisites(basis: CesrManifestBasis): boolean {
         candidate.executionProfileSaid === policy.executionProfileSaid,
     ) &&
     admission.lease.evaluationId === admission.evaluationId &&
-    admission.lease.version === admission.version &&
+    Number.isSafeInteger(admission.version) &&
+    admission.version >= 1 &&
+    Number.isSafeInteger(admission.lease.version) &&
+    admission.lease.version >= 1 &&
+    // Research evidence advances Evaluation state independently from lease renewal.
+    admission.lease.version <= admission.version &&
     current.evaluationId === admission.evaluationId &&
     current.lease.evaluationId === admission.evaluationId &&
     current.lease.leaseId === admission.lease.leaseId &&

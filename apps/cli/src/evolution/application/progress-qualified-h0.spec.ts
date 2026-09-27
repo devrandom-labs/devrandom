@@ -36,6 +36,23 @@ const allowance = {
   evidencePlusArtifactsPerRunBytes: 20000,
 };
 
+function admittedFixture() {
+  return {
+    kind: 'Admitted' as const,
+    evaluationId: id('5'),
+    version: 1,
+    lease: {
+      evaluationId: id('5'),
+      leaseId: id('6'),
+      version: 1,
+      serverTime: '2026-09-26T09:00:00.000Z',
+      expiresAt: '2026-09-26T09:01:00.000Z',
+    },
+    evidenceStreamId: id('7'),
+    reservationSaid: said('q'),
+  };
+}
+
 function fixture() {
   const taskId = id('1');
   const originRunId = id('2');
@@ -193,20 +210,7 @@ function fixture() {
       }),
       admit: vi.fn().mockImplementation(() => {
         sequence.push('admit');
-        return Promise.resolve({
-          kind: 'Admitted',
-          evaluationId: id('5'),
-          version: 1,
-          lease: {
-            evaluationId: id('5'),
-            leaseId: id('6'),
-            version: 1,
-            serverTime: '2026-09-26T09:00:00.000Z',
-            expiresAt: '2026-09-26T09:01:00.000Z',
-          },
-          evidenceStreamId: id('7'),
-          reservationSaid: said('q'),
-        });
+        return Promise.resolve(admittedFixture());
       }),
     },
     context: { open: vi.fn().mockReturnValue({ retrieval: {}, reading: {} }) },
@@ -275,98 +279,138 @@ describe('qualified H0 hosted progression', () => {
     expect(test.ports.hosted.prepare).not.toHaveBeenCalled();
   });
 
-  it('uses one durable command for hosted source admission before H0 proposal', async () => {
-    const test = fixture();
-    const window = prepareQualifiedFailureWindow({
-      version: 1,
-      kind: 'QualifiedFailureWindow',
-      taskId: test.qualified.taskId,
-      taskRevisionSaid: test.qualified.taskRevisionSaid,
-      originRunId: test.qualified.originRunId,
-      retainedCheckpointSaid: test.qualified.retainedCheckpointSaid,
-      retainedSealSaid: test.qualified.retainedSealSaid,
-      failureEventSaid: said('F'),
-      verifierReceiptSaid: said('V'),
-      precedingEventSaids: [said('P')],
-    });
-    if (window.kind !== 'Prepared') throw new Error('window fixture');
-    const hypothesis = prepareEvolutionHypothesis({
-      taskId: test.qualified.taskId,
-      taskRevisionSaid: test.qualified.taskRevisionSaid,
-      originRunId: test.qualified.originRunId,
-      retainedCheckpointSaid: test.qualified.retainedCheckpointSaid,
-      retainedSealSaid: test.qualified.retainedSealSaid,
-      parentRevisionSaid: test.qualified.expectedActiveRevisionSaid,
-      personalAgentAid: test.qualified.personalAgentAid,
-      sourceInventorySaid: test.inventory.d,
-      retrievalReceiptSaid: said('Q'),
-      failure: { eventSaid: said('F'), rawEvidenceSaid: said('V') },
-      source: { episodeSaid: test.episodeSaid, rawEvidenceSaid: test.rawEvidenceSaid },
-      implicatedComponent: 'Workflow',
-      predictedCorrection: 'Check current framing under public verifier.',
-      publicReplay: {
-        failureWindowSaid: window.artifact.d,
-        configurationSaid: test.input.configurationSaid,
-        nonTreatmentInputsSaid: test.input.nonTreatmentInputsSaid,
-        failureQuery: 'public legacy receipt failure',
-        predictedAction: 'verify-current-framing',
-        predictedSourceChoiceSaid: test.episodeSaid,
-        assertion: 'Removing exact source changes the action.',
-      },
-      falsifier: 'The same action remains after source removal.',
-      regressionRisks: ['Other format failures may remain.'],
-      rejectedExplanations: ['Transient failure does not explain five calibrations.'],
-    });
-    if (hypothesis.kind !== 'Prepared') throw new Error('hypothesis fixture');
-    proposedDiagnosis.mockImplementationOnce(() => {
-      test.sequence.push('diagnosis');
-      return Promise.resolve({
-        kind: 'Proposed',
-        selectedReviewArtifactSaid: test.reviewArtifactSaid,
-        construction: {
-          hypothesis: hypothesis.hypothesis,
-          window,
-          influence: {
-            review: { queryReceiptSaid: said('Q'), source: { readReceiptSaid: said('R') } },
+  it.each([
+    { version: 1, leaseVersion: 1 },
+    { version: 19, leaseVersion: 3 },
+  ])(
+    'progresses and reopens H0 with Evaluation $version and lease $leaseVersion',
+    async ({ version, leaseVersion }) => {
+      const test = fixture();
+      const admitted = admittedFixture();
+      test.sequence.length = 0;
+      test.ports.hosted.admit.mockImplementation(() => {
+        test.sequence.push('admit');
+        return Promise.resolve({
+          ...admitted,
+          version,
+          lease: { ...admitted.lease, version: leaseVersion },
+        });
+      });
+      const window = prepareQualifiedFailureWindow({
+        version: 1,
+        kind: 'QualifiedFailureWindow',
+        taskId: test.qualified.taskId,
+        taskRevisionSaid: test.qualified.taskRevisionSaid,
+        originRunId: test.qualified.originRunId,
+        retainedCheckpointSaid: test.qualified.retainedCheckpointSaid,
+        retainedSealSaid: test.qualified.retainedSealSaid,
+        failureEventSaid: said('F'),
+        verifierReceiptSaid: said('V'),
+        precedingEventSaids: [said('P')],
+      });
+      if (window.kind !== 'Prepared') throw new Error('window fixture');
+      const hypothesis = prepareEvolutionHypothesis({
+        taskId: test.qualified.taskId,
+        taskRevisionSaid: test.qualified.taskRevisionSaid,
+        originRunId: test.qualified.originRunId,
+        retainedCheckpointSaid: test.qualified.retainedCheckpointSaid,
+        retainedSealSaid: test.qualified.retainedSealSaid,
+        parentRevisionSaid: test.qualified.expectedActiveRevisionSaid,
+        personalAgentAid: test.qualified.personalAgentAid,
+        sourceInventorySaid: test.inventory.d,
+        retrievalReceiptSaid: said('Q'),
+        failure: { eventSaid: said('F'), rawEvidenceSaid: said('V') },
+        source: { episodeSaid: test.episodeSaid, rawEvidenceSaid: test.rawEvidenceSaid },
+        implicatedComponent: 'Workflow',
+        predictedCorrection: 'Check current framing under public verifier.',
+        publicReplay: {
+          failureWindowSaid: window.artifact.d,
+          configurationSaid: test.input.configurationSaid,
+          nonTreatmentInputsSaid: test.input.nonTreatmentInputsSaid,
+          failureQuery: 'public legacy receipt failure',
+          predictedAction: 'verify-current-framing',
+          predictedSourceChoiceSaid: test.episodeSaid,
+          assertion: 'Removing exact source changes the action.',
+        },
+        falsifier: 'The same action remains after source removal.',
+        regressionRisks: ['Other format failures may remain.'],
+        rejectedExplanations: ['Transient failure does not explain five calibrations.'],
+      });
+      if (hypothesis.kind !== 'Prepared') throw new Error('hypothesis fixture');
+      proposedDiagnosis.mockImplementationOnce(() => {
+        test.sequence.push('diagnosis');
+        return Promise.resolve({
+          kind: 'Proposed',
+          selectedReviewArtifactSaid: test.reviewArtifactSaid,
+          construction: {
+            hypothesis: hypothesis.hypothesis,
+            window,
+            influence: {
+              review: { queryReceiptSaid: said('Q'), source: { readReceiptSaid: said('R') } },
+            },
           },
+        });
+      });
+      const result = await progressQualifiedH0(test.input, test.ports);
+      expect(result.kind).toBe('Progressed');
+      expect(test.sequence).toEqual(['command', 'prepare', 'admit', 'diagnosis']);
+      const preparation: unknown = test.ports.hosted.prepare.mock.calls[0]?.[0];
+      expect(preparation).toMatchObject({
+        sourceInventory: test.inventory,
+        executionProfile: { d: test.policy.executionProfileSaid },
+      });
+      expect(test.ports.commands.recordAdmission).toHaveBeenCalledWith(
+        {
+          taskId: test.qualified.taskId,
+          originRunId: test.qualified.originRunId,
+          policySaid: test.policy.d,
+        },
+        id('4'),
+        id('5'),
+      );
+      const committed = test.captured.record;
+      if (committed === undefined) throw new Error('missing H0 record');
+      test.ports.records.inspectEvaluation.mockResolvedValueOnce({
+        kind: 'Read',
+        artifact: committed.artifact,
+        bytes: committed.bytes,
+      });
+      test.ports.commands.acquire.mockResolvedValueOnce({
+        kind: 'Recorded',
+        commandId: id('4'),
+        fingerprint: `sha256:${'a'.repeat(64)}`,
+        admittedEvaluationId: id('5'),
+      });
+      proposedDiagnosis.mockClear();
+      const replay = await progressQualifiedH0(test.input, test.ports);
+      expect(replay).toEqual(result);
+      expect(proposedDiagnosis).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['FutureLease', 'ForeignEvaluation', 'MalformedVersion'] as const)(
+    'rejects %s admission before source diagnosis or H0 custody',
+    async (invalid) => {
+      const test = fixture();
+      const admitted = admittedFixture();
+      test.ports.hosted.admit.mockResolvedValueOnce({
+        ...admitted,
+        version: invalid === 'MalformedVersion' ? 1.5 : 2,
+        lease: {
+          ...admitted.lease,
+          version: invalid === 'FutureLease' ? 3 : 1,
+          evaluationId: invalid === 'ForeignEvaluation' ? id('9') : admitted.evaluationId,
         },
       });
-    });
-    const result = await progressQualifiedH0(test.input, test.ports);
-    expect(result.kind).toBe('Progressed');
-    expect(test.sequence).toEqual(['command', 'prepare', 'admit', 'diagnosis']);
-    const preparation: unknown = test.ports.hosted.prepare.mock.calls[0]?.[0];
-    expect(preparation).toMatchObject({
-      sourceInventory: test.inventory,
-      executionProfile: { d: test.policy.executionProfileSaid },
-    });
-    expect(test.ports.commands.recordAdmission).toHaveBeenCalledWith(
-      {
-        taskId: test.qualified.taskId,
-        originRunId: test.qualified.originRunId,
-        policySaid: test.policy.d,
-      },
-      id('4'),
-      id('5'),
-    );
-    const committed = test.captured.record;
-    if (committed === undefined) throw new Error('missing H0 record');
-    test.ports.records.inspectEvaluation.mockResolvedValueOnce({
-      kind: 'Read',
-      artifact: committed.artifact,
-      bytes: committed.bytes,
-    });
-    test.ports.commands.acquire.mockResolvedValueOnce({
-      kind: 'Recorded',
-      commandId: id('4'),
-      fingerprint: `sha256:${'a'.repeat(64)}`,
-      admittedEvaluationId: id('5'),
-    });
-    proposedDiagnosis.mockClear();
-    const replay = await progressQualifiedH0(test.input, test.ports);
-    expect(replay).toEqual(result);
-    expect(proposedDiagnosis).not.toHaveBeenCalled();
-  });
+      expect(await progressQualifiedH0(test.input, test.ports)).toEqual({
+        kind: 'Blocked',
+        gate: 'Admission',
+      });
+      expect(proposedDiagnosis).not.toHaveBeenCalled();
+      expect(test.ports.commands.recordAdmission).not.toHaveBeenCalled();
+      expect(test.ports.records.commit).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not query Atlas when hosted admission blocks residual budget', async () => {
     const test = fixture();

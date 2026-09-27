@@ -1,6 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
+import Value from 'typebox/value';
 
 import {
+  evaluationAdmissionReceiptSchema,
   decodeEvidenceArtifact,
   decodeEvaluationExecutionProfile,
   decodeEvaluationPolicy,
@@ -426,10 +428,12 @@ export async function progressQualifiedH0(
     return { kind: 'Blocked', gate: admitted.gate === 'Budget' ? 'Budget' : 'Admission' };
   if (
     admitted.kind !== 'Admitted' ||
+    !Value.Check(evaluationAdmissionReceiptSchema, admitted) ||
     (command.admittedEvaluationId !== undefined &&
       command.admittedEvaluationId !== admitted.evaluationId) ||
     admitted.lease.evaluationId !== admitted.evaluationId ||
-    admitted.lease.version !== admitted.version
+    // Evidence advances the Evaluation independently; renewal advances both.
+    admitted.lease.version > admitted.version
   )
     return { kind: 'Blocked', gate: 'Admission' };
   let recorded: Awaited<ReturnType<QualifiedEvaluationCommands['recordAdmission']>>;

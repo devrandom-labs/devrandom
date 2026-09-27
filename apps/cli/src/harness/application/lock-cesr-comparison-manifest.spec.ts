@@ -317,32 +317,59 @@ describe('E3 CESR M lock sequencing', () => {
   });
 });
 
-it('uses a renewed exact lease and current Evaluation version after research evidence', async () => {
-  const given = basis();
-  const boundary = await ports();
-  const renewed = {
-    ...given.admission.lease,
-    version: 2,
-    serverTime: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 45000).toISOString(),
-  };
-  const input = {
-    ...given,
-    admission: {
-      ...given.admission,
-      lease: { ...given.admission.lease, expiresAt: new Date(Date.now() - 1000).toISOString() },
-    },
-    currentPosition: { evaluationId: given.admission.evaluationId, version: 80, lease: renewed },
-  };
-  expect(await lockCesrComparisonManifest(input, boundary)).toMatchObject({ kind: 'Locked' });
-  expect(boundary.lock.mock.calls[0]?.[0].expectedEvaluationVersion).toBe(80);
-  expect(
-    await lockCesrComparisonManifest(
-      {
-        ...input,
-        currentPosition: { ...input.currentPosition, lease: { ...renewed, leaseId: id('9') } },
+it.each([1, 19])(
+  'locks with reconciled admission version %s after research evidence',
+  async (admissionVersion) => {
+    const given = basis();
+    const boundary = await ports();
+    const renewed = {
+      ...given.admission.lease,
+      version: 2,
+      serverTime: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 45000).toISOString(),
+    };
+    const input = {
+      ...given,
+      admission: {
+        ...given.admission,
+        version: admissionVersion,
+        lease: { ...given.admission.lease, expiresAt: new Date(Date.now() - 1000).toISOString() },
       },
-      boundary,
-    ),
-  ).toMatchObject({ kind: 'Blocked' });
-});
+      currentPosition: { evaluationId: given.admission.evaluationId, version: 80, lease: renewed },
+    };
+    expect(await lockCesrComparisonManifest(input, boundary)).toMatchObject({ kind: 'Locked' });
+    expect(boundary.lock.mock.calls[0]?.[0].expectedEvaluationVersion).toBe(80);
+    expect(
+      await lockCesrComparisonManifest(
+        {
+          ...input,
+          currentPosition: { ...input.currentPosition, lease: { ...renewed, leaseId: id('9') } },
+        },
+        boundary,
+      ),
+    ).toMatchObject({ kind: 'Blocked' });
+  },
+);
+
+it.each([0, 1.5, 81])(
+  'rejects invalid or future admission version %s before case sealing',
+  async (version) => {
+    const given = basis();
+    const boundary = await ports();
+    expect(
+      await lockCesrComparisonManifest(
+        {
+          ...given,
+          admission: { ...given.admission, version },
+          currentPosition: {
+            evaluationId: given.admission.evaluationId,
+            version: 80,
+            lease: given.admission.lease,
+          },
+        },
+        boundary,
+      ),
+    ).toMatchObject({ kind: 'Blocked' });
+    expect(boundary.lock).not.toHaveBeenCalled();
+  },
+);
