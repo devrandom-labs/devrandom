@@ -34,6 +34,8 @@ export class ServerPublicationHttp {
       );
       const value: unknown = await response.json();
       return Value.Check(publicationAdmissionSchema, value) &&
+        ((value.kind !== 'Published' && value.kind !== 'AlreadyPublished') ||
+          value.packageSaid === command.published.package.d) &&
         ((response.status === 200 && value.kind === 'AlreadyPublished') ||
           (response.status === 201 && value.kind === 'Published') ||
           ['Rejected', 'Conflict', 'Unavailable'].includes(value.kind))
