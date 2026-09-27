@@ -391,7 +391,9 @@ async function runServe(environment: DevrandomServerEnvironment): Promise<number
     const tasks = new MongoTasks(hostedDatabase);
     const taskCreationDependencies: CreateTaskDependencies = {
       tasks,
-      approvedNineRunOwnerAid: hostedWorkConfiguration.approvedNineRunOwnerAid,
+      ...(hostedWorkConfiguration.approvedNineRunOwnerAid === undefined
+        ? {}
+        : { approvedNineRunOwnerAid: hostedWorkConfiguration.approvedNineRunOwnerAid }),
       eligibility: issuerTaskCreationEligibility(
         result.infrastructure.currentUserCredentialVerification,
       ),
