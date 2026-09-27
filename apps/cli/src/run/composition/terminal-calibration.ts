@@ -112,6 +112,7 @@ export class TerminalCalibrationComposition {
         signal.throwIfAborted();
         const page = await input.evidence.inspect(input.runId, {
           limit: 100,
+          evidenceStreamId: run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId,
           ...(cursor === undefined ? {} : { cursor }),
         });
         if (page.kind !== 'Found') return { kind: 'Unavailable' };

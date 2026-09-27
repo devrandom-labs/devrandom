@@ -92,52 +92,92 @@ function calibrationRun(): Run {
 }
 
 describe('terminal calibration reconciliation', () => {
-  it('stops at the accepted snapshot head even when the open stream offers a polling cursor', async () => {
-    const run = calibrationRun();
-    const head = said('x');
-    const inspect = vi.fn().mockResolvedValue({
-      kind: 'Found',
-      page: {
-        stream: {
-          runId: run.binding.runId,
-          evidenceStreamId: run.binding.evidenceStreamId,
-          cursor: {
-            kind: 'Accepted',
-            eventCount: 1,
-            acceptedThroughSequence: 0,
-            chainHeadSaid: head,
+  it.each(['Original', 'Successor'] as const)(
+    'reads the exact %s stream and stops at the accepted head',
+    async (incarnation) => {
+      const original = calibrationRun();
+      if (original.lease.kind !== 'Held') throw new Error('fixture lease');
+      const successorStreamId = '11111111-1111-4111-8111-111111111111';
+      const run: Run =
+        incarnation === 'Original'
+          ? original
+          : {
+              ...original,
+              currentExecution: {
+                segmentSaid: said('S'),
+                evidenceStreamId: successorStreamId,
+                harnessRevisionSaid: original.binding.initialHarnessRevisionSaid,
+              },
+              lease: { ...original.lease, segmentSaid: said('S') },
+            };
+      const selectedStreamId =
+        run.currentExecution?.evidenceStreamId ?? run.binding.evidenceStreamId;
+      const head = said('x');
+      const inspect = vi.fn(
+        (_runId: string, query: { evidenceStreamId?: string; cursor?: string }) =>
+          Promise.resolve({
+            kind: 'Found',
+            page: {
+              stream: {
+                runId: run.binding.runId,
+                evidenceStreamId: query.evidenceStreamId ?? run.binding.evidenceStreamId,
+                cursor: {
+                  kind: 'Accepted',
+                  eventCount: 2,
+                  acceptedThroughSequence: 1,
+                  chainHeadSaid: head,
+                },
+                checkpoint: { kind: 'Absent' },
+                seal: { kind: 'Unsealed' },
+              },
+              events: [
+                {
+                  event:
+                    query.cursor === undefined
+                      ? { d: said('y'), sequence: 0 }
+                      : { d: head, sequence: 1 },
+                },
+              ],
+              nextCursor: query.cursor === undefined ? 'page-two' : 'poll-after-head',
+            },
+          }),
+      );
+      const input = {
+        user: { principal: { aid: run.binding.ownerAid } },
+        runId: run.binding.runId,
+        task: taskProjectionFixture(),
+        harness: baselineHarnessCommandFixture().revision,
+        mandates: {
+          executionAuthority: { personalAgentAid: run.binding.personalAgentAid },
+          summary: {
+            taskMandate: { credentialSaid: run.binding.taskMandateSaid },
+            governor: { aid: run.binding.governorAid },
+            promotionMandate: { credentialSaid: run.binding.promotionMandateSaid },
           },
-          checkpoint: { kind: 'Absent' },
-          seal: { kind: 'Unsealed' },
         },
-        events: [{ event: { d: head, sequence: 0 } }],
-        nextCursor: 'poll-after-head',
-      },
-    });
-    const input = {
-      user: { principal: { aid: run.binding.ownerAid } },
-      runId: run.binding.runId,
-      task: taskProjectionFixture(),
-      harness: baselineHarnessCommandFixture().revision,
-      mandates: {
-        executionAuthority: { personalAgentAid: run.binding.personalAgentAid },
-        summary: {
-          taskMandate: { credentialSaid: run.binding.taskMandateSaid },
-          governor: { aid: run.binding.governorAid },
-          promotionMandate: { credentialSaid: run.binding.promotionMandateSaid },
-        },
-      },
-      runs: { inspect: () => Promise.resolve({ kind: 'Found', run: projectRun(run) }) },
-      evidence: { inspect },
-    } as unknown as TerminalCalibrationCompositionInput;
-    await new TerminalCalibrationComposition({
-      stateRoot: '/absent-calibration-fixture',
-      issuerAid: issuerAid(said('A')),
-      now: () => '2026-09-24T20:10:00.000Z',
-      wait: () => Promise.resolve(),
-    }).reconcile(input, new AbortController().signal);
-    expect(inspect).toHaveBeenCalledTimes(1);
-  });
+        runs: { inspect: () => Promise.resolve({ kind: 'Found', run: projectRun(run) }) },
+        evidence: { inspect },
+      } as unknown as TerminalCalibrationCompositionInput;
+      const outcome = await new TerminalCalibrationComposition({
+        stateRoot: '/absent-calibration-fixture',
+        issuerAid: issuerAid(said('A')),
+        now: () => '2026-09-24T20:10:00.000Z',
+        wait: () => Promise.resolve(),
+      }).reconcile(input, new AbortController().signal);
+      expect(inspect).toHaveBeenCalledTimes(2);
+      expect(inspect).toHaveBeenNthCalledWith(1, run.binding.runId, {
+        limit: 100,
+        evidenceStreamId: selectedStreamId,
+      });
+      expect(inspect).toHaveBeenNthCalledWith(2, run.binding.runId, {
+        limit: 100,
+        evidenceStreamId: selectedStreamId,
+        cursor: 'page-two',
+      });
+      // The absent fixture worktree is reached only after the correct hosted binding was accepted.
+      expect(outcome.kind).toBe('Unavailable');
+    },
+  );
   it.each(['Retained', 'LeaseCurrent', 'OwnerChanged'] as const)(
     'rejects %s before opening local custody or delivering evidence',
     async (mismatch) => {
