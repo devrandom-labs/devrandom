@@ -39,6 +39,8 @@ export class TaskTerminalVerificationComposition {
         decoded.run.binding.taskRevisionSaid !== input.task.revisionSaid
       )
         return { kind: 'Rejected' };
+      const evidenceStreamId =
+        decoded.run.currentExecution?.evidenceStreamId ?? decoded.run.binding.evidenceStreamId;
       const events: EvidenceEvent[] = [];
       let stream: EvidenceStreamProjection | undefined;
       let cursor: string | undefined;
@@ -47,9 +49,15 @@ export class TaskTerminalVerificationComposition {
         signal.throwIfAborted();
         const page = await input.evidence.inspect(input.runId, {
           limit: 100,
+          evidenceStreamId,
           ...(cursor === undefined ? {} : { cursor }),
         });
         if (page.kind !== 'Found') return { kind: 'Unavailable' };
+        if (
+          page.page.stream.runId !== input.runId ||
+          page.page.stream.evidenceStreamId !== evidenceStreamId
+        )
+          return { kind: 'Rejected' };
         if (stream !== undefined && JSON.stringify(stream) !== JSON.stringify(page.page.stream))
           return { kind: 'Rejected' };
         stream = page.page.stream;
