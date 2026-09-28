@@ -206,12 +206,24 @@ or globally installed JavaScript tools. Dependency changes must update the
 single pnpm lockfile deliberately and keep exact versions.
 
 Docker Compose is the selected local integration environment for pinned KERIA,
-demo witnesses, the Devrandom server, and test MongoDB. Signify-TS remains an
-embedded edge-client library, not a separate server container. Compose MongoDB
-proves adapter behavior; Atlas remains required for Atlas Vector Search and the
-live demonstration. Pi, XState, the Run Supervisor, candidate workers, and
+demo witnesses, the Devrandom server, test MongoDB, and pinned MongoDB Atlas
+Local. Signify-TS remains an embedded edge-client library, not a separate server
+container. Compose MongoDB proves adapter behavior; Atlas Local proves real
+Atlas Vector Search and serves the live demonstration. A managed Atlas
+deployment is not required. Only the Devrandom server receives the Atlas Local
+connection string. Pi, XState, the Run Supervisor, candidate workers, and
 protected governance remain host-side CLI components and are never Compose
 services.
+
+For the 2026-09-28 PRD 03 recovery campaign, the user approved one narrow owner
+capacity increase for AID `EMstL6Th90iB6MpQkPjKN2ii7a5XcvA_PCHWHrAAD-l4`:
+at most five lifetime Tasks and ten lifetime Runs, with at most one active Run.
+The fresh Task retains the $6 provider cap and uses one fixed
+`concentrate/deepinfra/deepseek-v4-flash-0731` low profile with a maximum of
+32,768 output tokens. Each Task, mandate, Run, and execution profile still
+requires its normal immutable binding and authorization. This approval does
+not increase any other owner's ceilings, authorize another model or automatic
+budget increase, or turn the failed calibration Run into accepted evidence.
 
 The CLI and registration site are applications. The Devrandom server is one
 Fastify deployable containing separate registration/issuance and hosted-work
