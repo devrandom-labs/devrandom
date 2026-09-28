@@ -28,19 +28,24 @@ function previous(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value).map(([key, child]) => [
       key,
-      key === 'runsPerAdmittedUser' && record(child) && child['maximum'] === 9
-        ? { ...child, maximum: 8 }
-        : previous(child),
+      key === 'runsPerAdmittedUser' && record(child) && child['maximum'] === 10
+        ? { ...child, maximum: 9 }
+        : key === 'tasksPerAdmittedUser' && record(child) && child['maximum'] === 5
+          ? { ...child, maximum: 4 }
+          : key === 'ownerSlot' && record(child) && child['maximum'] === 4
+            ? { ...child, maximum: 3 }
+            : previous(child),
     ]),
   );
 }
 function validatorPair(target: Document) {
   const old = previous(target);
-  if (!record(old) || isDeepStrictEqual(old, target)) throw new Error('NineRunValidatorHasNoDelta');
+  if (!record(old) || isDeepStrictEqual(old, target))
+    throw new Error('RecoveryValidatorHasNoDelta');
   return { previousValidator: old, targetValidator: target };
 }
 /** Closed deployment catalog. Historical maxima and every unrelated validator property are fixed. */
-export const nineRunStorageMigrationCatalog = [
+export const recoveryStorageMigrationCatalog = [
   { name: 'tasks', ...validatorPair(taskCollectionValidator), indexes: taskIndexDefinitions },
   { name: 'runs', ...validatorPair(runCollectionValidator), indexes: runIndexDefinitions },
   {
@@ -55,7 +60,7 @@ export const nineRunStorageMigrationCatalog = [
   },
 ] as const;
 
-export interface NineRunStorageMigrationEntry {
+export interface RecoveryStorageMigrationEntry {
   readonly name: string;
   readonly disposition: 'RequiresMigration' | 'Current';
   readonly documentCount: number;
@@ -66,8 +71,8 @@ export interface NineRunStorageMigrationEntry {
   readonly targetValidatorHash: string;
   readonly indexes: readonly Document[];
 }
-export type NineRunStorageMigrationInspection =
-  | { readonly kind: 'Prepared'; readonly collections: readonly NineRunStorageMigrationEntry[] }
+export type RecoveryStorageMigrationInspection =
+  | { readonly kind: 'Prepared'; readonly collections: readonly RecoveryStorageMigrationEntry[] }
   | {
       readonly kind: 'Rejected';
       readonly collection: string;
@@ -89,18 +94,18 @@ const observedIndexesSchema = Type.Array(
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** Read-only deployment inspection. No collMod, creation, data rewrite, or authorization side effect. */
-export class MongoNineRunStorageMigration {
+export class MongoRecoveryStorageMigration {
   readonly #database: Db;
   constructor(database: Db) {
     this.#database = database;
   }
-  async inspect(): Promise<NineRunStorageMigrationInspection> {
+  async inspect(): Promise<RecoveryStorageMigrationInspection> {
     try {
-      const collections: NineRunStorageMigrationEntry[] = [];
-      for (const entry of nineRunStorageMigrationCatalog) {
+      const collections: RecoveryStorageMigrationEntry[] = [];
+      for (const entry of recoveryStorageMigrationCatalog) {
         const reject = (
-          reason: Extract<NineRunStorageMigrationInspection, { kind: 'Rejected' }>['reason'],
-        ): NineRunStorageMigrationInspection => ({
+          reason: Extract<RecoveryStorageMigrationInspection, { kind: 'Rejected' }>['reason'],
+        ): RecoveryStorageMigrationInspection => ({
           kind: 'Rejected',
           collection: entry.name,
           reason,

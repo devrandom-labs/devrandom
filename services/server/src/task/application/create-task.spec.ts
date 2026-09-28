@@ -16,7 +16,7 @@ import {
 
 const createdAt = '2026-09-24T12:00:00.000Z';
 
-function evaluationCommand(runsPerAdmittedUser: number) {
+function evaluationCommand(runsPerAdmittedUser: number, tasksPerAdmittedUser = 4) {
   const old = taskCommandFixture();
   const { d: oldRevisionSaid, repository, ...contract } = old.revision;
   expect(oldRevisionSaid).toMatch(/^E[A-Za-z0-9_-]{43}$/u);
@@ -36,7 +36,12 @@ function evaluationCommand(runsPerAdmittedUser: number) {
         },
       },
       requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
-      budgets: { ...contract.budgets, ...taskEvaluationBudgetCeilings, runsPerAdmittedUser },
+      budgets: {
+        ...contract.budgets,
+        ...taskEvaluationBudgetCeilings,
+        tasksPerAdmittedUser,
+        runsPerAdmittedUser,
+      },
     },
     old.commandId,
     repository,
@@ -111,6 +116,30 @@ describe('Task creation application', () => {
         { ...hosted, approvedNineRunOwnerAid: taskOwnerAid },
       ),
     ).resolves.toEqual({ kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' });
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+  it('admits the approved fifth Task and tenth Run only for the exact recovery owner', async () => {
+    const prepared = evaluationCommand(10, 5);
+    if (prepared.kind !== 'Prepared') throw new Error('approved recovery Task rejected');
+    const owner = { ownerAid: taskOwnerAid, credentialSaid: taskCredentialSaid };
+    const defaultDependencies = dependencies();
+    const store = vi.fn(defaultDependencies.tasks.create.bind(defaultDependencies.tasks));
+    const hosted = {
+      ...defaultDependencies,
+      tasks: { ...defaultDependencies.tasks, create: store },
+    };
+    await expect(
+      createTask(
+        { owner, protectedCredentials: new ProtectedCredentials(), command: prepared.command },
+        hosted,
+      ),
+    ).resolves.toEqual({ kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' });
+    await expect(
+      createTask(
+        { owner, protectedCredentials: new ProtectedCredentials(), command: prepared.command },
+        { ...hosted, approvedRecoveryOwnerAid: taskOwnerAid },
+      ),
+    ).resolves.toMatchObject({ kind: 'TaskCreated' });
     expect(store).toHaveBeenCalledTimes(1);
   });
   it.each([

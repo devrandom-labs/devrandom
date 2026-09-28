@@ -106,6 +106,7 @@ test-mongodb-integration: _require-nix
       services/server/src/registration/infrastructure/mongo-registration-sessions.integration.spec.ts \
       services/server/src/access/infrastructure/mongo-work-access-attempts.integration.spec.ts \
       services/server/src/task/infrastructure/mongo-tasks.integration.spec.ts \
+      services/server/src/infrastructure/mongo-recovery-storage-migration.integration.spec.ts \
       services/server/src/mandate/infrastructure/mongo-mandate-presentations.integration.spec.ts \
       services/server/src/harness/infrastructure/mongo-harness-revisions.integration.spec.ts \
       services/server/src/run/infrastructure/mongo-runs.integration.spec.ts \

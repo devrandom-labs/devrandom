@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { describe, it, expect } from 'vitest';
 import {
-  MongoNineRunStorageMigration,
-  nineRunStorageMigrationCatalog,
-} from './mongo-nine-run-storage-migration.js';
+  MongoRecoveryStorageMigration,
+  recoveryStorageMigrationCatalog,
+} from './mongo-recovery-storage-migration.js';
 import { MongoRunBootstrap } from '../run/infrastructure/mongo-run-bootstrap.js';
 import { MongoTaskBootstrap } from '../task/infrastructure/mongo-task-bootstrap.js';
 import { MongoHarnessBootstrap } from '../harness/infrastructure/mongo-harness-bootstrap.js';
@@ -14,8 +14,8 @@ import { runFixture } from '../run/test/run-fixture.js';
 
 const uri = process.env.DEVRANDOM_MONGODB_URI;
 const integration = uri === undefined ? describe.skip : describe;
-integration('explicit nine-Run storage migration inspection', () => {
-  it('plans only exact eight-to-nine validators and preserves every historical document and index', async () => {
+integration('explicit recovery storage migration inspection', () => {
+  it('plans only exact nine-to-ten validators and fifth owner slot while preserving documents and indexes', async () => {
     const client = new MongoClient(uri ?? 'mongodb://127.0.0.1:27017');
     const db = client.db(`devrandom_nine_migration_${randomUUID().replaceAll('-', '')}`);
     try {
@@ -29,10 +29,10 @@ integration('explicit nine-Run storage migration inspection', () => {
       for (const bootstrap of bootstraps) await bootstrap.bootstrap();
       const stored = encodeRunDocument(runFixture(), `sha256:${'a'.repeat(64)}`);
       await db.collection<RunDocument>('runs').insertOne(stored);
-      for (const entry of nineRunStorageMigrationCatalog)
+      for (const entry of recoveryStorageMigrationCatalog)
         await db.command({ collMod: entry.name, validator: entry.previousValidator });
       await expect(new MongoRunBootstrap(db).verify()).rejects.toThrow();
-      const inspector = new MongoNineRunStorageMigration(db);
+      const inspector = new MongoRecoveryStorageMigration(db);
       const prepared = await inspector.inspect();
       expect(prepared.kind).toBe('Prepared');
       if (prepared.kind !== 'Prepared') throw new Error('migration plan');
@@ -71,7 +71,7 @@ integration('explicit nine-Run storage migration inspection', () => {
         collection: 'runs',
         reason: 'ValidatorDrift',
       });
-      const runEntry = nineRunStorageMigrationCatalog.find((entry) => entry.name === 'runs');
+      const runEntry = recoveryStorageMigrationCatalog.find((entry) => entry.name === 'runs');
       if (runEntry === undefined) throw new Error('Run validator');
       await db.command({ collMod: 'runs', validator: runEntry.targetValidator });
       await db.collection('runs').createIndex({ unexpected: 1 }, { name: 'unexpected-index' });
@@ -85,7 +85,7 @@ integration('explicit nine-Run storage migration inspection', () => {
         .collection<RunDocument>('runs')
         .updateOne(
           { _id: stored._id },
-          { $set: { 'binding.budget.runsPerAdmittedUser': 10 } },
+          { $set: { 'binding.budget.runsPerAdmittedUser': 11 } },
           { bypassDocumentValidation: true },
         );
       expect(await inspector.inspect()).toMatchObject({

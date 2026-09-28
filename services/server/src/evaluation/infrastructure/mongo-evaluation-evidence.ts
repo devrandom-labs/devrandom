@@ -14,7 +14,7 @@ import {
   closeComparison,
   evaluationConsumables,
   taskBudgetCeilings,
-  taskEvaluationBudgetCeilings,
+  taskRecoveryBudgetCeilings,
   type EvaluationAllowance,
   type EvaluationConsumable,
 } from '@devrandom/domain';
@@ -224,7 +224,7 @@ export function replayEvaluationBudgetCoverage(input: {
       (budget) =>
         !Number.isSafeInteger(input.reserved[budget]) ||
         input.reserved[budget] < 0 ||
-        input.reserved[budget] > taskEvaluationBudgetCeilings[budget],
+        input.reserved[budget] > taskRecoveryBudgetCeilings[budget],
     )
   )
     return { kind: 'Incomplete', reason: 'BudgetExceeded' };
@@ -307,7 +307,7 @@ export function replayEvaluationBudgetCoverage(input: {
       if (
         !Number.isSafeInteger(next) ||
         next > input.reserved[budget] ||
-        next > taskEvaluationBudgetCeilings[budget]
+        next > taskRecoveryBudgetCeilings[budget]
       )
         return { kind: 'Incomplete', reason: 'BudgetExceeded' };
       if (debit.consumed !== next) return { kind: 'Incomplete', reason: 'DebitSequenceInvalid' };
@@ -796,7 +796,7 @@ export class MongoEvaluationEvidence
           const acceptedBytes = batch.encodedByteCount + publicBytes + protectedBytes;
           const ceiling = Math.min(
             evaluation.reserved.evidencePlusArtifactsPerRunBytes,
-            taskEvaluationBudgetCeilings.evidencePlusArtifactsPerRunBytes,
+            taskRecoveryBudgetCeilings.evidencePlusArtifactsPerRunBytes,
           );
           if (evaluation.acceptedBytes + acceptedBytes > ceiling)
             return { kind: 'QuotaExceeded' as const };
@@ -1526,7 +1526,7 @@ export class MongoEvaluationEvidence
                 !Number.isSafeInteger(consumed[name]) ||
                 consumed[name] < 0 ||
                 consumed[name] > evaluation.reserved[name] ||
-                consumed[name] > taskEvaluationBudgetCeilings[name],
+                consumed[name] > taskRecoveryBudgetCeilings[name],
             )
           )
             return { kind: 'Incomplete' as const };

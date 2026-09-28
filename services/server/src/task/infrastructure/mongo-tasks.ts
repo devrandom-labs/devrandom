@@ -87,7 +87,11 @@ export class MongoTasks implements Tasks {
     readonly task: TaskProjection;
     readonly commandFingerprint: string;
   }): Promise<TaskCreation> {
-    for (let ownerSlot = 0; ownerSlot < taskBudgetCeilings.tasksPerAdmittedUser; ownerSlot += 1) {
+    for (
+      let ownerSlot = 0;
+      ownerSlot < proposedTask.task.revision.budgets.tasksPerAdmittedUser;
+      ownerSlot += 1
+    ) {
       let ownerSlotOccupied = false;
       for (
         let globalSlot = 0;

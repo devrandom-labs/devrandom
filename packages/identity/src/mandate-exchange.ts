@@ -32,6 +32,10 @@ import {
   promotionMandateV7Schema,
   promotionMandateV5SchemaSaid,
   promotionMandateV7SchemaSaid,
+  promotionMandateV8Schema,
+  promotionMandateV8SchemaSaid,
+  promotionMandateV9Schema,
+  promotionMandateV9SchemaSaid,
   selectTaskMandateSchemaSaid,
   selectInitialPromotionMandateSchemaSaid,
   selectExactPromotionMandateSchemaSaid,
@@ -43,6 +47,8 @@ import {
   taskMandateV4Schema,
   taskMandateV3SchemaSaid,
   taskMandateV4SchemaSaid,
+  taskMandateV5Schema,
+  taskMandateV5SchemaSaid,
 } from '@devrandom/protocol';
 import { Serder, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
@@ -1535,6 +1541,7 @@ function verifyHolderInspection(
           taskMandateV2SchemaSaid,
           taskMandateV3SchemaSaid,
           taskMandateV4SchemaSaid,
+          taskMandateV5SchemaSaid,
         ]
       : [
           promotionMandateSchemaSaid,
@@ -1544,6 +1551,8 @@ function verifyHolderInspection(
           promotionMandateV6SchemaSaid,
           promotionMandateV5SchemaSaid,
           promotionMandateV7SchemaSaid,
+          promotionMandateV8SchemaSaid,
+          promotionMandateV9SchemaSaid,
         ];
   if (
     inspection.kind !== expected.mandateKind ||
@@ -1621,11 +1630,14 @@ export async function connectLocalMandateCustody(
       const schema = [
         taskMandateV3Schema,
         taskMandateV4Schema,
+        taskMandateV5Schema,
         promotionMandateV3Schema,
         promotionMandateV4Schema,
         promotionMandateV6Schema,
         promotionMandateV5Schema,
         promotionMandateV7Schema,
+        promotionMandateV8Schema,
+        promotionMandateV9Schema,
       ].find((schema) => schema.$id === schemaSaid);
       if (schema !== undefined) {
         const oobi = new URL(
@@ -1738,13 +1750,16 @@ async function inspectAdmission(
       inspection.value.credential.schemaSaid !== taskMandateV2SchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV3SchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV4SchemaSaid &&
+      inspection.value.credential.schemaSaid !== taskMandateV5SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateSchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV2SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV3SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV4SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV6SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV5SchemaSaid &&
-      inspection.value.credential.schemaSaid !== promotionMandateV7SchemaSaid
+      inspection.value.credential.schemaSaid !== promotionMandateV7SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV8SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV9SchemaSaid
     ) {
       return { kind: 'Rejected', reason: 'CredentialSchemaMismatch' };
     }

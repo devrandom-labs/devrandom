@@ -118,6 +118,10 @@ function verifiedInfrastructure(
       resolve: () => Promise.resolve(),
       verify: () => Promise.resolve(),
     },
+    taskMandateV5SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
     promotionMandateV4SchemaAvailability: {
       resolve: () => Promise.resolve(),
       verify: () => Promise.resolve(),
@@ -131,6 +135,14 @@ function verifiedInfrastructure(
       verify: () => Promise.resolve(),
     },
     promotionMandateV7SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
+    promotionMandateV8SchemaAvailability: {
+      resolve: () => Promise.resolve(),
+      verify: () => Promise.resolve(),
+    },
+    promotionMandateV9SchemaAvailability: {
       resolve: () => Promise.resolve(),
       verify: () => Promise.resolve(),
     },

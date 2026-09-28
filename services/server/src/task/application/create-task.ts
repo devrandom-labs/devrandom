@@ -51,6 +51,7 @@ export interface CreateTaskDependencies {
   readonly tasks: Tasks;
   readonly eligibility: CurrentTaskCreationEligibility;
   readonly approvedNineRunOwnerAid?: string;
+  readonly approvedRecoveryOwnerAid?: string;
   now(): string;
   newTaskId(): string;
   newHarnessLineageId(): string;
@@ -130,9 +131,19 @@ export async function createTask(
     return { kind: 'ExistingTask', task: reconciliation.task };
   }
 
+  const { tasksPerAdmittedUser, runsPerAdmittedUser } = decoded.revision.budgets;
   if (
-    decoded.revision.budgets.runsPerAdmittedUser > 8 &&
-    input.owner.ownerAid !== dependencies.approvedNineRunOwnerAid
+    (tasksPerAdmittedUser > 4 || runsPerAdmittedUser > 9) &&
+    (input.owner.ownerAid !== dependencies.approvedRecoveryOwnerAid ||
+      tasksPerAdmittedUser > 5 ||
+      runsPerAdmittedUser > 10)
+  ) {
+    return { kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' };
+  }
+  if (
+    runsPerAdmittedUser > 8 &&
+    input.owner.ownerAid !== dependencies.approvedNineRunOwnerAid &&
+    input.owner.ownerAid !== dependencies.approvedRecoveryOwnerAid
   ) {
     return { kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' };
   }

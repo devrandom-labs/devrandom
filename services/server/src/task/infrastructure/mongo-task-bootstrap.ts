@@ -6,6 +6,7 @@ import Value from 'typebox/value';
 
 import {
   taskBudgetCeilings,
+  taskRecoveryBudgetCeilings,
   taskLifecycleSchema,
   authorizedTaskRevisionSchema,
 } from '@devrandom/protocol';
@@ -68,7 +69,7 @@ export const taskCollectionValidator = Object.freeze({
       ownerSlot: {
         bsonType: 'number',
         minimum: 0,
-        maximum: taskBudgetCeilings.tasksPerAdmittedUser - 1,
+        maximum: taskRecoveryBudgetCeilings.tasksPerAdmittedUser - 1,
         multipleOf: 1,
       },
       globalSlot: {

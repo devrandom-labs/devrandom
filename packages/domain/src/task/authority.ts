@@ -164,3 +164,10 @@ export const taskEvaluationBudgetCeilings: Readonly<TaskBudgets> = Object.freeze
   aggregateChildCommandTimeSeconds: 7_200,
   providerSpendMicroUsd: 25_000_000,
 });
+
+/** Narrow PRD03 recovery envelope; admission still binds it to the approved owner. */
+export const taskRecoveryBudgetCeilings: Readonly<TaskBudgets> = Object.freeze({
+  ...taskEvaluationBudgetCeilings,
+  tasksPerAdmittedUser: 5,
+  runsPerAdmittedUser: 10,
+});

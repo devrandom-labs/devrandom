@@ -16,7 +16,10 @@ export interface HostedWorkConfiguration {
   readonly mongodbUri: HostedWorkMongoUri;
   readonly workAccessPolicy: WorkAccessPolicy;
   readonly approvedNineRunOwnerAid?: string;
+  readonly approvedRecoveryOwnerAid?: string;
 }
+
+const approvedRecoveryOwnerAid = 'EMstL6Th90iB6MpQkPjKN2ii7a5XcvA_PCHWHrAAD-l4';
 
 export type HostedWorkConfigurationError =
   | { readonly kind: 'HostedWorkMongoBindingMissing' }
@@ -125,5 +128,6 @@ export function loadHostedWorkConfiguration(
     mongodbUri: mongodbUri as HostedWorkMongoUri,
     workAccessPolicy: effectiveWorkAccessPolicy,
     ...(approvedNineRunOwnerAid ? { approvedNineRunOwnerAid } : {}),
+    ...(approvedNineRunOwnerAid === approvedRecoveryOwnerAid ? { approvedRecoveryOwnerAid } : {}),
   };
 }

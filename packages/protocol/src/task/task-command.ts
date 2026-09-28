@@ -1,6 +1,7 @@
 import {
   taskBudgetCeilings,
   taskEvaluationBudgetCeilings,
+  taskRecoveryBudgetCeilings,
   taskEvolutionClasses,
   taskToolCapabilities,
   type TaskEvaluationCapability,
@@ -153,6 +154,7 @@ export const checkpointExpectationSchema = Type.Union([
 
 export { taskBudgetCeilings };
 export { taskEvaluationBudgetCeilings };
+export { taskRecoveryBudgetCeilings };
 
 export const taskBudgetsSchema = Type.Object(
   {
@@ -305,7 +307,8 @@ export type PreparedTaskCommand = Type.Static<typeof preparedTaskCommandSchema>;
 export const taskEvaluationBudgetsSchema = Type.Object(
   {
     ...taskBudgetsSchema.properties,
-    runsPerAdmittedUser: safeInteger(taskEvaluationBudgetCeilings.runsPerAdmittedUser),
+    tasksPerAdmittedUser: safeInteger(taskRecoveryBudgetCeilings.tasksPerAdmittedUser),
+    runsPerAdmittedUser: safeInteger(taskRecoveryBudgetCeilings.runsPerAdmittedUser),
     artifactRequestBodyBytes: safeInteger(taskEvaluationBudgetCeilings.artifactRequestBodyBytes),
     evidencePlusArtifactsPerRunBytes: safeInteger(
       taskEvaluationBudgetCeilings.evidencePlusArtifactsPerRunBytes,

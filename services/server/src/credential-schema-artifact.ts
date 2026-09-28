@@ -14,11 +14,26 @@ import {
   promotionMandateV6Schema,
   promotionMandateV5Schema,
   promotionMandateV7Schema,
+  promotionMandateV8Schema,
+  promotionMandateV9Schema,
+  taskMandateV5Schema,
 } from '@devrandom/protocol';
 
 const schemaDirectory = resolve(import.meta.dirname, '../../../schemas');
 
 await Promise.all([
+  writeFile(
+    resolve(schemaDirectory, 'devrandom-task-mandate-v5.json'),
+    `${JSON.stringify(taskMandateV5Schema, undefined, 2)}\n`,
+  ),
+  writeFile(
+    resolve(schemaDirectory, 'devrandom-promotion-mandate-v8.json'),
+    `${JSON.stringify(promotionMandateV8Schema, undefined, 2)}\n`,
+  ),
+  writeFile(
+    resolve(schemaDirectory, 'devrandom-promotion-mandate-v9.json'),
+    `${JSON.stringify(promotionMandateV9Schema, undefined, 2)}\n`,
+  ),
   writeFile(
     resolve(schemaDirectory, 'devrandom-promotion-mandate-v5.json'),
     `${JSON.stringify(promotionMandateV5Schema, undefined, 2)}\n`,

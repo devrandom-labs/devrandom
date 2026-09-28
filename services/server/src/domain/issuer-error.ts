@@ -56,7 +56,10 @@ export type IssuerError =
         | 'PromotionMandateV5'
         | 'TaskMandateV4'
         | 'PromotionMandateV6'
-        | 'PromotionMandateV7';
+        | 'PromotionMandateV7'
+        | 'TaskMandateV5'
+        | 'PromotionMandateV8'
+        | 'PromotionMandateV9';
       readonly expectedSaid: string;
     }
   | {

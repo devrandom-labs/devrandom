@@ -1,4 +1,4 @@
-import { taskEvaluationBudgetCeilings } from '@devrandom/domain';
+import { taskRecoveryBudgetCeilings } from '@devrandom/domain';
 import Type from 'typebox';
 import { taskBudgetsSchema } from '../task/task-command.js';
 
@@ -6,9 +6,13 @@ import { taskBudgetsSchema } from '../task/task-command.js';
 export const runBudgetCeilingSchema = Type.Object(
   {
     ...taskBudgetsSchema.properties,
+    tasksPerAdmittedUser: Type.Integer({
+      minimum: 0,
+      maximum: taskRecoveryBudgetCeilings.tasksPerAdmittedUser,
+    }),
     runsPerAdmittedUser: Type.Integer({
       minimum: 0,
-      maximum: taskEvaluationBudgetCeilings.runsPerAdmittedUser,
+      maximum: taskRecoveryBudgetCeilings.runsPerAdmittedUser,
     }),
   },
   { additionalProperties: false },

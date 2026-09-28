@@ -19,10 +19,13 @@ import {
   promotionMandateV6SchemaSaid,
   promotionMandateV5SchemaSaid,
   promotionMandateV7SchemaSaid,
+  promotionMandateV8SchemaSaid,
+  promotionMandateV9SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
   taskMandateV4SchemaSaid,
+  taskMandateV5SchemaSaid,
 } from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
@@ -220,7 +223,8 @@ export function inspectTaskMandateCredentialEvidence(
     credential.s !== taskMandateSchemaSaid &&
     credential.s !== taskMandateV2SchemaSaid &&
     credential.s !== taskMandateV3SchemaSaid &&
-    credential.s !== taskMandateV4SchemaSaid
+    credential.s !== taskMandateV4SchemaSaid &&
+    credential.s !== taskMandateV5SchemaSaid
   ) {
     return invalidMandateEvidence('Task Mandate schema differs from the pinned schema');
   }
@@ -266,7 +270,9 @@ export function inspectPromotionMandateCredentialEvidence(
     credential.s !== promotionMandateV4SchemaSaid &&
     credential.s !== promotionMandateV6SchemaSaid &&
     credential.s !== promotionMandateV5SchemaSaid &&
-    credential.s !== promotionMandateV7SchemaSaid
+    credential.s !== promotionMandateV7SchemaSaid &&
+    credential.s !== promotionMandateV8SchemaSaid &&
+    credential.s !== promotionMandateV9SchemaSaid
   ) {
     return invalidMandateEvidence('Promotion Mandate schema differs from the pinned schema');
   }
@@ -305,7 +311,8 @@ export function inspectExactPromotionMandateCredentialEvidence(
   if (
     (inspection.credential.schemaSaid !== promotionMandateV3SchemaSaid &&
       inspection.credential.schemaSaid !== promotionMandateV5SchemaSaid &&
-      inspection.credential.schemaSaid !== promotionMandateV7SchemaSaid) ||
+      inspection.credential.schemaSaid !== promotionMandateV7SchemaSaid &&
+      inspection.credential.schemaSaid !== promotionMandateV9SchemaSaid) ||
     !('evaluationManifestSaid' in inspection) ||
     !('requiredMetrics' in inspection) ||
     !('requiredChecks' in inspection) ||
