@@ -37,7 +37,8 @@ export async function resumeLocalCalibration(
         (run.lifecycle.kind !== 'Active' ||
           (run.lifecycle.phase.kind !== 'Preparing' &&
             (run.lifecycle.phase.kind !== 'Blocked' ||
-              run.lifecycle.phase.reason !== 'ProcessLost'))))
+              (run.lifecycle.phase.reason !== 'ProcessLost' &&
+                run.lifecycle.phase.reason !== 'ContextLimitReached')))))
     )
       return { kind: 'Blocked', gate: 'CalibrationPredecessor' };
     const pointer = await input.hosted.activationPointer().inspect(input.task.taskId);
