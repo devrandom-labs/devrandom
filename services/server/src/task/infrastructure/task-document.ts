@@ -32,7 +32,7 @@ const taskDocumentValueSchema = Type.Object(
     commandFingerprint: commandFingerprintSchema,
     createdAt: Type.Unknown(),
     expectedVersion: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
-    ownerSlot: Type.Integer({ minimum: 0, maximum: 3 }),
+    ownerSlot: Type.Integer({ minimum: 0, maximum: 4 }),
     globalSlot: Type.Integer({ minimum: 0, maximum: 15 }),
   },
   { additionalProperties: false },
@@ -97,6 +97,7 @@ export function encodeTaskDocument(
   };
   if (
     !Value.Check(taskDocumentValueSchema, document) ||
+    document.ownerSlot >= projection.revision.budgets.tasksPerAdmittedUser ||
     Number.isNaN(document.createdAt.valueOf()) ||
     document.createdAt.toISOString() !== projection.createdAt
   ) {
@@ -116,6 +117,9 @@ export function encodeTaskDocument(
 
 export function decodeTaskDocument(input: unknown): DecodedTaskDocument {
   if (!Value.Check(taskDocumentValueSchema, input) || !(input.createdAt instanceof Date)) {
+    throw new TaskDocumentInvalid();
+  }
+  if (input.ownerSlot >= input.revision.budgets.tasksPerAdmittedUser) {
     throw new TaskDocumentInvalid();
   }
   const decodedTask = decodeTaskProjection({

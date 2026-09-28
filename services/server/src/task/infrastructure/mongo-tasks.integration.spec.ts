@@ -4,7 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { taskCommandFingerprint } from '@devrandom/protocol';
+import {
+  prepareTaskCommandV2,
+  taskCommandFingerprint,
+  taskRecoveryBudgetCeilings,
+} from '@devrandom/protocol';
 
 import { createTask } from '../application/create-task.js';
 import { MongoTaskBootstrap } from './mongo-task-bootstrap.js';
@@ -393,6 +397,74 @@ integration('Mongo Task storage', () => {
         dependencies,
       ),
     ).resolves.toEqual({ kind: 'TaskCapacityExceeded' });
+  });
+
+  it('stores the approved fifth Task in owner slot four with its signed five-Task and ten-Run ceilings', async () => {
+    const owner = { ownerAid: taskOwnerAid, credentialSaid: taskCredentialSaid };
+    const dependencies = {
+      tasks,
+      eligibility: { authorize: () => Promise.resolve({ kind: 'Eligible' as const }) },
+      approvedRecoveryOwnerAid: taskOwnerAid,
+      now: () => '2026-09-24T12:00:00.000Z',
+      newTaskId: randomUUID,
+      newHarnessLineageId: randomUUID,
+    };
+    for (let index = 1; index <= 4; index += 1) {
+      const outcome = await createTask(
+        {
+          owner,
+          protectedCredentials: new ProtectedCredentials(),
+          command: taskCommandFixture(
+            '2026-09-24T14:00:00.000Z',
+            randomUUID(),
+            `prior-${String(index)}`,
+          ),
+        },
+        dependencies,
+      );
+      expect(outcome.kind).toBe('TaskCreated');
+    }
+    const old = taskCommandFixture('2026-09-24T14:00:00.000Z', randomUUID(), 'recovery');
+    const { d: oldRevisionSaid, repository, ...contract } = old.revision;
+    expect(oldRevisionSaid).toMatch(/^E[A-Za-z0-9_-]{43}$/u);
+    const prepared = prepareTaskCommandV2(
+      {
+        ...contract,
+        version: 2,
+        label: old.label,
+        repository: { kind: 'gitCommit', commit: repository.commit },
+        constraints: {
+          ...contract.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience: {
+            corpusSaid: `E${'c'.repeat(43)}`,
+            repositoryResourceSaid: `E${'r'.repeat(43)}`,
+            disclosure: 'AuthorizedAnalogy',
+          },
+        },
+        requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
+        budgets: { ...contract.budgets, ...taskRecoveryBudgetCeilings },
+      },
+      old.commandId,
+      repository,
+    );
+    if (prepared.kind !== 'Prepared') throw new Error('recovery Task preparation rejected');
+    const outcome = await createTask(
+      { owner, protectedCredentials: new ProtectedCredentials(), command: prepared.command },
+      dependencies,
+    );
+    expect(outcome.kind).toBe('TaskCreated');
+    expect(
+      await database.collection(tasksCollectionName).countDocuments({ ownerAid: taskOwnerAid }),
+    ).toBe(5);
+    const stored = await database
+      .collection<TaskDocument>(tasksCollectionName)
+      .findOne({ label: old.label });
+    expect(stored?.ownerSlot).toBe(4);
+    expect(stored?.revision.budgets).toMatchObject({
+      tasksPerAdmittedUser: 5,
+      runsPerAdmittedUser: 10,
+    });
   });
 
   it('returns a bounded stable owner-scoped page from an explicit keyset position', async () => {

@@ -63,6 +63,12 @@ describe('Task Mongo document', () => {
     ).toThrow('TaskDocumentInvalid');
   });
 
+  it('rejects the fifth owner slot when the signed Task ceiling is four', () => {
+    expect(() =>
+      encodeTaskDocument(task, commandFingerprint, { ownerSlot: 4, globalSlot: 4 }),
+    ).toThrow('TaskDocumentInvalid');
+  });
+
   it('rejects a stored document whose command fingerprint was changed', () => {
     const document = encodeTaskDocument(task, commandFingerprint, {
       ownerSlot: 0,
