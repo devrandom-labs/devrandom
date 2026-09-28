@@ -2,7 +2,7 @@ import type { Message, TranscriptContext } from '@earendil-works/pi-ai';
 import type { SuccessorRunBehavior } from './successor-run-behavior.js';
 import { digestRunRuntimePrompt } from './runtime-prompt-digest.js';
 
-/** Restores full prior provider context while the unchanged worker executes only new messages. */
+/** Selects a recent verified turn while the full prior transcript remains in evidence custody. */
 export class RestoredCalibrationBehavior implements SuccessorRunBehavior {
   readonly #input: {
     readonly runId: string;
@@ -60,11 +60,15 @@ export class RestoredCalibrationBehavior implements SuccessorRunBehavior {
           : undefined) !== this.#prompt
     )
       return Promise.resolve(undefined);
+    const lastAssistant = this.#input.messages.findLastIndex(
+      (message) => message.role === 'assistant',
+    );
+    if (lastAssistant < 0) return Promise.resolve(undefined);
     return Promise.resolve({
       ...context,
       messages: [
         ...context.messages.slice(0, firstUser + 1),
-        ...structuredClone(this.#input.messages),
+        ...structuredClone(this.#input.messages.slice(lastAssistant)),
         ...context.messages.slice(firstUser + 1),
       ],
     });

@@ -59,3 +59,36 @@ it('keeps original prompts and prepends all history only to provider context on 
     ),
   ).toBeUndefined();
 });
+
+it('limits resumed provider context to the last complete evidence-bound turn', async () => {
+  const older = fauxAssistantMessage('old turn');
+  const latest = fauxAssistantMessage('latest turn');
+  const behavior = new RestoredCalibrationBehavior({
+    runId: 'run',
+    harnessRevisionSaid: 'h1',
+    executionProfileSaid: 'profile',
+    messages: [older, { role: 'user', content: 'continue', timestamp: 1 }, latest],
+  });
+  const signal = new AbortController().signal;
+  await behavior.prepare({
+    run: {
+      binding: {
+        runId: 'run',
+        purpose: { kind: 'PreparedCompatibilityCalibration' },
+        initialHarnessRevisionSaid: 'h1',
+      },
+      currentExecution: { harnessRevisionSaid: 'h1' },
+    } as Run,
+    executionProfileSaid: 'profile',
+    baseSystemPrompt: 'original system',
+    taskPrompt: 'original task',
+    evidence: {} as EvidenceRecorder,
+    signal,
+  });
+  const context = normalizeContext({
+    systemPrompt: 'original system',
+    messages: [{ role: 'user', content: 'original task', timestamp: 0 }],
+  });
+  const resumed = await behavior.beforeModel(context, signal);
+  expect(resumed?.messages).toEqual([...context.messages, latest]);
+});
