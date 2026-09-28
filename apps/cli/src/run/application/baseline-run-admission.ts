@@ -90,6 +90,11 @@ export interface BaselineRunAdmissionRecords {
     disposition: 'Created' | 'Reconciled',
     projection: RunProjection,
   ): Promise<BaselineRunAdmissionTransition>;
+  reincarnateUnleased(
+    binding: BaselineRunBinding,
+    expectedIncarnationId: string,
+    nextIncarnationId: string,
+  ): Promise<BaselineRunAdmissionTransition>;
   recordLease(
     binding: BaselineRunBinding,
     projection: RunLeaseProjection,
@@ -118,6 +123,9 @@ export type HostedRunRenewal =
 
 export interface HostedRuns {
   admit(command: RunAdmissionCommand): Promise<HostedRunAdmission>;
+  inspect(
+    runId: string,
+  ): Promise<{ readonly kind: 'Found'; readonly run: RunProjection } | HostedRunFailure>;
   acquireLease(
     runId: string,
     incarnationId: string,
@@ -376,9 +384,33 @@ export class BaselineRunAdmission {
     if (admission.kind !== 'RunAccepted') {
       return { kind: 'RunAdmissionBindingConflict' };
     }
-    const priorObservation = this.#leaseObservations.get(admission.incarnationId);
+    let priorObservation = this.#leaseObservations.get(admission.incarnationId);
     if (priorObservation === undefined) {
-      return { kind: 'RunResumeRequired' };
+      const inspected = await input.hosted.inspect(admission.run.runId);
+      if (
+        inspected.kind !== 'Found' ||
+        !isDeepStrictEqual(inspected.run, admission.run) ||
+        inspected.run.runVersion !== 0 ||
+        inspected.run.lease.kind !== 'Unassigned'
+      ) {
+        return { kind: 'RunResumeRequired' };
+      }
+      const nextIncarnationId = this.#dependencies.newIncarnationId();
+      if (nextIncarnationId === admission.incarnationId) {
+        return { kind: 'RunResumeRequired' };
+      }
+      const rebound = await this.#dependencies.records.reincarnateUnleased(
+        bound,
+        admission.incarnationId,
+        nextIncarnationId,
+      );
+      if (rebound.kind !== 'Acknowledged') {
+        return rejectedTransition(rebound);
+      }
+      if (rebound.admission.kind !== 'RunAccepted') return { kind: 'RunAdmissionBindingConflict' };
+      admission = rebound.admission;
+      priorObservation = { kind: 'Originated' };
+      this.#leaseObservations.set(admission.incarnationId, priorObservation);
     }
     if (priorObservation.kind !== 'Originated' && priorObservation.runId !== admission.run.runId) {
       return { kind: 'RunAdmissionBindingConflict' };

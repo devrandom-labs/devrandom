@@ -202,6 +202,45 @@ describe('Run admission file', () => {
     });
   });
 
+  it('rebinds only an unleased version-zero Run to one fresh incarnation', async () => {
+    const { file } = await admissionFile();
+    const bound = binding();
+    const run = admittedRun();
+    const freshIncarnationId = '7ce0317e-d994-4bfe-bebd-92bc61d0ef28';
+    await file.acquire(bound, {
+      commandId: runCommandId,
+      incarnationId: runIncarnationId,
+      preparedAt: Date.parse('2026-09-24T20:00:00.000Z'),
+    });
+    await file.recordExchange(bound, { exchangeSaid: runAdmissionExchangeSaid });
+    await file.recordRun(bound, 'Created', run);
+    await expect(
+      file.reincarnateUnleased(bound, runIncarnationId, freshIncarnationId),
+    ).resolves.toMatchObject({
+      kind: 'Acknowledged',
+      admission: { kind: 'RunAccepted', incarnationId: freshIncarnationId, run },
+    });
+    await expect(
+      file.reincarnateUnleased(bound, runIncarnationId, '5947b6cc-54a8-46f3-a40a-3e3ca492ee16'),
+    ).resolves.toEqual({ kind: 'Conflict' });
+    const lease = {
+      version: 1 as const,
+      disposition: 'Acquired' as const,
+      runId: run.runId,
+      incarnationId: freshIncarnationId,
+      runVersion: 1,
+      serverTime: '2026-09-24T20:00:00.000Z',
+      expiresAt: '2026-09-24T20:00:45.000Z',
+    };
+    await expect(file.recordLease(bound, lease)).resolves.toMatchObject({
+      kind: 'Acknowledged',
+      admission: { kind: 'LeaseAccepted', incarnationId: freshIncarnationId },
+    });
+    await expect(
+      file.reincarnateUnleased(bound, freshIncarnationId, runIncarnationId),
+    ).resolves.toEqual({ kind: 'Conflict' });
+  });
+
   it('locates a leased calibration Run from a fresh status process', async () => {
     const { directory, file } = await admissionFile();
     const purpose = {

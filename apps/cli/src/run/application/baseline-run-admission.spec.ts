@@ -89,6 +89,17 @@ function records(): BaselineRunAdmissionRecords {
       record = { ...record, kind: 'RunAccepted', runAdmission: disposition, run: projection };
       return Promise.resolve({ kind: 'Acknowledged', admission: record });
     },
+    reincarnateUnleased: (_binding, expectedIncarnationId, nextIncarnationId) => {
+      if (
+        record?.kind !== 'RunAccepted' ||
+        record.incarnationId !== expectedIncarnationId ||
+        record.run.runVersion !== 0
+      ) {
+        return Promise.resolve({ kind: 'Conflict' });
+      }
+      record = { ...record, incarnationId: nextIncarnationId };
+      return Promise.resolve({ kind: 'Acknowledged', admission: record });
+    },
     recordLease: (_binding, projection) => {
       if (record === undefined || record.kind !== 'RunAccepted') {
         return Promise.resolve({ kind: 'Conflict' });
@@ -102,6 +113,7 @@ function records(): BaselineRunAdmissionRecords {
 function hosted(run = acceptedRun()): HostedRuns {
   return {
     admit: () => Promise.resolve({ kind: 'Created', projection: run }),
+    inspect: () => Promise.resolve({ kind: 'Found', run }),
     acquireLease: (_runId, requestedIncarnationId) =>
       Promise.resolve({
         kind: 'Acquired',
@@ -361,6 +373,39 @@ describe('baseline Run admission', () => {
     expect(acquireLease).toHaveBeenCalledTimes(3);
   });
 
+  it('recovers a proven unleased version-zero Run with a fresh incarnation', async () => {
+    const retained = records();
+    const nextIncarnationId = '7ce0317e-d994-4bfe-bebd-92bc61d0ef28';
+    let incarnationCount = 0;
+    const dependencies = {
+      records: retained,
+      issuerAid: issuer,
+      newCommandId: () => commandId,
+      newIncarnationId: () => (incarnationCount++ === 0 ? incarnationId : nextIncarnationId),
+      now: () => Date.parse(acceptedAt),
+      monotonicNow: () => 100,
+      wait: () => Promise.resolve(),
+      maximumObservations: 3,
+    };
+    const server = hosted();
+    const acquireLease = vi
+      .fn<HostedRuns['acquireLease']>()
+      .mockResolvedValueOnce({ kind: 'ServerUnavailable' })
+      .mockResolvedValueOnce({ kind: 'ServerUnavailable' })
+      .mockResolvedValueOnce({ kind: 'ServerUnavailable' })
+      .mockImplementation((...input) => server.acquireLease(...input));
+    const input = admissionInput({ ...server, acquireLease });
+    expect(await new BaselineRunAdmission(dependencies).admit(input)).toEqual({
+      kind: 'RunLeaseRejected',
+      outcome: { kind: 'ServerUnavailable' },
+    });
+    expect(await new BaselineRunAdmission(dependencies).admit(input)).toMatchObject({
+      kind: 'RunLeaseAcquired',
+      lease: { incarnationId: nextIncarnationId },
+    });
+    expect(acquireLease).toHaveBeenCalledTimes(4);
+  });
+
   it('preserves live acquisition timing on retry and refuses replay in a new admission owner', async () => {
     const retained = records();
     let monotonic = 100;
@@ -455,7 +500,12 @@ describe('baseline Run admission', () => {
       purpose: { kind: 'Retained' },
       requestedBudget: taskBudgetCeilings,
       exchange: { prepare, deliver },
-      hosted: { admit, acquireLease, renewLease },
+      hosted: {
+        admit,
+        inspect: () => Promise.resolve({ kind: 'Found', run: acceptedRun() }),
+        acquireLease,
+        renewLease,
+      },
     });
 
     expect(outcome).toMatchObject({
@@ -501,6 +551,7 @@ describe('baseline Run admission', () => {
           },
         }),
       acquireLease: () => Promise.reject(new Error('must not acquire before Run acceptance')),
+      inspect: () => Promise.reject(new Error('must not inspect before Run acceptance')),
       renewLease: () => Promise.reject(new Error('must not renew before Run acceptance')),
     };
     const harness = baselineHarnessCommandFixture().revision;

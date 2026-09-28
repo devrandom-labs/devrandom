@@ -142,6 +142,7 @@ describe('Task Run mandate preparation', () => {
     const harnesses = { admit: () => Promise.reject(new Error('owned by H1 preparation')) };
     const runs = {
       admit: () => Promise.reject(new Error('owned by local Run admission')),
+      inspect: () => Promise.reject(new Error('owned by local Run admission')),
       acquireLease: () => Promise.reject(new Error('owned by local Run admission')),
       renewLease: () => Promise.reject(new Error('owned by the Run Supervisor')),
     };
@@ -307,6 +308,7 @@ describe('Task Run mandate preparation', () => {
           harnesses: { admit: () => Promise.reject(new Error('not used')) },
           runs: {
             admit: () => Promise.reject(new Error('not used')),
+            inspect: () => Promise.reject(new Error('not used')),
             acquireLease: () => Promise.reject(new Error('not used')),
             renewLease: () => Promise.reject(new Error('not used')),
           },

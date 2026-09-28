@@ -10,6 +10,7 @@ const incarnationId = 'ee87e11d-fb5f-46b4-841f-8a7a5faad97c';
 function hosted(renewLease: HostedRuns['renewLease']): HostedRuns {
   return {
     admit: vi.fn(),
+    inspect: vi.fn(),
     acquireLease: vi.fn(),
     renewLease,
   };

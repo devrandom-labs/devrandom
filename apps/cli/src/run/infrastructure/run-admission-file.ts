@@ -443,6 +443,49 @@ export class RunAdmissionFile implements BaselineRunAdmissionRecords, AcceptedRu
     }
   }
 
+  async reincarnateUnleased(
+    binding: BaselineRunBinding,
+    expectedIncarnationId: string,
+    nextIncarnationId: string,
+  ): Promise<BaselineRunAdmissionTransition> {
+    if (
+      !Value.Check(bindingSchema, binding) ||
+      !Value.Check(uuidV4Schema, expectedIncarnationId) ||
+      !Value.Check(uuidV4Schema, nextIncarnationId) ||
+      expectedIncarnationId === nextIncarnationId
+    ) {
+      return { kind: 'Conflict' };
+    }
+    try {
+      await this.#prepareDirectory();
+      const key = this.#key(binding);
+      const lock = await this.#lock(key);
+      if (lock === undefined) return { kind: 'Unavailable' };
+      try {
+        const current = await this.#read(key, binding.taskId);
+        if (
+          current === undefined ||
+          !sameBinding(current.binding, binding) ||
+          current.kind !== 'RunAccepted' ||
+          current.incarnationId !== expectedIncarnationId ||
+          current.run.runVersion !== 0 ||
+          current.run.lease.kind !== 'Unassigned'
+        ) {
+          return { kind: 'Conflict' };
+        }
+        const next: StableBaselineRunAdmission = { ...current, incarnationId: nextIncarnationId };
+        if (!documentIsConsistent(next, binding.taskId)) return { kind: 'Conflict' };
+        await this.#replace(key, next);
+        return { kind: 'Acknowledged', admission: next };
+      } finally {
+        await lock.close();
+        await unlink(this.#lockPath(key)).catch(() => undefined);
+      }
+    } catch {
+      return { kind: 'Unavailable' };
+    }
+  }
+
   async #read(key: string, taskId = key): Promise<StableBaselineRunAdmission | undefined> {
     const path = this.#path(key);
     let before: Stats;
