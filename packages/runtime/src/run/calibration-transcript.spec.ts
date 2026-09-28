@@ -137,3 +137,83 @@ it.each(['read_file', 'list_files', 'search_repository'] as const)(
     );
   },
 );
+
+it('restores evidence-bound write and rejected tool feedback from a completed model turn', () => {
+  const f = fixture();
+  const message = {
+    ...f.message,
+    content: [
+      {
+        type: 'toolCall',
+        id: 'write',
+        name: 'write_file',
+        arguments: { path: 'src/lib.rs', content: 'x' },
+      },
+      { type: 'toolCall', id: 'denied', name: 'list_files', arguments: { path: '/' } },
+    ],
+    stopReason: 'toolUse',
+  };
+  const modelBytes = Buffer.from(JSON.stringify({ message }));
+  const prepared = prepareEvidenceArtifact(modelBytes, 'application/json');
+  if (prepared.kind !== 'Prepared') throw Error('artifact');
+  const events = structuredClone(f.events);
+  if (events[1]?.event.kind !== 'ModelMessageCompleted') throw Error('message');
+  events[1].event.messageArtifactSaid = prepared.artifact.d;
+  const identity = { piSessionId: 'session', modelTurnId: 'session:0' };
+  const write = {
+    ...identity,
+    toolCallId: 'write',
+    tool: 'write_file' as const,
+    proposalIndex: 0,
+    requiredCapability: 'EditRepository' as const,
+    resource: 'repository://src/lib.rs',
+  };
+  const denied = {
+    ...identity,
+    toolCallId: 'denied',
+    tool: 'list_files' as const,
+    proposalIndex: 1,
+    requiredCapability: 'ReadRepository' as const,
+    resource: 'unclassified://list_files',
+  };
+  events.push(
+    ...([
+      { event: { kind: 'ToolProposed', ...write } },
+      {
+        occurredAt: '2026-09-26T00:00:01.000Z',
+        event: { kind: 'ToolAuthorized', ...write },
+      },
+      {
+        occurredAt: '2026-09-26T00:00:02.000Z',
+        event: {
+          kind: 'EffectCompleted',
+          ...write,
+          outputArtifactSaids: [],
+        },
+      },
+      { event: { kind: 'ToolProposed', ...denied } },
+      {
+        occurredAt: '2026-09-26T00:00:03.000Z',
+        event: {
+          kind: 'ToolRejected',
+          ...denied,
+          reason: 'ResourceDenied',
+        },
+      },
+    ] as EvidenceEvent[]),
+  );
+  const restored = calibrationTranscript({
+    events,
+    artifacts: [{ artifact: prepared.artifact, bytes: modelBytes }],
+  });
+  expect(restored.kind).toBe('Restored');
+  if (restored.kind === 'Restored') {
+    expect(restored.messages.map((item) => item.role)).toEqual([
+      'assistant',
+      'toolResult',
+      'toolResult',
+    ]);
+    expect(restored.messages[1]).toMatchObject({ toolCallId: 'write', isError: false });
+    expect(restored.messages[2]).toMatchObject({ toolCallId: 'denied', isError: false });
+  }
+});

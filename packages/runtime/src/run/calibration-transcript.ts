@@ -34,9 +34,7 @@ function assistant(value: unknown): value is AssistantMessage {
   );
 }
 
-/** Reconstitutes the complete provider transcript from verified immutable evidence.
- * Only outcomes whose exact worker text is recoverable are admitted. This never
- * executes a historical tool or replaces raw content with a summary. */
+/** Reconstitutes provider messages and evidence-bound tool feedback without replaying effects. */
 export function calibrationTranscript(input: {
   readonly events: readonly EvidenceEvent[];
   readonly artifacts: readonly {
@@ -95,7 +93,14 @@ export function calibrationTranscript(input: {
           if (part.type !== 'toolCall') continue;
           if (
             pending.has(part.id) ||
-            !['read_file', 'list_files', 'search_repository'].includes(part.name)
+            ![
+              'read_file',
+              'list_files',
+              'search_repository',
+              'write_file',
+              'replace_text',
+              'run_tests',
+            ].includes(part.name)
           )
             return { kind: 'Rejected' };
           pending.set(part.id, { name: part.name, proposed: false, authorized: false });
@@ -109,7 +114,9 @@ export function calibrationTranscript(input: {
       } else if (
         event.kind === 'ToolProposed' ||
         event.kind === 'ToolAuthorized' ||
-        event.kind === 'EffectCompleted'
+        event.kind === 'EffectCompleted' ||
+        event.kind === 'EffectFailed' ||
+        event.kind === 'ToolRejected'
       ) {
         const call = pending.get(event.toolCallId);
         if (
@@ -127,15 +134,49 @@ export function calibrationTranscript(input: {
           if (!call.proposed || call.authorized) return { kind: 'Rejected' };
           call.authorized = true;
         } else {
-          if (!call.authorized || event.outputArtifactSaids.length !== 1)
+          if (event.kind === 'ToolRejected' && (!call.proposed || call.authorized))
             return { kind: 'Rejected' };
-          const said = event.outputArtifactSaids[0];
-          const raw = said === undefined ? undefined : bytes(said);
-          if (raw === undefined) return { kind: 'Rejected' };
-          const text = new TextDecoder('utf-8', {
-            fatal: true,
-            ignoreBOM: event.tool !== 'read_file',
-          }).decode(raw);
+          if (event.kind !== 'ToolRejected' && !call.authorized) return { kind: 'Rejected' };
+          let result: string;
+          if (event.kind === 'ToolRejected') {
+            if (
+              !['ResourceDenied', 'CapabilityNotGranted', 'ArgumentsInvalid'].includes(event.reason)
+            )
+              return { kind: 'Rejected' };
+            result = `Tool rejected: ${event.reason}`;
+          } else {
+            const outputs = event.outputArtifactSaids.map((said) => bytes(said));
+            if (outputs.some((raw) => raw === undefined)) return { kind: 'Rejected' };
+            const references = event.outputArtifactSaids.join(', ') || 'none';
+            if (['read_file', 'list_files', 'search_repository'].includes(event.tool)) {
+              if (event.kind !== 'EffectCompleted' || outputs.length !== 1)
+                return { kind: 'Rejected' };
+              const raw = outputs[0];
+              if (raw === undefined) return { kind: 'Rejected' };
+              const content = new TextDecoder('utf-8', {
+                fatal: true,
+                ignoreBOM: event.tool !== 'read_file',
+              }).decode(raw);
+              result = `${content}\nOutput artifact SAIDs: ${references}`;
+            } else if (event.tool === 'write_file' || event.tool === 'replace_text') {
+              if (
+                event.kind !== 'EffectCompleted' ||
+                outputs.length !== 0 ||
+                !event.resource.startsWith('repository://')
+              )
+                return { kind: 'Rejected' };
+              result = `${event.tool === 'write_file' ? 'Wrote' : 'Replaced text in'} ${event.resource}.\nOutput artifact SAIDs: none`;
+            } else if (event.tool === 'run_tests') {
+              if (outputs.length !== 2 || !event.resource.startsWith('command://'))
+                return { kind: 'Rejected' };
+              const stdout = outputs[0];
+              const stderr = outputs[1];
+              if (stdout === undefined || stderr === undefined) return { kind: 'Rejected' };
+              const stdoutText = new TextDecoder('utf-8', { fatal: true }).decode(stdout);
+              const stderrText = new TextDecoder('utf-8', { fatal: true }).decode(stderr);
+              result = `Recovered ${event.kind === 'EffectFailed' ? `failed (${event.failure})` : 'completed'} command ${event.resource} from recorded stdout and stderr.\nstdout:\n${stdoutText}\nstderr:\n${stderrText}\nOutput artifact SAIDs: ${references}`;
+            } else return { kind: 'Rejected' };
+          }
           messages.push({
             role: 'toolResult',
             toolCallId: event.toolCallId,
@@ -143,7 +184,7 @@ export function calibrationTranscript(input: {
             content: [
               {
                 type: 'text',
-                text: `${text}\nOutput artifact SAIDs: ${event.outputArtifactSaids.join(', ')}`,
+                text: result,
               },
             ],
             isError: false,
@@ -151,12 +192,7 @@ export function calibrationTranscript(input: {
           });
           pending.delete(event.toolCallId);
         }
-      } else if (
-        event.kind === 'EffectFailed' ||
-        event.kind === 'ToolRejected' ||
-        event.kind === 'ApprovalRequired'
-      )
-        return { kind: 'Rejected' };
+      } else if (event.kind === 'ApprovalRequired') return { kind: 'Rejected' };
     }
     return request === undefined && pending.size === 0 && messages.length > 0
       ? { kind: 'Restored', messages }
