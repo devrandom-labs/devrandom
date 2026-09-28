@@ -43,9 +43,12 @@ describe('prepared public verifier source custody', () => {
     expect(preparedCompatibilityVerifierReadOnlyPaths(fixture(2).task)).toEqual(
       preparedCompatibilityVerifierReadOnlyPaths(task),
     );
-    expect(preparedCompatibilityVerifierReadOnlyPaths({ ...task, label: 'other-task' })).toEqual(
-      [],
-    );
+    expect(
+      preparedCompatibilityVerifierReadOnlyPaths({
+        ...task,
+        label: 'cesr-compat-recovery-20260929a',
+      }),
+    ).toEqual(preparedCompatibilityVerifierReadOnlyPaths(task));
     const legacy = task.revision.completionConditions[2];
     if (legacy === undefined) throw new Error('Prepared legacy condition is missing');
     expect(
@@ -319,6 +322,17 @@ function exactVerification(harness: BaselineHarnessRevision): RetainedSubmittedV
 }
 
 describe('prepared CESR compatibility classification', () => {
+  it('classifies exact bound evidence for a versioned Task label', () => {
+    const input = fixture(2);
+    expect(
+      new PreparedCompatibilityClassifier().classify({
+        ...input,
+        task: { ...input.task, label: 'cesr-compat-recovery-20260929a' },
+        verification: exactVerification(input.harness),
+      }).kind,
+    ).toBe('Confirmed');
+  });
+
   it('confirms the same exact public pattern for an authorized v2 Task without granting H1 a memory tool', () => {
     const input = fixture(2);
     expect(input.task.revision.requestedCapabilities).toContain('ReadTaskMemory');
@@ -429,7 +443,7 @@ describe('prepared CESR compatibility classification', () => {
     expect(
       failures.classify({
         ...input,
-        task: { ...input.task, label: 'different-task' },
+        task: { ...input.task, taskId: 'd4fd5b0d-ff60-4ca9-96f7-56241557ee47' },
         verification: exactVerification(input.harness),
       }),
     ).toEqual({ kind: 'NotConfirmed', reason: 'FixtureBindingMismatch' });

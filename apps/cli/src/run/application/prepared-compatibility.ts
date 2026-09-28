@@ -75,7 +75,6 @@ export function preparedCompatibilityVerifierReadOnlyPaths(
   task: TaskProjection,
 ): readonly string[] {
   if (
-    task.label !== 'cesr-compat' ||
     !taskRevisionAccepted(task) ||
     task.revision.completionConditions.length !== fixtureConditions.length ||
     !fixtureConditions.every((expected, index) => {
@@ -113,7 +112,6 @@ function fixtureCommands(input: PreparedCompatibilityFailureInput): FixtureComma
   if (
     !taskRevisionAccepted(task) ||
     decodeBaselineHarnessRevision(harness).kind !== 'Accepted' ||
-    task.label !== 'cesr-compat' ||
     task.lifecycle.kind !== 'Open' ||
     task.revisionSaid !== task.revision.d ||
     task.revision.completionConditions.length !== fixtureConditions.length ||
