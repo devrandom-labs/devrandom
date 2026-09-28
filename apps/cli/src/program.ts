@@ -1289,7 +1289,10 @@ function renderTaskRunExecution(outcome: TaskRunExecutionOutcome): RenderedComma
       return {
         destination: 'stderr',
         exitCode: 6,
-        text: `Task Run mandate authorization failed: ${outcome.outcome.kind}.`,
+        text:
+          outcome.outcome.kind === 'PresentationRejected'
+            ? `Task Run mandate authorization failed: PresentationRejected (${outcome.outcome.mandateKind}: ${outcome.outcome.problem.code === 'MandatePresentationRejected' ? outcome.outcome.problem.reason : outcome.outcome.problem.code}).`
+            : `Task Run mandate authorization failed: ${outcome.outcome.kind}.`,
       };
     case 'RepositoryInspectionRejected':
       return {

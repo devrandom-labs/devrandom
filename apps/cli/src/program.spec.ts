@@ -815,6 +815,46 @@ describe('devrandom command', () => {
     expect(runtime.exitCodes).toEqual([3]);
   });
 
+  it('reports the closed mandate rejection reason before a Run is admitted', async () => {
+    const base = commandFixture().commands;
+    const commands: DevrandomCommands = {
+      ...base,
+      tasks: {
+        ...base.tasks,
+        run: () =>
+          Promise.resolve({
+            kind: 'AuthorizationRejected',
+            outcome: {
+              kind: 'PresentationRejected',
+              mandateKind: 'TaskMandate',
+              problem: {
+                type: 'https://devrandom.example/problems/mandate-presentation-rejected',
+                title: 'Mandate presentation was rejected',
+                status: 422,
+                code: 'MandatePresentationRejected',
+                correlationId: 'ac68bb43-8a7b-4838-bcd6-98143fd372af',
+                reason: 'GrantEvidenceInvalid',
+              },
+            },
+          }),
+      },
+    };
+    const runtime = processFixture();
+
+    await createProgram(commands, runtime.process).parseAsync([
+      'node',
+      'devrandom',
+      'task',
+      'run',
+      'repair-parser',
+    ]);
+
+    expect(runtime.errors).toEqual([
+      'Task Run mandate authorization failed: PresentationRejected (TaskMandate: GrantEvidenceInvalid).\n',
+    ]);
+    expect(runtime.exitCodes).toEqual([6]);
+  });
+
   it('renders the supervised sealed-baseline disposition with its checkpoint and verification', async () => {
     const task = taskProjectionFixture();
     const harnessCommand = baselineHarnessCommandFixture();
