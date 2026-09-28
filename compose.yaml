@@ -7,6 +7,21 @@ x-healthcheck: &healthcheck
   start_period: 5s
 
 services:
+  atlas-local:
+    image: mongodb/mongodb-atlas-local:8.0.28-20260911T095853Z@sha256:e377825a119e0cd15abc16e0ec95eadc37432ed27acbb91a5c278d5ac971f42e
+    hostname: atlas-local
+    environment:
+      DO_NOT_TRACK: '1'
+    ports:
+      - '127.0.0.1:${DEVRANDOM_ATLAS_LOCAL_PORT:-27019}:27017'
+    volumes:
+      - atlas-local-data:/data/db
+      - atlas-local-config:/data/configdb
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
+
   mongodb:
     image: mongo:8.3.11-noble@sha256:02eb14a1130c6d060847c4169eccd4d79d9f172a584da7aea8f160c492537b02
     command: ['mongod', '--bind_ip_all', '--replSet', 'devrandom-rs']
@@ -98,8 +113,8 @@ services:
       DEVRANDOM_KERIA_BOOT_URL: http://keria:3903
       DEVRANDOM_MONGODB_URI: mongodb://mongodb:27017/devrandom?replicaSet=devrandom-rs
       DEVRANDOM_HOSTED_WORK_MONGODB_URI: ${DEVRANDOM_HOSTED_WORK_MONGODB_URI:-mongodb://mongodb:27017/devrandom_e0?replicaSet=devrandom-rs}
-      DEVRANDOM_ATLAS_URI: ${DEVRANDOM_ATLAS_URI:-}
-      DEVRANDOM_ATLAS_DATABASE: ${DEVRANDOM_ATLAS_DATABASE:-}
+      DEVRANDOM_ATLAS_LOCAL_URI: mongodb://atlas-local:27017/devrandom_prd03_local?directConnection=true
+      DEVRANDOM_ATLAS_DATABASE: devrandom_prd03_local
       DEVRANDOM_ATLAS_MODEL_CACHE_DIRECTORY: /var/lib/devrandom/experience-model-cache
       DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS: ${DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS:-}
       DEVRANDOM_TASK_CURSOR_KEY: ${DEVRANDOM_TASK_CURSOR_KEY:-BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc}
@@ -112,6 +127,8 @@ services:
       HOST: 0.0.0.0
       PORT: '3211'
     depends_on:
+      atlas-local:
+        condition: service_healthy
       keria:
         condition: service_healthy
       mongodb:
@@ -152,6 +169,10 @@ services:
     pids_limit: 128
 
 volumes:
+  atlas-local-data:
+    name: devrandom_atlas_local_data_v2
+  atlas-local-config:
+    name: devrandom_atlas_local_config_v2
   keria-data:
   mongodb-data:
   witness-data:

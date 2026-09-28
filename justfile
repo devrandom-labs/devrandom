@@ -32,22 +32,8 @@ version-audit: _require-nix
 integration-runtime-start: _require-nix
     @if command -v colima >/dev/null 2>&1; then colima start --cpu 4 --memory 8 --disk 30; else docker info >/dev/null; fi
 
-integration-atlas-local-up: _require-nix
-    #!/usr/bin/env bash
-    set -euo pipefail
-    demo_env="${DEVRANDOM_ENV_FILE:-.env}"
-    test -f "$demo_env" || { echo "$demo_env is required" >&2; exit 2; }
-    permissions="$(stat -c '%a' "$demo_env")"
-    (( (8#$permissions & 077) == 0 )) || { echo "$demo_env must not be readable by group or others" >&2; exit 2; }
-    compose=(docker compose --env-file "$demo_env" -f compose.yaml -f compose.atlas-local.yaml)
-    "${compose[@]}" up --detach --wait --wait-timeout 180 atlas-local mongodb keria
-    "${compose[@]}" build server
-    "${compose[@]}" run --rm --no-deps server bootstrap
-    "${compose[@]}" up --detach --no-deps --wait --wait-timeout 120 server
-    curl --fail --silent --show-error "http://127.0.0.1:${DEVRANDOM_ISSUER_PORT:-3211}/ready/work"
-
 integration-up: _require-nix
-    docker compose --env-file "${DEVRANDOM_ENV_FILE:-.env.example}" up --detach --build --wait --wait-timeout 180 mongodb keria
+    docker compose --env-file "${DEVRANDOM_ENV_FILE:-.env.example}" up --detach --build --wait --wait-timeout 180 atlas-local mongodb keria
     pnpm exec tsx tooling/mongodb-replica-set.ts
     docker compose --env-file "${DEVRANDOM_ENV_FILE:-.env.example}" run --rm --no-deps server bootstrap
     docker compose --env-file "${DEVRANDOM_ENV_FILE:-.env.example}" up --detach --build --wait --wait-timeout 180 server site
@@ -87,7 +73,7 @@ up: _require-nix
     pnpm --filter @devrandom/cli run build
     docker compose --env-file "$demo_env" build server
     docker compose --env-file "$demo_env" build site
-    docker compose --env-file "$demo_env" up --detach --wait --wait-timeout 180 mongodb keria
+    docker compose --env-file "$demo_env" up --detach --wait --wait-timeout 180 atlas-local mongodb keria
     DEVRANDOM_ENV_FILE="$demo_env" pnpm exec tsx tooling/mongodb-replica-set.ts
     docker compose --env-file "$demo_env" run --rm --no-deps server bootstrap
     docker compose --env-file "$demo_env" up --detach --no-deps --wait --wait-timeout 120 server
@@ -339,7 +325,7 @@ test-identity-journey: _require-nix
     docker compose --project-name "$project" --env-file "$integration_env" run --rm --no-deps server bootstrap
     docker compose --project-name "$project" --env-file "$integration_env" up --detach --no-deps --wait --wait-timeout 120 server
     docker compose --project-name "$project" --env-file "$integration_env" up --detach --no-deps --wait --wait-timeout 120 site
-    docker compose --project-name "$project" --env-file "$integration_env" ps --format json | pnpm exec tsx tooling/integration-health.ts
+    docker compose --project-name "$project" --env-file "$integration_env" ps --format json | pnpm exec tsx tooling/integration-health.ts keria mongodb server site witnesses
 
     issuer_endpoint="$(docker compose --project-name "$project" --env-file "$integration_env" port server 3211 | tail -n 1)"
     keria_admin="$(docker compose --project-name "$project" --env-file "$integration_env" port keria 3901 | tail -n 1)"
@@ -493,15 +479,9 @@ test-concentrate-accepted-model: _require-nix
 test-atlas-integration: _require-nix
     #!/usr/bin/env bash
     set -euo pipefail
-    atlas_env="${DEVRANDOM_ATLAS_ENV_FILE:-.env}"
-    if [[ -f "$atlas_env" ]]; then
-      permissions="$(stat -c '%a' "$atlas_env")"
-      (( (8#$permissions & 077) == 0 )) || { echo "$atlas_env must not be readable by group or others; run chmod 600 $atlas_env" >&2; exit 1; }
-      node --env-file="$atlas_env" -e 'const { spawnSync } = require("node:child_process"); if (!process.env.DEVRANDOM_ATLAS_URI) { console.error("DEVRANDOM_ATLAS_URI is required"); process.exit(1); } const result = spawnSync("pnpm", ["exec", "vitest", "run", "packages/storage/src/e0/atlas-vector.integration.spec.ts"], { env: process.env, stdio: "inherit" }); process.exit(result.status ?? 1);'
-    else
-      test -n "${DEVRANDOM_ATLAS_URI:-}" || { echo "DEVRANDOM_ATLAS_URI is required" >&2; exit 1; }
-      pnpm exec vitest run packages/storage/src/e0/atlas-vector.integration.spec.ts
-    fi
+    export DEVRANDOM_ATLAS_URI="mongodb://127.0.0.1:${DEVRANDOM_ATLAS_LOCAL_PORT:-27019}/?directConnection=true"
+    export DEVRANDOM_ATLAS_DATABASE=devrandom_prd03_local
+    pnpm exec vitest run packages/storage/src/e0/atlas-vector.integration.spec.ts
 
 test: _require-nix
     pnpm run _test

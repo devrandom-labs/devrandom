@@ -10,6 +10,5 @@ embeddings and summaries remain derived views with raw-evidence references.
 
 The disposable E0 contract tests deliberately keep their probe documents
 private. `just test-integration` runs ordinary driver behavior against Compose
-MongoDB. `just test-atlas-integration` requires an uncommitted
-`DEVRANDOM_ATLAS_URI` and is the separate proof for managed Vector Search;
-`DEVRANDOM_ATLAS_DATABASE` defaults to `devrandom_e0`.
+MongoDB. `just test-atlas-integration` queries the pinned Atlas Local service
+and is the separate proof for real Vector Search.

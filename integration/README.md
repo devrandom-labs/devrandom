@@ -7,7 +7,7 @@ The service versions are pinned independently in `compose.yaml`; update these
 fixtures only after rerunning the E0 identity compatibility proof.
 
 Compose contains external integration services only: KERIA, demo witnesses,
-the issuer, and disposable MongoDB. Pi, XState, Signify-TS edge clients, the
+the server, Atlas Local, and disposable MongoDB. Pi, XState, Signify-TS edge clients, the
 Run Supervisor, and all Task/Run domain code remain inside TypeScript
 applications and packages.
 
@@ -15,24 +15,21 @@ These files contain public demo witness identifiers and endpoints only. They
 must never contain issuer keys, KERIA boot credentials, salts, private signing
 material, or production endpoints.
 
-## Atlas Local development
+## Atlas Local runtime
 
-The pinned [MongoDB Atlas Local image](https://www.mongodb.com/docs/atlas/cli/current/atlas-cli-deploy-docker/) provides MongoDB Search and Vector Search on this machine. Start it with the server overlay:
+The pinned [MongoDB Atlas Local image](https://www.mongodb.com/docs/atlas/cli/current/atlas-cli-deploy-docker/) provides MongoDB Search and Vector Search on this machine. The normal demo startup starts it with the server:
 
 ```sh
-nix develop -c just integration-runtime-start
-DEVRANDOM_ENV_FILE=.env nix develop -c just integration-atlas-local-up
+nix develop -c just up
 curl --fail http://127.0.0.1:3211/ready/work
 ```
 
-`compose.atlas-local.yaml` keeps the cloud URI in `.env` untouched and clears it from the local server container. Only the product server receives `DEVRANDOM_ATLAS_LOCAL_URI`; host integration tests can use `127.0.0.1:27019`. Atlas Local persists its data in two named volumes with a stable replica-set hostname. The server accepts the local URI only for the named `atlas-local` service and exact database. Cloud TLS and detailed index-readiness checks remain in force for the cloud binding.
+Only the product server receives `DEVRANDOM_ATLAS_LOCAL_URI`; host integration tests can use `127.0.0.1:27019`. Atlas Local persists its data in two named volumes with a stable replica-set hostname. The server accepts the local URI only for the named `atlas-local` service and exact database. The separate Compose MongoDB remains for adapter tests and other hosted state.
 
 Check a real local vector index and query:
 
 ```sh
-DEVRANDOM_ATLAS_URI='mongodb://127.0.0.1:27019/?directConnection=true' \
-DEVRANDOM_ATLAS_DATABASE=devrandom_prd03_local \
-nix develop -c just --command pnpm exec vitest run packages/storage/src/e0/atlas-vector.integration.spec.ts
+nix develop -c just test-atlas-integration
 ```
 
-Atlas Local is a development deployment. It does not establish the managed Atlas demonstration required by the accepted hackathon stack.
+Atlas Local is the hackathon runtime and live demonstration path. Its real Vector Search index and queries must pass the same public acceptance checks as the server capability.

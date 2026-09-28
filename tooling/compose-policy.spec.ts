@@ -23,6 +23,8 @@ function objectValue(value: unknown, path: string): ObjectValue {
 }
 
 const externalImages = {
+  'atlas-local':
+    'mongodb/mongodb-atlas-local:8.0.28-20260911T095853Z@sha256:e377825a119e0cd15abc16e0ec95eadc37432ed27acbb91a5c278d5ac971f42e',
   keria:
     'weboftrust/keria:0.4.0@sha256:05c3e09444e7e0b8847ba07dab153d1c7d88086bf4f889c122fef96c959b9ed5',
   mongodb:
@@ -45,6 +47,7 @@ describe('Compose integration boundary', () => {
     const services = objectValue(config.services, 'Compose services');
 
     expect(Object.keys(services).sort()).toEqual([
+      'atlas-local',
       'keria',
       'mongodb',
       'server',
@@ -55,11 +58,20 @@ describe('Compose integration boundary', () => {
     for (const [name, image] of Object.entries(externalImages)) {
       const service = objectValue(services[name], `Compose service ${name}`);
       expect(service.image).toBe(image);
-      expect(service.healthcheck).toBeDefined();
+      if (name !== 'atlas-local') expect(service.healthcheck).toBeDefined();
     }
 
     const mongodb = objectValue(services.mongodb, 'Compose service mongodb');
     expect(mongodb.command).toEqual(['mongod', '--bind_ip_all', '--replSet', 'devrandom-rs']);
+
+    const atlasLocal = objectValue(services['atlas-local'], 'Compose service atlas-local');
+    expect(atlasLocal.hostname).toBe('atlas-local');
+    expect(atlasLocal.volumes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ target: '/data/db', type: 'volume' }),
+        expect.objectContaining({ target: '/data/configdb', type: 'volume' }),
+      ]),
+    );
 
     const server = objectValue(services.server, 'Compose service server');
     expect(server.build).toBeDefined();
@@ -68,11 +80,17 @@ describe('Compose integration boundary', () => {
       DEVRANDOM_MONGODB_URI: 'mongodb://mongodb:27017/devrandom?replicaSet=devrandom-rs',
       DEVRANDOM_HOSTED_WORK_MONGODB_URI:
         'mongodb://mongodb:27017/devrandom_e0?replicaSet=devrandom-rs',
+      DEVRANDOM_ATLAS_LOCAL_URI:
+        'mongodb://atlas-local:27017/devrandom_prd03_local?directConnection=true',
+      DEVRANDOM_ATLAS_DATABASE: 'devrandom_prd03_local',
       DEVRANDOM_WORK_ACCESS_GRANT_LIFETIME_SECONDS: '',
       DEVRANDOM_TASK_CURSOR_KEY: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
       DEVRANDOM_TASK_MANDATE_SCHEMA_OOBI_URL: `http://server:3211/oobi/${taskMandateSchemaSaid}`,
       DEVRANDOM_PROMOTION_MANDATE_SCHEMA_OOBI_URL: `http://server:3211/oobi/${promotionMandateSchemaSaid}`,
     });
+    expect(objectValue(server.environment, 'server environment')).not.toHaveProperty(
+      'DEVRANDOM_ATLAS_URI',
+    );
 
     const keria = objectValue(services.keria, 'Compose service keria');
     expect(keria.command).toEqual([
@@ -96,6 +114,7 @@ describe('Compose integration boundary', () => {
     );
 
     expect(objectValue(server.depends_on, 'server dependencies')).toMatchObject({
+      'atlas-local': { condition: 'service_healthy' },
       keria: { condition: 'service_healthy' },
       mongodb: { condition: 'service_healthy' },
     });
@@ -143,7 +162,13 @@ describe('Compose integration boundary', () => {
     });
 
     const volumes = objectValue(config.volumes, 'Compose volumes');
-    expect(Object.keys(volumes).sort()).toEqual(['keria-data', 'mongodb-data', 'witness-data']);
+    expect(Object.keys(volumes).sort()).toEqual([
+      'atlas-local-config',
+      'atlas-local-data',
+      'keria-data',
+      'mongodb-data',
+      'witness-data',
+    ]);
   });
 
   it('publishes safe example configuration without tracked credentials', async () => {
@@ -154,9 +179,9 @@ describe('Compose integration boundary', () => {
     expect(example).toContain('DEVRANDOM_COMPOSE_PROJECT=devrandom');
     expect(example).not.toMatch(/^(?:[^#\n]*)(?:PASSWORD|PRIVATE|SALT|SECRET|TOKEN|KEY)=/mu);
     expect(gitignore).toMatch(/^\.env$/mu);
-    expect(justfile).toContain('atlas_env="${DEVRANDOM_ATLAS_ENV_FILE:-.env}"');
-    expect(justfile).toContain('node --env-file="$atlas_env"');
-    expect(justfile).not.toContain('source "$atlas_env"');
+    expect(justfile).toContain('DEVRANDOM_ATLAS_URI="mongodb://127.0.0.1:');
+    expect(justfile).toContain('DEVRANDOM_ATLAS_DATABASE=devrandom_prd03_local');
+    expect(justfile).not.toContain('DEVRANDOM_ATLAS_ENV_FILE');
   });
 
   it('exposes one complete lifecycle and a bounded integration test', async () => {

@@ -28,7 +28,14 @@ function processRecords(source: string): readonly ComposeProcess[] {
   }
 }
 
-const completeServiceSet = ['keria', 'mongodb', 'server', 'site', 'witnesses'] as const;
+const completeServiceSet = [
+  'atlas-local',
+  'keria',
+  'mongodb',
+  'server',
+  'site',
+  'witnesses',
+] as const;
 type ExpectedService = (typeof completeServiceSet)[number];
 
 function isExpectedService(value: string): value is ExpectedService {
