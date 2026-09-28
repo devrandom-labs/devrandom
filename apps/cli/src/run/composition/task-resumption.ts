@@ -131,6 +131,9 @@ export class TaskResumptionComposition {
           signal.throwIfAborted();
           const page = await input.evidence.inspect(input.runId, {
             limit: 100,
+            ...(run.currentExecution === undefined
+              ? {}
+              : { evidenceStreamId: run.currentExecution.evidenceStreamId }),
             ...(cursor === undefined ? {} : { cursor }),
           });
           if (page.kind !== 'Found') return { kind: 'Unavailable' };
