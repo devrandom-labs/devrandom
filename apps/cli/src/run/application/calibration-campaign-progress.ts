@@ -341,6 +341,19 @@ export class VerifiedCalibrationCampaignProgress implements CalibrationCampaignP
         return { kind: 'Unavailable' };
       if (slot === 6) return { kind: 'RetainedRunExists', runId: reading.run.runId };
       const run = reading.run;
+      if (
+        admission.kind === 'RunAccepted' &&
+        run.runVersion === 0 &&
+        run.lease.kind === 'Unassigned' &&
+        run.lifecycle.kind === 'Active' &&
+        run.lifecycle.phase.kind === 'Preparing' &&
+        isDeepStrictEqual(run, admission.run)
+      ) {
+        return attempts.length === slot - 1 &&
+          this.#dependencies.now() < Date.parse(authority.grantExpiresAt)
+          ? { kind: 'Ready', nextOrdinal: slot, confirmed, excluded, priorBinding: first.binding }
+          : { kind: 'Unavailable' };
+      }
       const verified = await sealedCalibration(run, admission, authority.evidence, authority.runs);
       if (verified === 'Unavailable') return { kind: 'Unavailable' };
       if (verified === 'RecoveryRequired')

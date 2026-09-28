@@ -362,6 +362,30 @@ describe('verified partial calibration campaign', () => {
       ordinal: 1,
     });
   });
+  it('routes an accepted Run without its first lease back to the same calibration slot', async () => {
+    const f = fixture();
+    const admission = required(f.admissions[0]);
+    if (admission.kind !== 'LeaseAccepted') throw new Error('expected leased fixture');
+    f.admissions[0] = {
+      version: 1,
+      kind: 'RunAccepted',
+      commandId: admission.commandId,
+      incarnationId: admission.incarnationId,
+      preparedAt: admission.preparedAt,
+      exchangeSaid: admission.exchangeSaid,
+      runAdmission: admission.runAdmission,
+      run: admission.run,
+      binding: admission.binding,
+    };
+    f.runs[0] = admission.run;
+    f.entries.splice(0);
+    await expect(f.progress.inspect('receipt', campaignId)).resolves.toMatchObject({
+      kind: 'Ready',
+      nextOrdinal: 1,
+      confirmed: 0,
+      excluded: 0,
+    });
+  });
   it('does not trust a local completed entry when the hosted seal is absent', async () => {
     const f = fixture();
     f.pages[0] = {
