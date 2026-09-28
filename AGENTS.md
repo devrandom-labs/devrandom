@@ -225,6 +225,17 @@ requires its normal immutable binding and authorization. This approval does
 not increase any other owner's ceilings, authorize another model or automatic
 budget increase, or turn the failed calibration Run into accepted evidence.
 
+The 2026-09-28 recovery Task `1deaa03e-64f5-48f8-9896-d50ece9bd903`
+consumed the fifth owner Task slot. Its first calibration Run
+`fc3a58fc-50b0-49ba-b62c-54a715db5163` sealed as
+`CalibrationRejected(FixtureBindingMismatch)` at checkpoint
+`EOpbmCBzJfCD5I_7GZ967K2YViyESSLHy6HIkqsvMAqa`. All three public verifier
+conditions passed, so this Run cannot qualify the E3 failure campaign even if
+the label check were corrected. The approved ten lifetime Run slots are now
+consumed. Preserve this terminal evidence; a new campaign needs explicit user
+approval to amend the locked owner capacity before any new Task or Run is
+admitted.
+
 The CLI and registration site are applications. The Devrandom server is one
 Fastify deployable containing separate registration/issuance and hosted-work
 bounded contexts. The site owns browser interaction; the server owns
