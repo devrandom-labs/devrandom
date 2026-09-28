@@ -219,34 +219,36 @@ describeWithAtlas('E0 live Atlas contract', () => {
     }
     await awaitVectorIndex(evidenceLayers, 180_000);
 
-    const matches = await evidenceLayers
-      .aggregate<VectorMatch>([
-        {
-          $vectorSearch: {
-            index: vectorIndex.name,
-            path: 'embedding',
-            queryVector: [1, 0, 0],
-            exact: true,
-            filter: {
-              $and: [
-                { resourceId: { $eq: resourceId } },
-                { kind: { $eq: 'compatibility-episode' } },
-              ],
-            },
-            limit: 1,
+    const pipeline = [
+      {
+        $vectorSearch: {
+          index: vectorIndex.name,
+          path: 'embedding',
+          queryVector: [1, 0, 0],
+          exact: true,
+          filter: {
+            $and: [{ resourceId: { $eq: resourceId } }, { kind: { $eq: 'compatibility-episode' } }],
           },
+          limit: 1,
         },
-        {
-          $project: {
-            _id: 1,
-            sourceEvidenceId: 1,
-            resourceId: 1,
-            kind: 1,
-            score: { $meta: 'vectorSearchScore' },
-          },
+      },
+      {
+        $project: {
+          _id: 1,
+          sourceEvidenceId: 1,
+          resourceId: 1,
+          kind: 1,
+          score: { $meta: 'vectorSearchScore' },
         },
-      ])
-      .toArray();
+      },
+    ];
+    let matches: VectorMatch[] = [];
+    const ingestionDeadline = Date.now() + 60_000;
+    while (Date.now() < ingestionDeadline) {
+      matches = await evidenceLayers.aggregate<VectorMatch>(pipeline).toArray();
+      if (matches.length > 0) break;
+      await delay(1_000);
+    }
 
     expect(matches).toHaveLength(1);
     const [match] = matches;

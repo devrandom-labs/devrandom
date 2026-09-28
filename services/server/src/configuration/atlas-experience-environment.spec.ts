@@ -25,10 +25,45 @@ describe('server-only Atlas Experience configuration', () => {
       loadAtlasExperienceConfiguration({ ...serverOnly, DEVRANDOM_ATLAS_URI: mongodbUri }),
     ).toEqual({
       kind: 'Configured',
+      deployment: 'Cloud',
       mongodbUri,
       databaseName: 'devrandom_e0',
       modelCacheDirectory: '/var/lib/devrandom/experience-model-cache',
     });
+  });
+
+  it('admits only the named Atlas Local service on the private Compose network', () => {
+    expect(
+      loadAtlasExperienceConfiguration({
+        ...serverOnly,
+        DEVRANDOM_ATLAS_LOCAL_URI:
+          'mongodb://atlas-local:27017/devrandom_prd03_local?directConnection=true',
+        DEVRANDOM_ATLAS_DATABASE: 'devrandom_prd03_local',
+      }),
+    ).toEqual({
+      kind: 'Configured',
+      deployment: 'AtlasLocal',
+      mongodbUri: 'mongodb://atlas-local:27017/devrandom_prd03_local?directConnection=true',
+      databaseName: 'devrandom_prd03_local',
+      modelCacheDirectory: '/var/lib/devrandom/experience-model-cache',
+    });
+  });
+
+  it.each([
+    '',
+    'mongodb://127.0.0.1:27017/devrandom_prd03_local?directConnection=true',
+    'mongodb://atlas-local:27017/devrandom_prd03_local',
+    'mongodb://user:password@atlas-local:27017/devrandom_prd03_local?directConnection=true',
+    'mongodb://atlas-local:27017/devrandom_prd03_local?directConnection=true&tls=false',
+    'mongodb://atlas-local:27017/admin?directConnection=true',
+  ])('rejects an unsafe Atlas Local binding: %s', (localUri) => {
+    expect(() =>
+      loadAtlasExperienceConfiguration({
+        ...serverOnly,
+        DEVRANDOM_ATLAS_LOCAL_URI: localUri,
+        DEVRANDOM_ATLAS_DATABASE: 'devrandom_prd03_local',
+      }),
+    ).toThrow(AtlasExperienceConfigurationFailure);
   });
 
   it.each([

@@ -93,6 +93,7 @@ export async function openServerAtlasExperience(
       profile: pinnedAtlasExperienceProfile,
       preparationsDatabase: hostedDatabase,
       reading,
+      deployment: configuration.deployment,
     });
     const receipts = new MongoExperienceQueryReceipts(database, {
       profile: pinnedAtlasExperienceProfile,

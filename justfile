@@ -32,6 +32,20 @@ version-audit: _require-nix
 integration-runtime-start: _require-nix
     @if command -v colima >/dev/null 2>&1; then colima start --cpu 4 --memory 8 --disk 30; else docker info >/dev/null; fi
 
+integration-atlas-local-up: _require-nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    demo_env="${DEVRANDOM_ENV_FILE:-.env}"
+    test -f "$demo_env" || { echo "$demo_env is required" >&2; exit 2; }
+    permissions="$(stat -c '%a' "$demo_env")"
+    (( (8#$permissions & 077) == 0 )) || { echo "$demo_env must not be readable by group or others" >&2; exit 2; }
+    compose=(docker compose --env-file "$demo_env" -f compose.yaml -f compose.atlas-local.yaml)
+    "${compose[@]}" up --detach --wait --wait-timeout 180 atlas-local mongodb keria
+    "${compose[@]}" build server
+    "${compose[@]}" run --rm --no-deps server bootstrap
+    "${compose[@]}" up --detach --no-deps --wait --wait-timeout 120 server
+    curl --fail --silent --show-error "http://127.0.0.1:${DEVRANDOM_ISSUER_PORT:-3211}/ready/work"
+
 integration-up: _require-nix
     docker compose --env-file "${DEVRANDOM_ENV_FILE:-.env.example}" up --detach --build --wait --wait-timeout 180 mongodb keria
     pnpm exec tsx tooling/mongodb-replica-set.ts

@@ -16,6 +16,50 @@ import { evaluationCollectionNames } from '../../evaluation/infrastructure/mongo
 const said = (letter: string): string => `E${letter.repeat(43)}`;
 
 describe('server-owned Atlas ENN boundary', () => {
+  it('accepts Atlas Local READY metadata only in explicit local mode with the exact definition', async () => {
+    const profile = {
+      indexName: 'experience-v1',
+      modelId: 'reviewed-model',
+      modelVersion: '1',
+      dimensions: 384,
+      minimumScore: 0.7,
+      maximumEmbeddingChargeMicroUsd: 0,
+    };
+    let currentDefinition: unknown = experienceIndexDefinition(384);
+    const database = {
+      collection: () => ({
+        listSearchIndexes: () => ({
+          toArray: () =>
+            Promise.resolve([
+              {
+                name: profile.indexName,
+                type: 'vectorSearch',
+                status: 'READY',
+                queryable: true,
+                latestVersion: 0,
+                latestDefinition: currentDefinition,
+              },
+            ]),
+        }),
+      }),
+    } as unknown as Db;
+    const dependencies = {
+      profile,
+      preparationsDatabase: database,
+      embedding: { embed: () => Promise.resolve({ kind: 'Unavailable' as const }) },
+      reading: { read: () => Promise.resolve({ kind: 'Denied' as const }) },
+    };
+    const cloud = new MongoAtlasExperience(database, dependencies);
+    const local = new MongoAtlasExperience(database, {
+      ...dependencies,
+      deployment: 'AtlasLocal',
+    });
+    await expect(cloud.ensureIndex()).resolves.toBe('IndexNotReady');
+    await expect(local.ensureIndex()).resolves.toBe('Ready');
+    currentDefinition = { fields: [] };
+    await expect(local.ensureIndex()).resolves.toBe('IndexNotReady');
+  });
+
   it('pins exact search and filters owner, resource, corpus, disclosure and approved episodes before scoring', () => {
     const profile = {
       indexName: 'experience-v1',

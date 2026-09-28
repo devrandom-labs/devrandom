@@ -72,6 +72,7 @@ interface SearchIndexStatus {
   readonly queryable?: unknown;
   readonly latestDefinition?: unknown;
   readonly latestDefinitionVersion?: { readonly version?: unknown };
+  readonly latestVersion?: unknown;
   readonly statusDetail?: readonly {
     readonly status?: unknown;
     readonly queryable?: unknown;
@@ -180,6 +181,7 @@ export class MongoAtlasExperience implements AnalogousExperience {
   readonly #embedding: ExperienceEmbedding;
   readonly #profile: AtlasExperienceProfile;
   readonly #reading: RawEvidenceReading;
+  readonly #deployment: 'Cloud' | 'AtlasLocal';
 
   constructor(
     database: Db,
@@ -188,6 +190,7 @@ export class MongoAtlasExperience implements AnalogousExperience {
       readonly profile: AtlasExperienceProfile;
       readonly reading: RawEvidenceReading;
       readonly preparationsDatabase: Db;
+      readonly deployment?: 'Cloud' | 'AtlasLocal';
     },
   ) {
     this.#episodes = database.collection(experienceCollectionNames.episodes);
@@ -198,6 +201,7 @@ export class MongoAtlasExperience implements AnalogousExperience {
     this.#embedding = dependencies.embedding;
     this.#profile = dependencies.profile;
     this.#reading = dependencies.reading;
+    this.#deployment = dependencies.deployment ?? 'Cloud';
   }
 
   async ensureIndex(): Promise<'Created' | 'Ready' | 'IndexNotReady' | 'Unavailable'> {
@@ -219,16 +223,25 @@ export class MongoAtlasExperience implements AnalogousExperience {
 
   #indexReady(index: SearchIndexStatus): boolean {
     const definition = experienceIndexDefinition(this.#profile.dimensions);
+    if (
+      index.name !== this.#profile.indexName ||
+      index.type !== 'vectorSearch' ||
+      index.status !== 'READY' ||
+      index.queryable !== true ||
+      !isDeepStrictEqual(index.latestDefinition, definition)
+    )
+      return false;
+    if (this.#deployment === 'AtlasLocal')
+      return (
+        typeof index.latestVersion === 'number' &&
+        Number.isSafeInteger(index.latestVersion) &&
+        index.latestVersion >= 0
+      );
     const version = index.latestDefinitionVersion?.version;
     const hostDetails = Array.isArray(index.statusDetail)
       ? (index.statusDetail as NonNullable<SearchIndexStatus['statusDetail']>)
       : undefined;
     return (
-      index.name === this.#profile.indexName &&
-      index.type === 'vectorSearch' &&
-      index.status === 'READY' &&
-      index.queryable === true &&
-      isDeepStrictEqual(index.latestDefinition, definition) &&
       Number.isSafeInteger(version) &&
       typeof version === 'number' &&
       version >= 0 &&

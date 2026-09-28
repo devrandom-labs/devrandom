@@ -130,6 +130,9 @@ describeAtlas('PRD03 server Experience adapter on real Atlas ENN', () => {
   const reading = new MongoEvidenceReading(database);
   const experience = new MongoAtlasExperience(database, {
     profile,
+    ...(process.env.DEVRANDOM_ATLAS_LOCAL_TEST === '1'
+      ? { deployment: 'AtlasLocal' as const }
+      : {}),
     preparationsDatabase: database,
     reading,
     embedding: semanticAtlas

@@ -3,6 +3,7 @@ import { isAbsolute, normalize } from 'node:path';
 
 export interface AtlasExperienceEnvironment {
   readonly DEVRANDOM_ATLAS_URI?: string | undefined;
+  readonly DEVRANDOM_ATLAS_LOCAL_URI?: string | undefined;
   readonly DEVRANDOM_ATLAS_DATABASE?: string | undefined;
   readonly DEVRANDOM_ATLAS_MODEL_CACHE_DIRECTORY?: string | undefined;
 }
@@ -11,6 +12,7 @@ export type AtlasExperienceConfiguration =
   | { readonly kind: 'Disabled' }
   | {
       readonly kind: 'Configured';
+      readonly deployment: 'Cloud' | 'AtlasLocal';
       readonly mongodbUri: string;
       readonly databaseName: string;
       readonly modelCacheDirectory: string;
@@ -33,8 +35,10 @@ export class AtlasExperienceConfigurationFailure extends Error {
 export function loadAtlasExperienceConfiguration(
   environment: AtlasExperienceEnvironment,
 ): AtlasExperienceConfiguration {
-  const mongodbUri = environment.DEVRANDOM_ATLAS_URI;
-  if (mongodbUri === undefined || mongodbUri.length === 0) return { kind: 'Disabled' };
+  const localUri = environment.DEVRANDOM_ATLAS_LOCAL_URI;
+  const cloudUri = environment.DEVRANDOM_ATLAS_URI;
+  if (localUri === undefined && (cloudUri === undefined || cloudUri.length === 0))
+    return { kind: 'Disabled' };
 
   const databaseName = environment.DEVRANDOM_ATLAS_DATABASE;
   if (
@@ -43,6 +47,23 @@ export function loadAtlasExperienceConfiguration(
     ['admin', 'config', 'local'].includes(databaseName)
   )
     throw new AtlasExperienceConfigurationFailure('AtlasDatabaseInvalid');
+
+  const mongodbUri = localUri ?? cloudUri;
+  if (mongodbUri === undefined)
+    throw new AtlasExperienceConfigurationFailure('AtlasBindingInvalid');
+
+  if (localUri !== undefined) {
+    if (localUri !== `mongodb://atlas-local:27017/${databaseName}?directConnection=true`)
+      throw new AtlasExperienceConfigurationFailure('AtlasBindingInvalid');
+    const modelCacheDirectory = modelCache(environment);
+    return {
+      kind: 'Configured',
+      deployment: 'AtlasLocal',
+      mongodbUri,
+      databaseName,
+      modelCacheDirectory,
+    };
+  }
 
   let uri: URL;
   try {
@@ -81,6 +102,11 @@ export function loadAtlasExperienceConfiguration(
   )
     throw new AtlasExperienceConfigurationFailure('AtlasBindingInvalid');
 
+  const modelCacheDirectory = modelCache(environment);
+  return { kind: 'Configured', deployment: 'Cloud', mongodbUri, databaseName, modelCacheDirectory };
+}
+
+function modelCache(environment: AtlasExperienceEnvironment): string {
   const modelCacheDirectory = environment.DEVRANDOM_ATLAS_MODEL_CACHE_DIRECTORY;
   if (
     modelCacheDirectory === undefined ||
@@ -90,7 +116,7 @@ export function loadAtlasExperienceConfiguration(
   )
     throw new AtlasExperienceConfigurationFailure('AtlasModelCacheInvalid');
 
-  return { kind: 'Configured', mongodbUri, databaseName, modelCacheDirectory };
+  return modelCacheDirectory;
 }
 
 /** Check the server-only model cache before an Atlas-capable server is composed. */

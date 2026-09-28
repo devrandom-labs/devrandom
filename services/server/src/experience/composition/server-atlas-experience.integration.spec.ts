@@ -192,6 +192,7 @@ realServers(
       opened = await openServerAtlasExperience(
         {
           kind: 'Configured',
+          deployment: process.env.DEVRANDOM_ATLAS_LOCAL_TEST === '1' ? 'AtlasLocal' : 'Cloud',
           mongodbUri: atlasUri,
           databaseName: atlasName,
           modelCacheDirectory: cacheDirectory,

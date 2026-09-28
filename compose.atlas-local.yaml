@@ -1,0 +1,30 @@
+services:
+  atlas-local:
+    image: mongodb/mongodb-atlas-local:8.0.28-20260911T095853Z@sha256:e377825a119e0cd15abc16e0ec95eadc37432ed27acbb91a5c278d5ac971f42e
+    hostname: atlas-local
+    environment:
+      DO_NOT_TRACK: '1'
+    ports:
+      - '127.0.0.1:${DEVRANDOM_ATLAS_LOCAL_PORT:-27019}:27017'
+    volumes:
+      - atlas-local-data:/data/db
+      - atlas-local-config:/data/configdb
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
+
+  server:
+    environment:
+      DEVRANDOM_ATLAS_URI: ''
+      DEVRANDOM_ATLAS_LOCAL_URI: mongodb://atlas-local:27017/devrandom_prd03_local?directConnection=true
+      DEVRANDOM_ATLAS_DATABASE: devrandom_prd03_local
+    depends_on:
+      atlas-local:
+        condition: service_healthy
+
+volumes:
+  atlas-local-data:
+    name: devrandom_atlas_local_data_v2
+  atlas-local-config:
+    name: devrandom_atlas_local_config_v2
