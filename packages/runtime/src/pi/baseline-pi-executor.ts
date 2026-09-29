@@ -196,7 +196,7 @@ const replaceTextSchema = Type.Object(
     path: relativePathSchema,
     oldText: Type.String({ minLength: 1, maxLength: 512 * 1_024 }),
     newText: Type.String({ maxLength: 512 * 1_024 }),
-    expectedOccurrences: Type.Integer({ minimum: 1, maximum: 10_000 }),
+    expectedOccurrences: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000 })),
   },
   { additionalProperties: false },
 );
@@ -243,7 +243,7 @@ function replaceTextInput(input: unknown): ToolInput {
     path: input.path,
     oldText: input.oldText,
     newText: input.newText,
-    expectedOccurrences: input.expectedOccurrences,
+    expectedOccurrences: input.expectedOccurrences ?? 1,
   };
 }
 

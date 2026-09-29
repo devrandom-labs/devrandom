@@ -67,7 +67,7 @@ const toolSchemas: Readonly<Record<ToolName, TSchema>> = {
       path: pathSchema,
       oldText: Type.String({ minLength: 1, maxLength: 512 * 1024 }),
       newText: Type.String({ maxLength: 512 * 1024 }),
-      expectedOccurrences: Type.Integer({ minimum: 1, maximum: 10000 }),
+      expectedOccurrences: Type.Optional(Type.Integer({ minimum: 1, maximum: 10000 })),
     },
     { additionalProperties: false },
   ),
@@ -94,7 +94,7 @@ export function piToolInput(name: ToolName, parameters: unknown): ToolInput {
     content: string;
     oldText: string;
     newText: string;
-    expectedOccurrences: number;
+    expectedOccurrences?: number;
     commandId: string;
     artifactSaids: string[];
   };
@@ -113,7 +113,7 @@ export function piToolInput(name: ToolName, parameters: unknown): ToolInput {
         path: value.path,
         oldText: value.oldText,
         newText: value.newText,
-        expectedOccurrences: value.expectedOccurrences,
+        expectedOccurrences: value.expectedOccurrences ?? 1,
       };
     case 'run_formatter':
       return { kind: 'RunFormatter', commandId: value.commandId };
