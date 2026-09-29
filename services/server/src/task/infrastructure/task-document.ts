@@ -3,6 +3,7 @@ import {
   authorizedTaskCommandFingerprint,
   taskLifecycleSchema,
   authorizedTaskRevisionSchema,
+  taskRecoveryBudgetCeilings,
   type TaskProjection,
   type AuthorizedTaskRevision,
 } from '@devrandom/protocol';
@@ -32,7 +33,10 @@ const taskDocumentValueSchema = Type.Object(
     commandFingerprint: commandFingerprintSchema,
     createdAt: Type.Unknown(),
     expectedVersion: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
-    ownerSlot: Type.Integer({ minimum: 0, maximum: 4 }),
+    ownerSlot: Type.Integer({
+      minimum: 0,
+      maximum: taskRecoveryBudgetCeilings.tasksPerAdmittedUser - 1,
+    }),
     globalSlot: Type.Integer({ minimum: 0, maximum: 15 }),
   },
   { additionalProperties: false },

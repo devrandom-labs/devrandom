@@ -15,9 +15,9 @@ import { runFixture } from '../run/test/run-fixture.js';
 const uri = process.env.DEVRANDOM_MONGODB_URI;
 const integration = uri === undefined ? describe.skip : describe;
 integration('explicit recovery storage migration inspection', () => {
-  it('plans only exact nine-to-ten validators and fifth owner slot while preserving documents and indexes', async () => {
+  it('plans only exact ten-to-sixteen validators and sixth owner slot while preserving documents and indexes', async () => {
     const client = new MongoClient(uri ?? 'mongodb://127.0.0.1:27017');
-    const db = client.db(`devrandom_nine_migration_${randomUUID().replaceAll('-', '')}`);
+    const db = client.db(`devrandom_sixteen_migration_${randomUUID().replaceAll('-', '')}`);
     try {
       await client.connect();
       const bootstraps = [
@@ -85,7 +85,7 @@ integration('explicit recovery storage migration inspection', () => {
         .collection<RunDocument>('runs')
         .updateOne(
           { _id: stored._id },
-          { $set: { 'binding.budget.runsPerAdmittedUser': 11 } },
+          { $set: { 'binding.budget.runsPerAdmittedUser': 17 } },
           { bypassDocumentValidation: true },
         );
       expect(await inspector.inspect()).toMatchObject({

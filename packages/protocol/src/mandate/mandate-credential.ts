@@ -311,6 +311,16 @@ const nineRunEvaluationBudgetsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+// Preserve already-issued recovery credential bytes when the owner ceiling grows again.
+const tenRunRecoveryBudgetsSchema = Type.Object(
+  {
+    ...taskEvaluationBudgetsSchema.properties,
+    tasksPerAdmittedUser: Type.Integer({ minimum: 0, maximum: 5 }),
+    runsPerAdmittedUser: Type.Integer({ minimum: 0, maximum: 10 }),
+  },
+  { additionalProperties: false },
+);
+
 const taskMandateV3SchemaDefinition = mandateSchema(
   Type.Object(
     { ...taskMandateV2AttributesSchema.properties, budgets: eightRunEvaluationBudgetsSchema },
@@ -457,7 +467,7 @@ export const promotionMandateV7Schema = {
 
 const taskMandateV5SchemaDefinition = mandateSchema(
   Type.Object(
-    { ...taskMandateV2AttributesSchema.properties, budgets: taskEvaluationBudgetsSchema },
+    { ...taskMandateV2AttributesSchema.properties, budgets: tenRunRecoveryBudgetsSchema },
     { additionalProperties: false },
   ),
   'Devrandom Task Mandate v5',
@@ -481,7 +491,7 @@ const promotionMandateV8SchemaDefinition = mandateSchema(
   Type.Object(
     {
       ...promotionMandateV2AttributesSchema.properties,
-      budgetCeiling: taskEvaluationBudgetsSchema,
+      budgetCeiling: tenRunRecoveryBudgetsSchema,
     },
     { additionalProperties: false },
   ),
@@ -506,7 +516,7 @@ const promotionMandateV9SchemaDefinition = mandateSchema(
   Type.Object(
     {
       ...promotionMandateV3AttributesSchema.properties,
-      budgetCeiling: taskEvaluationBudgetsSchema,
+      budgetCeiling: tenRunRecoveryBudgetsSchema,
     },
     { additionalProperties: false },
   ),
@@ -527,6 +537,78 @@ export const promotionMandateV9Schema = {
   $id: promotionMandateV9SchemaSaid,
 };
 
+const taskMandateV6SchemaDefinition = mandateSchema(
+  Type.Object(
+    { ...taskMandateV2AttributesSchema.properties, budgets: taskEvaluationBudgetsSchema },
+    { additionalProperties: false },
+  ),
+  'Devrandom Task Mandate v6',
+  'User-issued bounded PRD03 authority with six Tasks and sixteen Runs',
+  'DevrandomTaskMandate',
+  '6.0.0',
+);
+const [taskMandateV6SchemaId] = Saider.saidify(
+  taskMandateV6SchemaDefinition,
+  undefined,
+  undefined,
+  '$id',
+);
+export const taskMandateV6SchemaSaid = taskMandateV6SchemaId.qb64;
+export const taskMandateV6Schema = {
+  ...taskMandateV6SchemaDefinition,
+  $id: taskMandateV6SchemaSaid,
+};
+
+const promotionMandateV10SchemaDefinition = mandateSchema(
+  Type.Object(
+    {
+      ...promotionMandateV2AttributesSchema.properties,
+      budgetCeiling: taskEvaluationBudgetsSchema,
+    },
+    { additionalProperties: false },
+  ),
+  'Devrandom Promotion Mandate v10',
+  'User-issued bounded PRD03 activation authority with six Tasks and sixteen Runs',
+  'DevrandomPromotionMandate',
+  '10.0.0',
+);
+const [promotionMandateV10SchemaId] = Saider.saidify(
+  promotionMandateV10SchemaDefinition,
+  undefined,
+  undefined,
+  '$id',
+);
+export const promotionMandateV10SchemaSaid = promotionMandateV10SchemaId.qb64;
+export const promotionMandateV10Schema = {
+  ...promotionMandateV10SchemaDefinition,
+  $id: promotionMandateV10SchemaSaid,
+};
+
+const promotionMandateV11SchemaDefinition = mandateSchema(
+  Type.Object(
+    {
+      ...promotionMandateV3AttributesSchema.properties,
+      budgetCeiling: taskEvaluationBudgetsSchema,
+    },
+    { additionalProperties: false },
+  ),
+  'Devrandom Promotion Mandate v11',
+  'User-confirmed exact E4 authority with six Tasks and sixteen Runs',
+  'DevrandomPromotionMandate',
+  '11.0.0',
+);
+const [promotionMandateV11SchemaId] = Saider.saidify(
+  promotionMandateV11SchemaDefinition,
+  undefined,
+  undefined,
+  '$id',
+);
+export const promotionMandateV11SchemaSaid = promotionMandateV11SchemaId.qb64;
+export const promotionMandateV11Schema = {
+  ...promotionMandateV11SchemaDefinition,
+  $id: promotionMandateV11SchemaSaid,
+};
+
 export type MandateSchemaCatalogVerification =
   | { readonly kind: 'Verified' }
   | {
@@ -545,7 +627,10 @@ export type MandateSchemaCatalogVerification =
         | 'PromotionMandateV7'
         | 'TaskMandateV5'
         | 'PromotionMandateV8'
-        | 'PromotionMandateV9';
+        | 'PromotionMandateV9'
+        | 'TaskMandateV6'
+        | 'PromotionMandateV10'
+        | 'PromotionMandateV11';
       readonly expectedSaid: string;
     };
 
@@ -633,6 +718,20 @@ export function verifyMandateSchemaCatalog(): MandateSchemaCatalogVerification {
       kind: 'Mismatch',
       schema: 'PromotionMandateV9',
       expectedSaid: promotionMandateV9SchemaSaid,
+    };
+  if (!schemaMatchesSaid(taskMandateV6Schema, taskMandateV6SchemaSaid))
+    return { kind: 'Mismatch', schema: 'TaskMandateV6', expectedSaid: taskMandateV6SchemaSaid };
+  if (!schemaMatchesSaid(promotionMandateV10Schema, promotionMandateV10SchemaSaid))
+    return {
+      kind: 'Mismatch',
+      schema: 'PromotionMandateV10',
+      expectedSaid: promotionMandateV10SchemaSaid,
+    };
+  if (!schemaMatchesSaid(promotionMandateV11Schema, promotionMandateV11SchemaSaid))
+    return {
+      kind: 'Mismatch',
+      schema: 'PromotionMandateV11',
+      expectedSaid: promotionMandateV11SchemaSaid,
     };
   return { kind: 'Verified' };
 }
@@ -928,15 +1027,20 @@ export function decodeTaskMandateCredentialV2(input: unknown): TaskMandateV2Cred
         ? taskMandateV5Schema
         : typeof input === 'object' &&
             input !== null &&
-            Reflect.get(input, 's') === taskMandateV3SchemaSaid
-          ? taskMandateV3Schema
-          : taskMandateV2Schema;
+            Reflect.get(input, 's') === taskMandateV6SchemaSaid
+          ? taskMandateV6Schema
+          : typeof input === 'object' &&
+              input !== null &&
+              Reflect.get(input, 's') === taskMandateV3SchemaSaid
+            ? taskMandateV3Schema
+            : taskMandateV2Schema;
   if (!Value.Check(schema, input)) return { kind: 'Rejected', reason: 'SchemaInvalid' };
   if (
     input.s !== taskMandateV2SchemaSaid &&
     input.s !== taskMandateV3SchemaSaid &&
     input.s !== taskMandateV4SchemaSaid &&
-    input.s !== taskMandateV5SchemaSaid
+    input.s !== taskMandateV5SchemaSaid &&
+    input.s !== taskMandateV6SchemaSaid
   )
     return { kind: 'Rejected', reason: 'UnexpectedSchema' };
   const canonical = rebuildTaskMandateV2Credential(input);
@@ -981,19 +1085,24 @@ export function decodePromotionMandateCredentialV2(
       ? promotionMandateV8Schema
       : typeof input === 'object' &&
           input !== null &&
-          Reflect.get(input, 's') === promotionMandateV6SchemaSaid
-        ? promotionMandateV6Schema
+          Reflect.get(input, 's') === promotionMandateV10SchemaSaid
+        ? promotionMandateV10Schema
         : typeof input === 'object' &&
             input !== null &&
-            Reflect.get(input, 's') === promotionMandateV4SchemaSaid
-          ? promotionMandateV4Schema
-          : promotionMandateV2Schema;
+            Reflect.get(input, 's') === promotionMandateV6SchemaSaid
+          ? promotionMandateV6Schema
+          : typeof input === 'object' &&
+              input !== null &&
+              Reflect.get(input, 's') === promotionMandateV4SchemaSaid
+            ? promotionMandateV4Schema
+            : promotionMandateV2Schema;
   if (!Value.Check(schema, input)) return { kind: 'Rejected', reason: 'SchemaInvalid' };
   if (
     input.s !== promotionMandateV2SchemaSaid &&
     input.s !== promotionMandateV4SchemaSaid &&
     input.s !== promotionMandateV6SchemaSaid &&
-    input.s !== promotionMandateV8SchemaSaid
+    input.s !== promotionMandateV8SchemaSaid &&
+    input.s !== promotionMandateV10SchemaSaid
   )
     return { kind: 'Rejected', reason: 'UnexpectedSchema' };
   const canonical = rebuildPromotionMandateV2Credential(input);
@@ -1016,19 +1125,24 @@ export function decodePromotionMandateCredentialV3(
       ? promotionMandateV9Schema
       : typeof input === 'object' &&
           input !== null &&
-          Reflect.get(input, 's') === promotionMandateV7SchemaSaid
-        ? promotionMandateV7Schema
+          Reflect.get(input, 's') === promotionMandateV11SchemaSaid
+        ? promotionMandateV11Schema
         : typeof input === 'object' &&
             input !== null &&
-            Reflect.get(input, 's') === promotionMandateV5SchemaSaid
-          ? promotionMandateV5Schema
-          : promotionMandateV3Schema;
+            Reflect.get(input, 's') === promotionMandateV7SchemaSaid
+          ? promotionMandateV7Schema
+          : typeof input === 'object' &&
+              input !== null &&
+              Reflect.get(input, 's') === promotionMandateV5SchemaSaid
+            ? promotionMandateV5Schema
+            : promotionMandateV3Schema;
   if (!Value.Check(schema, input)) return { kind: 'Rejected', reason: 'SchemaInvalid' };
   if (
     input.s !== promotionMandateV3SchemaSaid &&
     input.s !== promotionMandateV5SchemaSaid &&
     input.s !== promotionMandateV7SchemaSaid &&
-    input.s !== promotionMandateV9SchemaSaid
+    input.s !== promotionMandateV9SchemaSaid &&
+    input.s !== promotionMandateV11SchemaSaid
   )
     return { kind: 'Rejected', reason: 'UnexpectedSchema' };
   if (JSON.stringify(input) !== JSON.stringify(rebuildPromotionMandateV3Credential(input)))
@@ -1044,13 +1158,15 @@ export function decodePromotionMandateCredentialV3(
 export function selectTaskMandateSchemaSaid(version: 1 | 2, runsPerAdmittedUser: number): string {
   return version === 1
     ? taskMandateSchemaSaid
-    : runsPerAdmittedUser > 9
-      ? taskMandateV5SchemaSaid
-      : runsPerAdmittedUser > 8
-        ? taskMandateV4SchemaSaid
-        : runsPerAdmittedUser > 6
-          ? taskMandateV3SchemaSaid
-          : taskMandateV2SchemaSaid;
+    : runsPerAdmittedUser > 10
+      ? taskMandateV6SchemaSaid
+      : runsPerAdmittedUser > 9
+        ? taskMandateV5SchemaSaid
+        : runsPerAdmittedUser > 8
+          ? taskMandateV4SchemaSaid
+          : runsPerAdmittedUser > 6
+            ? taskMandateV3SchemaSaid
+            : taskMandateV2SchemaSaid;
 }
 export function selectInitialPromotionMandateSchemaSaid(
   version: 1 | 2,
@@ -1058,20 +1174,24 @@ export function selectInitialPromotionMandateSchemaSaid(
 ): string {
   return version === 1
     ? promotionMandateSchemaSaid
-    : runsPerAdmittedUser > 9
-      ? promotionMandateV8SchemaSaid
-      : runsPerAdmittedUser > 8
-        ? promotionMandateV6SchemaSaid
-        : runsPerAdmittedUser > 6
-          ? promotionMandateV4SchemaSaid
-          : promotionMandateV2SchemaSaid;
+    : runsPerAdmittedUser > 10
+      ? promotionMandateV10SchemaSaid
+      : runsPerAdmittedUser > 9
+        ? promotionMandateV8SchemaSaid
+        : runsPerAdmittedUser > 8
+          ? promotionMandateV6SchemaSaid
+          : runsPerAdmittedUser > 6
+            ? promotionMandateV4SchemaSaid
+            : promotionMandateV2SchemaSaid;
 }
 export function selectExactPromotionMandateSchemaSaid(runsPerAdmittedUser: number): string {
-  return runsPerAdmittedUser > 9
-    ? promotionMandateV9SchemaSaid
-    : runsPerAdmittedUser > 8
-      ? promotionMandateV7SchemaSaid
-      : runsPerAdmittedUser > 6
-        ? promotionMandateV5SchemaSaid
-        : promotionMandateV3SchemaSaid;
+  return runsPerAdmittedUser > 10
+    ? promotionMandateV11SchemaSaid
+    : runsPerAdmittedUser > 9
+      ? promotionMandateV9SchemaSaid
+      : runsPerAdmittedUser > 8
+        ? promotionMandateV7SchemaSaid
+        : runsPerAdmittedUser > 6
+          ? promotionMandateV5SchemaSaid
+          : promotionMandateV3SchemaSaid;
 }

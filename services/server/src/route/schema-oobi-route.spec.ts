@@ -13,7 +13,10 @@ import {
   promotionMandateV7Schema,
   promotionMandateV8Schema,
   promotionMandateV9Schema,
+  promotionMandateV10Schema,
+  promotionMandateV11Schema,
   taskMandateV5Schema,
+  taskMandateV6Schema,
 } from '@devrandom/protocol';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
@@ -35,10 +38,13 @@ describe('credential schema OOBI route', () => {
     ['Task Mandate v3', taskMandateV3Schema],
     ['Task Mandate v4', taskMandateV4Schema],
     ['Task Mandate v5', taskMandateV5Schema],
+    ['Task Mandate v6', taskMandateV6Schema],
     ['Promotion Mandate v6', promotionMandateV6Schema],
     ['Promotion Mandate v7', promotionMandateV7Schema],
     ['Promotion Mandate v8', promotionMandateV8Schema],
     ['Promotion Mandate v9', promotionMandateV9Schema],
+    ['Promotion Mandate v10', promotionMandateV10Schema],
+    ['Promotion Mandate v11', promotionMandateV11Schema],
     ['Promotion Mandate v4', promotionMandateV4Schema],
     ['Promotion Mandate v5', promotionMandateV5Schema],
     ['Promotion Mandate', promotionMandateSchema],

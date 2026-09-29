@@ -443,7 +443,12 @@ integration('Mongo Task storage', () => {
           },
         },
         requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
-        budgets: { ...contract.budgets, ...taskRecoveryBudgetCeilings },
+        budgets: {
+          ...contract.budgets,
+          ...taskRecoveryBudgetCeilings,
+          tasksPerAdmittedUser: 5,
+          runsPerAdmittedUser: 10,
+        },
       },
       old.commandId,
       repository,
@@ -464,6 +469,45 @@ integration('Mongo Task storage', () => {
     expect(stored?.revision.budgets).toMatchObject({
       tasksPerAdmittedUser: 5,
       runsPerAdmittedUser: 10,
+    });
+    const sixth = prepareTaskCommandV2(
+      {
+        ...contract,
+        version: 2,
+        label: 'recovery-six',
+        repository: { kind: 'gitCommit', commit: repository.commit },
+        constraints: {
+          ...contract.constraints,
+          dataPolicy: 'RepositoryAndAuthorizedTaskExperience',
+          experience: {
+            corpusSaid: `E${'c'.repeat(43)}`,
+            repositoryResourceSaid: `E${'r'.repeat(43)}`,
+            disclosure: 'AuthorizedAnalogy',
+          },
+        },
+        requestedCapabilities: [...contract.requestedCapabilities, 'ReadTaskMemory'],
+        budgets: { ...contract.budgets, ...taskRecoveryBudgetCeilings },
+      },
+      randomUUID(),
+      repository,
+    );
+    if (sixth.kind !== 'Prepared') throw new Error('sixth Task preparation rejected');
+    expect(
+      await createTask(
+        { owner, protectedCredentials: new ProtectedCredentials(), command: sixth.command },
+        dependencies,
+      ),
+    ).toMatchObject({ kind: 'TaskCreated' });
+    expect(
+      await database.collection(tasksCollectionName).countDocuments({ ownerAid: taskOwnerAid }),
+    ).toBe(6);
+    const sixthStored = await database
+      .collection<TaskDocument>(tasksCollectionName)
+      .findOne({ label: 'recovery-six' });
+    expect(sixthStored?.ownerSlot).toBe(5);
+    expect(sixthStored?.revision.budgets).toMatchObject({
+      tasksPerAdmittedUser: 6,
+      runsPerAdmittedUser: 16,
     });
   });
 

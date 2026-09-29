@@ -25,6 +25,12 @@ const recoveryQuotaServerCeilings: Readonly<TaskBudgets> = Object.freeze({
   runsPerAdmittedUser: 10,
 });
 
+const continuationQuotaServerCeilings: Readonly<TaskBudgets> = Object.freeze({
+  ...taskBudgetCeilings,
+  tasksPerAdmittedUser: 6,
+  runsPerAdmittedUser: 16,
+});
+
 /** Preserve signed old H1 ceilings; a fresh v2 Task must explicitly request the added Run slots. */
 export function baselineHarnessServerBudgetCeilings(task: {
   readonly version: 1 | 2;
@@ -33,13 +39,15 @@ export function baselineHarnessServerBudgetCeilings(task: {
 }): Readonly<TaskBudgets> {
   return task.version === 2 &&
     task.budgets.runsPerAdmittedUser > taskBudgetCeilings.runsPerAdmittedUser
-    ? task.budgets.runsPerAdmittedUser > 9
-      ? task.budgets.tasksPerAdmittedUser === 5
-        ? recoveryQuotaServerCeilings
-        : tenRunQuotaServerCeilings
-      : task.budgets.runsPerAdmittedUser > 8
-        ? nineRunQuotaServerCeilings
-        : eightRunQuotaServerCeilings
+    ? task.budgets.runsPerAdmittedUser > 10
+      ? continuationQuotaServerCeilings
+      : task.budgets.runsPerAdmittedUser > 9
+        ? task.budgets.tasksPerAdmittedUser === 5
+          ? recoveryQuotaServerCeilings
+          : tenRunQuotaServerCeilings
+        : task.budgets.runsPerAdmittedUser > 8
+          ? nineRunQuotaServerCeilings
+          : eightRunQuotaServerCeilings
     : taskBudgetCeilings;
 }
 

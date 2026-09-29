@@ -1,0 +1,393 @@
+{
+  "type": "object",
+  "required": ["v", "d", "i", "ri", "s", "a"],
+  "properties": {
+    "v": {
+      "type": "string",
+      "description": "Credential format version"
+    },
+    "d": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "i": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "ri": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "s": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+    },
+    "a": {
+      "type": "object",
+      "required": [
+        "d",
+        "i",
+        "dt",
+        "authority",
+        "taskId",
+        "taskRevisionSaid",
+        "harnessLineageId",
+        "repository",
+        "allowedCapabilities",
+        "budgets",
+        "allowedEvolutionClasses",
+        "notBefore",
+        "expiresAt",
+        "experience"
+      ],
+      "properties": {
+        "d": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+        },
+        "i": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+        },
+        "dt": {
+          "type": "string",
+          "minLength": 1,
+          "format": "date-time"
+        },
+        "authority": {
+          "type": "string",
+          "const": "ExecutePrivateTask"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "taskRevisionSaid": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+        },
+        "harnessLineageId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "repository": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": ["objectFormat", "commit", "tree"],
+              "properties": {
+                "objectFormat": {
+                  "type": "string",
+                  "const": "sha1"
+                },
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                },
+                "tree": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{40}$"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["objectFormat", "commit", "tree"],
+              "properties": {
+                "objectFormat": {
+                  "type": "string",
+                  "const": "sha256"
+                },
+                "commit": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "tree": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "allowedCapabilities": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "ReadRepository"
+                  },
+                  {
+                    "type": "string",
+                    "const": "EditRepository"
+                  },
+                  {
+                    "type": "string",
+                    "const": "RunFormatter"
+                  },
+                  {
+                    "type": "string",
+                    "const": "RunStaticAnalysis"
+                  },
+                  {
+                    "type": "string",
+                    "const": "RunTests"
+                  },
+                  {
+                    "type": "string",
+                    "const": "SubmitResult"
+                  }
+                ]
+              },
+              {
+                "type": "string",
+                "const": "ReadTaskMemory"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "budgets": {
+          "type": "object",
+          "required": [
+            "workAccessAttemptLifetimeSeconds",
+            "workAccessGrantLifetimeSeconds",
+            "nonterminalAttemptsPerUserClient",
+            "activeGrantsPerUserClient",
+            "publicAttemptCreationsPerMinutePerLoopbackSource",
+            "nonterminalAttemptsGlobally",
+            "requestsPerGrant",
+            "tasksPerAdmittedUser",
+            "runsPerAdmittedUser",
+            "activeRunsPerAdmittedUser",
+            "hostedWorkTasksGlobally",
+            "hostedWorkRunsGlobally",
+            "activeHostedWorkRunsGlobally",
+            "ordinaryJsonRequestBodyBytes",
+            "evidenceBatchBodyBytes",
+            "artifactRequestBodyBytes",
+            "evidencePlusArtifactsPerRunBytes",
+            "acceptedEvidencePlusArtifactsGloballyBytes",
+            "runWallTimeSeconds",
+            "providerRequests",
+            "providerInputTokens",
+            "providerOutputTokens",
+            "toolProposals",
+            "aggregateChildCommandTimeSeconds",
+            "oneChildCommandTimeSeconds",
+            "changedFiles",
+            "changedWorktreeBytes",
+            "providerSpendMicroUsd"
+          ],
+          "properties": {
+            "workAccessAttemptLifetimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 300
+            },
+            "workAccessGrantLifetimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1800
+            },
+            "nonterminalAttemptsPerUserClient": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "activeGrantsPerUserClient": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "publicAttemptCreationsPerMinutePerLoopbackSource": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "nonterminalAttemptsGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32
+            },
+            "requestsPerGrant": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2000
+            },
+            "tasksPerAdmittedUser": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 6
+            },
+            "runsPerAdmittedUser": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16
+            },
+            "activeRunsPerAdmittedUser": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "hostedWorkTasksGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16
+            },
+            "hostedWorkRunsGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 21
+            },
+            "activeHostedWorkRunsGlobally": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "ordinaryJsonRequestBodyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "evidenceBatchBodyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "artifactRequestBodyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576
+            },
+            "evidencePlusArtifactsPerRunBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 134217728
+            },
+            "acceptedEvidencePlusArtifactsGloballyBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 268435456
+            },
+            "runWallTimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 14400
+            },
+            "providerRequests": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 256
+            },
+            "providerInputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2500000
+            },
+            "providerOutputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500000
+            },
+            "toolProposals": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3000
+            },
+            "aggregateChildCommandTimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 7200
+            },
+            "oneChildCommandTimeSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 300
+            },
+            "changedFiles": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 256
+            },
+            "changedWorktreeBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16777216
+            },
+            "providerSpendMicroUsd": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 25000000
+            }
+          },
+          "additionalProperties": false
+        },
+        "allowedEvolutionClasses": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "C1"
+              },
+              {
+                "type": "string",
+                "const": "C2"
+              },
+              {
+                "type": "string",
+                "const": "C3"
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true
+        },
+        "notBefore": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "experience": {
+          "type": "object",
+          "required": ["corpusSaid", "repositoryResourceSaid", "disclosure"],
+          "properties": {
+            "corpusSaid": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "repositoryResourceSaid": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Za-z0-9_-]{43}$"
+            },
+            "disclosure": {
+              "type": "string",
+              "const": "AuthorizedAnalogy"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$id": "EBDI0-I8SKLHQxl3voe_PMU_OLjXwkw70N_TSKo-JQkJ",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Devrandom Task Mandate v6",
+  "description": "User-issued bounded PRD03 authority with six Tasks and sixteen Runs",
+  "credentialType": "DevrandomTaskMandate",
+  "version": "6.0.0",
+  "additionalProperties": false
+}

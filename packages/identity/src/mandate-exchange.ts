@@ -36,6 +36,10 @@ import {
   promotionMandateV8SchemaSaid,
   promotionMandateV9Schema,
   promotionMandateV9SchemaSaid,
+  promotionMandateV10Schema,
+  promotionMandateV10SchemaSaid,
+  promotionMandateV11Schema,
+  promotionMandateV11SchemaSaid,
   selectTaskMandateSchemaSaid,
   selectInitialPromotionMandateSchemaSaid,
   selectExactPromotionMandateSchemaSaid,
@@ -49,6 +53,8 @@ import {
   taskMandateV4SchemaSaid,
   taskMandateV5Schema,
   taskMandateV5SchemaSaid,
+  taskMandateV6Schema,
+  taskMandateV6SchemaSaid,
 } from '@devrandom/protocol';
 import { Serder, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
@@ -1542,6 +1548,7 @@ function verifyHolderInspection(
           taskMandateV3SchemaSaid,
           taskMandateV4SchemaSaid,
           taskMandateV5SchemaSaid,
+          taskMandateV6SchemaSaid,
         ]
       : [
           promotionMandateSchemaSaid,
@@ -1553,6 +1560,8 @@ function verifyHolderInspection(
           promotionMandateV7SchemaSaid,
           promotionMandateV8SchemaSaid,
           promotionMandateV9SchemaSaid,
+          promotionMandateV10SchemaSaid,
+          promotionMandateV11SchemaSaid,
         ];
   if (
     inspection.kind !== expected.mandateKind ||
@@ -1631,6 +1640,7 @@ export async function connectLocalMandateCustody(
         taskMandateV3Schema,
         taskMandateV4Schema,
         taskMandateV5Schema,
+        taskMandateV6Schema,
         promotionMandateV3Schema,
         promotionMandateV4Schema,
         promotionMandateV6Schema,
@@ -1638,6 +1648,8 @@ export async function connectLocalMandateCustody(
         promotionMandateV7Schema,
         promotionMandateV8Schema,
         promotionMandateV9Schema,
+        promotionMandateV10Schema,
+        promotionMandateV11Schema,
       ].find((schema) => schema.$id === schemaSaid);
       if (schema !== undefined) {
         const oobi = new URL(
@@ -1751,6 +1763,7 @@ async function inspectAdmission(
       inspection.value.credential.schemaSaid !== taskMandateV3SchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV4SchemaSaid &&
       inspection.value.credential.schemaSaid !== taskMandateV5SchemaSaid &&
+      inspection.value.credential.schemaSaid !== taskMandateV6SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateSchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV2SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV3SchemaSaid &&
@@ -1759,7 +1772,9 @@ async function inspectAdmission(
       inspection.value.credential.schemaSaid !== promotionMandateV5SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV7SchemaSaid &&
       inspection.value.credential.schemaSaid !== promotionMandateV8SchemaSaid &&
-      inspection.value.credential.schemaSaid !== promotionMandateV9SchemaSaid
+      inspection.value.credential.schemaSaid !== promotionMandateV9SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV10SchemaSaid &&
+      inspection.value.credential.schemaSaid !== promotionMandateV11SchemaSaid
     ) {
       return { kind: 'Rejected', reason: 'CredentialSchemaMismatch' };
     }

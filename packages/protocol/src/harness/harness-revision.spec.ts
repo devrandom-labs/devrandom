@@ -118,7 +118,7 @@ describe('baseline Harness Revision protocol', () => {
         { ...server, providerRequests: 51 },
         { ...server, providerSpendMicroUsd: 5_000_001 },
         { ...server, providerInputTokens: 500_001 },
-        { ...server, runsPerAdmittedUser: 11 },
+        { ...server, runsPerAdmittedUser: 17 },
       ]) {
         expect(
           prepareBaselineHarnessRevision({

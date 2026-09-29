@@ -168,6 +168,6 @@ export const taskEvaluationBudgetCeilings: Readonly<TaskBudgets> = Object.freeze
 /** Narrow PRD03 recovery envelope; admission still binds it to the approved owner. */
 export const taskRecoveryBudgetCeilings: Readonly<TaskBudgets> = Object.freeze({
   ...taskEvaluationBudgetCeilings,
-  tasksPerAdmittedUser: 5,
-  runsPerAdmittedUser: 10,
+  tasksPerAdmittedUser: 6,
+  runsPerAdmittedUser: 16,
 });

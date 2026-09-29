@@ -21,11 +21,14 @@ import {
   promotionMandateV7SchemaSaid,
   promotionMandateV8SchemaSaid,
   promotionMandateV9SchemaSaid,
+  promotionMandateV10SchemaSaid,
+  promotionMandateV11SchemaSaid,
   taskMandateSchemaSaid,
   taskMandateV2SchemaSaid,
   taskMandateV3SchemaSaid,
   taskMandateV4SchemaSaid,
   taskMandateV5SchemaSaid,
+  taskMandateV6SchemaSaid,
 } from '@devrandom/protocol';
 import { Saider } from 'signify-ts';
 import Type from 'typebox';
@@ -224,7 +227,8 @@ export function inspectTaskMandateCredentialEvidence(
     credential.s !== taskMandateV2SchemaSaid &&
     credential.s !== taskMandateV3SchemaSaid &&
     credential.s !== taskMandateV4SchemaSaid &&
-    credential.s !== taskMandateV5SchemaSaid
+    credential.s !== taskMandateV5SchemaSaid &&
+    credential.s !== taskMandateV6SchemaSaid
   ) {
     return invalidMandateEvidence('Task Mandate schema differs from the pinned schema');
   }
@@ -272,7 +276,9 @@ export function inspectPromotionMandateCredentialEvidence(
     credential.s !== promotionMandateV5SchemaSaid &&
     credential.s !== promotionMandateV7SchemaSaid &&
     credential.s !== promotionMandateV8SchemaSaid &&
-    credential.s !== promotionMandateV9SchemaSaid
+    credential.s !== promotionMandateV9SchemaSaid &&
+    credential.s !== promotionMandateV10SchemaSaid &&
+    credential.s !== promotionMandateV11SchemaSaid
   ) {
     return invalidMandateEvidence('Promotion Mandate schema differs from the pinned schema');
   }

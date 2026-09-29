@@ -6150,12 +6150,12 @@
                               "tasksPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 5
+                                "maximum": 6
                               },
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 10
+                                "maximum": 16
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -7570,12 +7570,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -8978,12 +8978,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -11612,12 +11612,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -14265,12 +14265,12 @@
                               "tasksPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 5
+                                "maximum": 6
                               },
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 10
+                                "maximum": 16
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -14441,12 +14441,12 @@
                               "tasksPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 5
+                                "maximum": 6
                               },
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 10
+                                "maximum": 16
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -14617,12 +14617,12 @@
                               "tasksPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 5
+                                "maximum": 6
                               },
                               "runsPerAdmittedUser": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "maximum": 10
+                                "maximum": 16
                               },
                               "activeRunsPerAdmittedUser": {
                                 "type": "integer",
@@ -15731,12 +15731,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -15907,12 +15907,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -16083,12 +16083,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -17176,12 +17176,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -17352,12 +17352,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -17528,12 +17528,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -18724,12 +18724,12 @@
                             "tasksPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 5
+                              "maximum": 6
                             },
                             "runsPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 10
+                              "maximum": 16
                             },
                             "activeRunsPerAdmittedUser": {
                               "type": "integer",
@@ -19850,12 +19850,12 @@
                             "tasksPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 5
+                              "maximum": 6
                             },
                             "runsPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 10
+                              "maximum": 16
                             },
                             "activeRunsPerAdmittedUser": {
                               "type": "integer",
@@ -22222,12 +22222,12 @@
                             "tasksPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 5
+                              "maximum": 6
                             },
                             "runsPerAdmittedUser": {
                               "type": "integer",
                               "minimum": 0,
-                              "maximum": 10
+                              "maximum": 16
                             },
                             "activeRunsPerAdmittedUser": {
                               "type": "integer",
@@ -25104,12 +25104,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -26907,12 +26907,12 @@
                                 "tasksPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 5
+                                  "maximum": 6
                                 },
                                 "runsPerAdmittedUser": {
                                   "type": "integer",
                                   "minimum": 0,
-                                  "maximum": 10
+                                  "maximum": 16
                                 },
                                 "activeRunsPerAdmittedUser": {
                                   "type": "integer",
@@ -34156,12 +34156,12 @@
                                   "tasksPerAdmittedUser": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 5
+                                    "maximum": 6
                                   },
                                   "runsPerAdmittedUser": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 10
+                                    "maximum": 16
                                   },
                                   "activeRunsPerAdmittedUser": {
                                     "type": "integer",
@@ -35564,12 +35564,12 @@
                                   "tasksPerAdmittedUser": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 5
+                                    "maximum": 6
                                   },
                                   "runsPerAdmittedUser": {
                                     "type": "integer",
                                     "minimum": 0,
-                                    "maximum": 10
+                                    "maximum": 16
                                   },
                                   "activeRunsPerAdmittedUser": {
                                     "type": "integer",
@@ -52845,12 +52845,12 @@
                                       "tasksPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 5
+                                        "maximum": 6
                                       },
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 10
+                                        "maximum": 16
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",
@@ -54253,12 +54253,12 @@
                                       "tasksPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 5
+                                        "maximum": 6
                                       },
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 10
+                                        "maximum": 16
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",
@@ -58338,12 +58338,12 @@
                                       "tasksPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 5
+                                        "maximum": 6
                                       },
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 10
+                                        "maximum": 16
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",
@@ -59746,12 +59746,12 @@
                                       "tasksPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 5
+                                        "maximum": 6
                                       },
                                       "runsPerAdmittedUser": {
                                         "type": "integer",
                                         "minimum": 0,
-                                        "maximum": 10
+                                        "maximum": 16
                                       },
                                       "activeRunsPerAdmittedUser": {
                                         "type": "integer",

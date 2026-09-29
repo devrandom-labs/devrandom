@@ -14,7 +14,10 @@ import {
   promotionMandateV7Schema,
   promotionMandateV8Schema,
   promotionMandateV9Schema,
+  promotionMandateV10Schema,
+  promotionMandateV11Schema,
   taskMandateV5Schema,
+  taskMandateV6Schema,
 } from '@devrandom/protocol';
 import type { FastifyPluginCallback } from 'fastify';
 import Type from 'typebox';
@@ -32,6 +35,15 @@ interface PublishedSchema {
 }
 
 const publishedSchemas: readonly PublishedSchema[] = [
+  { said: taskMandateV6Schema.$id, body: Buffer.from(JSON.stringify(taskMandateV6Schema), 'utf8') },
+  {
+    said: promotionMandateV10Schema.$id,
+    body: Buffer.from(JSON.stringify(promotionMandateV10Schema), 'utf8'),
+  },
+  {
+    said: promotionMandateV11Schema.$id,
+    body: Buffer.from(JSON.stringify(promotionMandateV11Schema), 'utf8'),
+  },
   { said: taskMandateV5Schema.$id, body: Buffer.from(JSON.stringify(taskMandateV5Schema), 'utf8') },
   {
     said: promotionMandateV8Schema.$id,

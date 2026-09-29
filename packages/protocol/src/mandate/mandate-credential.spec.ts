@@ -46,6 +46,12 @@ import {
   promotionMandateV8SchemaSaid,
   promotionMandateV9Schema,
   promotionMandateV9SchemaSaid,
+  promotionMandateV10Schema,
+  promotionMandateV10SchemaSaid,
+  promotionMandateV11Schema,
+  promotionMandateV11SchemaSaid,
+  taskMandateV6Schema,
+  taskMandateV6SchemaSaid,
 } from './mandate-credential.js';
 
 const ownerAid = `E${'o'.repeat(43)}`;
@@ -55,6 +61,11 @@ const registryId = `E${'r'.repeat(43)}`;
 const taskRevisionSaid = `E${'t'.repeat(43)}`;
 const taskId = '4df838a8-5109-49fd-bdad-805880a3ecee';
 const harnessLineageId = '5ebf49b9-df26-4a49-9194-da868f97cf9d';
+const budgetsForRuns = (runs: number) => ({
+  ...(runs === 16 ? taskRecoveryBudgetCeilings : taskEvaluationBudgetCeilings),
+  ...(runs === 10 ? { tasksPerAdmittedUser: 5 } : {}),
+  runsPerAdmittedUser: runs,
+});
 
 function saidify(value: object): unknown {
   return Saider.saidify(value)[1];
@@ -130,6 +141,9 @@ describe('Mandate credential schemas', () => {
     ['task-mandate-v3', taskMandateV3Schema],
     ['promotion-mandate-v4', promotionMandateV4Schema],
     ['promotion-mandate-v5', promotionMandateV5Schema],
+    ['task-mandate-v5', taskMandateV5Schema],
+    ['promotion-mandate-v8', promotionMandateV8Schema],
+    ['promotion-mandate-v9', promotionMandateV9Schema],
   ] as const)('preserves historical eight-Run schema bytes: %s', (name, schema) => {
     const stored: unknown = JSON.parse(
       readFileSync(new URL(`../../../../schemas/devrandom-${name}.json`, import.meta.url), 'utf8'),
@@ -142,6 +156,7 @@ describe('Mandate credential schemas', () => {
     [promotionMandateV5Schema, promotionMandateV5SchemaSaid, 8],
     [promotionMandateV7Schema, promotionMandateV7SchemaSaid, 9],
     [promotionMandateV9Schema, promotionMandateV9SchemaSaid, 10],
+    [promotionMandateV11Schema, promotionMandateV11SchemaSaid, 16],
   ] as const)(
     'accepts exact-M credentials with ordered E4 claims quota%s',
     (schema, schemaSaid, runs) => {
@@ -158,10 +173,7 @@ describe('Mandate credential schemas', () => {
         ...base,
         d: '',
         capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
-        budgetCeiling: {
-          ...(runs === 10 ? taskRecoveryBudgetCeilings : taskEvaluationBudgetCeilings),
-          runsPerAdmittedUser: runs,
-        },
+        budgetCeiling: budgetsForRuns(runs),
         experience: {
           corpusSaid: `E${'q'.repeat(43)}`,
           repositoryResourceSaid: `E${'s'.repeat(43)}`,
@@ -246,6 +258,7 @@ describe('Mandate credential schemas', () => {
     [promotionMandateV4Schema, promotionMandateV4SchemaSaid, 8],
     [promotionMandateV6Schema, promotionMandateV6SchemaSaid, 9],
     [promotionMandateV8Schema, promotionMandateV8SchemaSaid, 10],
+    [promotionMandateV10Schema, promotionMandateV10SchemaSaid, 16],
   ] as const)(
     'accepts versioned Promotion Mandate experience and budget attributes quota%s',
     (schema, schemaSaid, runs) => {
@@ -263,10 +276,7 @@ describe('Mandate credential schemas', () => {
         ...legacyAttributes,
         d: '',
         capabilityCeiling: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
-        budgetCeiling: {
-          ...(runs === 10 ? taskRecoveryBudgetCeilings : taskEvaluationBudgetCeilings),
-          runsPerAdmittedUser: runs,
-        },
+        budgetCeiling: budgetsForRuns(runs),
         experience,
         notBefore,
         expiresAt,
@@ -287,6 +297,7 @@ describe('Mandate credential schemas', () => {
     [taskMandateV3Schema, taskMandateV3SchemaSaid, 8],
     [taskMandateV4Schema, taskMandateV4SchemaSaid, 9],
     [taskMandateV5Schema, taskMandateV5SchemaSaid, 10],
+    [taskMandateV6Schema, taskMandateV6SchemaSaid, 16],
   ] as const)(
     'pins a versioned mandate to the exact Task experience corpus and finite budget quota%s',
     (schema, schemaSaid, runs) => {
@@ -305,10 +316,7 @@ describe('Mandate credential schemas', () => {
         harnessLineageId,
         repository: { objectFormat: 'sha1', commit: '1'.repeat(40), tree: '2'.repeat(40) },
         allowedCapabilities: ['ReadRepository', 'ReadTaskMemory', 'RunTests', 'SubmitResult'],
-        budgets: {
-          ...(runs === 10 ? taskRecoveryBudgetCeilings : taskEvaluationBudgetCeilings),
-          runsPerAdmittedUser: runs,
-        },
+        budgets: budgetsForRuns(runs),
         allowedEvolutionClasses: ['C1', 'C2'],
         experience,
         notBefore: '2026-09-24T14:00:00.000Z',

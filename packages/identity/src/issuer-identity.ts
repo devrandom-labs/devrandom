@@ -12,11 +12,14 @@ import {
   promotionMandateV7Schema,
   promotionMandateV8Schema,
   promotionMandateV9Schema,
+  promotionMandateV10Schema,
+  promotionMandateV11Schema,
   taskMandateSchema,
   taskMandateV2Schema,
   taskMandateV3Schema,
   taskMandateV4Schema,
   taskMandateV5Schema,
+  taskMandateV6Schema,
 } from '@devrandom/protocol';
 import { type EventResult, type OOBIOperation, type SignifyClient } from 'signify-ts';
 import Type from 'typebox';
@@ -147,6 +150,7 @@ export interface VerifiedIssuerInfrastructure {
   readonly taskMandateV3SchemaAvailability: CredentialSchemaAvailability;
   readonly taskMandateV4SchemaAvailability: CredentialSchemaAvailability;
   readonly taskMandateV5SchemaAvailability: CredentialSchemaAvailability;
+  readonly taskMandateV6SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateSchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateV2SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateV3SchemaAvailability: CredentialSchemaAvailability;
@@ -156,6 +160,8 @@ export interface VerifiedIssuerInfrastructure {
   readonly promotionMandateV7SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateV8SchemaAvailability: CredentialSchemaAvailability;
   readonly promotionMandateV9SchemaAvailability: CredentialSchemaAvailability;
+  readonly promotionMandateV10SchemaAvailability: CredentialSchemaAvailability;
+  readonly promotionMandateV11SchemaAvailability: CredentialSchemaAvailability;
   readonly mandateAdmission: MandateAdmission;
   readonly runAdmissionExchange: IssuerRunAdmissionExchange;
   readonly evidenceSealExchange: IssuerEvidenceSealExchange;
@@ -643,6 +649,11 @@ export async function connectVerifiedIssuerInfrastructure(
       taskMandateV5Schema,
       input.operationTimeoutMs,
     ),
+    taskMandateV6SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      taskMandateV6Schema,
+      input.operationTimeoutMs,
+    ),
     promotionMandateSchemaAvailability: signifyCredentialSchemaAvailability(
       verified.client,
       promotionMandateSchema,
@@ -686,6 +697,16 @@ export async function connectVerifiedIssuerInfrastructure(
     promotionMandateV9SchemaAvailability: signifyCredentialSchemaAvailability(
       verified.client,
       promotionMandateV9Schema,
+      input.operationTimeoutMs,
+    ),
+    promotionMandateV10SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      promotionMandateV10Schema,
+      input.operationTimeoutMs,
+    ),
+    promotionMandateV11SchemaAvailability: signifyCredentialSchemaAvailability(
+      verified.client,
+      promotionMandateV11Schema,
       input.operationTimeoutMs,
     ),
     mandateAdmission: signifyMandateAdmission(

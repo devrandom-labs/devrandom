@@ -135,8 +135,8 @@ export async function createTask(
   if (
     (tasksPerAdmittedUser > 4 || runsPerAdmittedUser > 9) &&
     (input.owner.ownerAid !== dependencies.approvedRecoveryOwnerAid ||
-      tasksPerAdmittedUser > 5 ||
-      runsPerAdmittedUser > 10)
+      tasksPerAdmittedUser > 6 ||
+      runsPerAdmittedUser > 16)
   ) {
     return { kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' };
   }

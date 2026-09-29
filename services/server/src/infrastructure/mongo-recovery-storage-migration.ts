@@ -28,12 +28,12 @@ function previous(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value).map(([key, child]) => [
       key,
-      key === 'runsPerAdmittedUser' && record(child) && child['maximum'] === 10
-        ? { ...child, maximum: 9 }
-        : key === 'tasksPerAdmittedUser' && record(child) && child['maximum'] === 5
-          ? { ...child, maximum: 4 }
-          : key === 'ownerSlot' && record(child) && child['maximum'] === 4
-            ? { ...child, maximum: 3 }
+      key === 'runsPerAdmittedUser' && record(child) && child['maximum'] === 16
+        ? { ...child, maximum: 10 }
+        : key === 'tasksPerAdmittedUser' && record(child) && child['maximum'] === 6
+          ? { ...child, maximum: 5 }
+          : key === 'ownerSlot' && record(child) && child['maximum'] === 5
+            ? { ...child, maximum: 4 }
             : previous(child),
     ]),
   );

@@ -112,7 +112,7 @@ function draft(
 }
 
 describe('verified checkpoint protocol', () => {
-  it.each([6, 8, 9, 10, 11])(
+  it.each([6, 8, 9, 10, 16, 17])(
     'retains remaining Run quota %s only within the supported recovery ceiling',
     (quota) => {
       const original = draft(receipt());
@@ -126,7 +126,7 @@ describe('verified checkpoint protocol', () => {
         },
         ['public-tests'],
       );
-      expect(prepared.kind).toBe(quota <= 10 ? 'Prepared' : 'Rejected');
+      expect(prepared.kind).toBe(quota <= 16 ? 'Prepared' : 'Rejected');
       if (prepared.kind === 'Prepared')
         expect(decodeVerifiedCheckpoint(prepared.checkpoint, ['public-tests']).kind).toBe(
           'Accepted',

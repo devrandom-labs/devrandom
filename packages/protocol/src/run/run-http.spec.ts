@@ -47,7 +47,7 @@ const projection: RunProjection = {
 };
 
 describe('Run HTTP contract', () => {
-  it.each([6, 8, 9, 10, 11])(
+  it.each([6, 8, 9, 10, 16, 17])(
     'decodes an admitted Run quota of %s only within the supported recovery ceiling',
     (quota) => {
       const candidate = {
@@ -57,7 +57,7 @@ describe('Run HTTP contract', () => {
           ceiling: { ...projection.budget.ceiling, runsPerAdmittedUser: quota },
         },
       };
-      expect(decodeRunProjection(candidate).kind).toBe(quota <= 10 ? 'Accepted' : 'Rejected');
+      expect(decodeRunProjection(candidate).kind).toBe(quota <= 16 ? 'Accepted' : 'Rejected');
     },
   );
 

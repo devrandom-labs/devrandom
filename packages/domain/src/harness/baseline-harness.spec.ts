@@ -346,6 +346,12 @@ it('preserves old v1/v2 H1 server ceilings and raises only explicitly requested 
       budgets: { tasksPerAdmittedUser: 5, runsPerAdmittedUser: 10 },
     }),
   ).toEqual({ ...taskBudgetCeilings, tasksPerAdmittedUser: 5, runsPerAdmittedUser: 10 });
+  expect(
+    baselineHarnessServerBudgetCeilings({
+      version: 2,
+      budgets: { tasksPerAdmittedUser: 6, runsPerAdmittedUser: 16 },
+    }),
+  ).toEqual({ ...taskBudgetCeilings, tasksPerAdmittedUser: 6, runsPerAdmittedUser: 16 });
   expect(Object.isFrozen(nine)).toBe(true);
   expect(Object.isFrozen(expanded)).toBe(true);
 });

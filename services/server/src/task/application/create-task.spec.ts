@@ -142,6 +142,27 @@ describe('Task creation application', () => {
     ).resolves.toMatchObject({ kind: 'TaskCreated' });
     expect(store).toHaveBeenCalledTimes(1);
   });
+  it('admits the approved sixth Task and sixteenth Run only for the exact recovery owner', async () => {
+    const prepared = evaluationCommand(16, 6);
+    if (prepared.kind !== 'Prepared') throw new Error('approved PRD03 Task rejected');
+    const owner = { ownerAid: taskOwnerAid, credentialSaid: taskCredentialSaid };
+    const defaults = dependencies();
+    const create = vi.fn(defaults.tasks.create.bind(defaults.tasks));
+    const hosted = { ...defaults, tasks: { ...defaults.tasks, create } };
+    await expect(
+      createTask(
+        { owner, protectedCredentials: new ProtectedCredentials(), command: prepared.command },
+        hosted,
+      ),
+    ).resolves.toEqual({ kind: 'TaskContractRejected', reason: 'BudgetUnacceptable' });
+    await expect(
+      createTask(
+        { owner, protectedCredentials: new ProtectedCredentials(), command: prepared.command },
+        { ...hosted, approvedRecoveryOwnerAid: taskOwnerAid },
+      ),
+    ).resolves.toMatchObject({ kind: 'TaskCreated' });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
   it.each([
     's'.repeat(43),
     'Authorization: Bearer opaque-fixture-763518',

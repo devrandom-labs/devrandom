@@ -236,6 +236,13 @@ consumed. Preserve this terminal evidence; a new campaign needs explicit user
 approval to amend the locked owner capacity before any new Task or Run is
 admitted.
 
+The user approved that continuation amendment on 2026-09-28: the same owner
+may now have at most six lifetime Tasks and sixteen lifetime Runs, with one
+active Run. The sixth Task retains a $6 provider cap and the same fixed model
+profile. Fresh exact bindings and authorization remain required. The sealed
+rejection above remains rejected evidence; this approval permits only a fresh
+campaign under the new ceiling.
+
 The CLI and registration site are applications. The Devrandom server is one
 Fastify deployable containing separate registration/issuance and hosted-work
 bounded contexts. The site owns browser interaction; the server owns
